@@ -43,6 +43,7 @@ dependencies = [
     "textual>=0.47.0",
     "uvicorn>=0.30.0",
     "textual-serve>=1.1.0",
+    "mcp[cli]>=1.2.0",
 ]
 
 [dependency-groups]
