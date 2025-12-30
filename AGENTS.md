@@ -30,3 +30,4 @@ src/a2a_handler/
 - **Linting**: `ruff check`
 - **Type Checking**: `ty check`
 - **Testing**: pytest with pytest-asyncio
+- **No emojis**: Use Unicode symbols (e.g., `\u2600` for sun, `\u2713` for checkmark) instead of emojis in code, docs, comments, and UI
