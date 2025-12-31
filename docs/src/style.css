@@ -202,20 +202,6 @@ li {
   margin-bottom: 0.25rem;
 }
 
-.screenshot-placeholder {
-  background: var(--code-bg);
-  border: 2px dashed var(--border);
-  padding: 2rem;
-  text-align: center;
-  margin: 1rem 0;
-  border-radius: 4px;
-}
-
-.screenshot-placeholder p {
-  margin: 0;
-  color: var(--text-muted);
-}
-
 footer {
   border-top: 1px solid var(--border);
   padding: 2rem 1rem;
