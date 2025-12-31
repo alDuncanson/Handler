@@ -41,6 +41,24 @@
       <pre><code>uvx --from a2a-handler handler</code></pre>
       <p>For a full list of commands and options:</p>
       <pre><code>handler --help</code></pre>
+
+      <h3>Shell Completion</h3>
+      <p>Handler supports tab completion in bash, zsh, and fish shells. Add one of the following to your shell configuration file:</p>
+      
+      <h4>Bash</h4>
+      <p>Add to <code>~/.bashrc</code>:</p>
+      <pre><code>eval "$(_HANDLER_COMPLETE=bash_source handler)"</code></pre>
+      <pre><code>source ~/.bashrc</code></pre>
+
+      <h4>Zsh</h4>
+      <p>Add to <code>~/.zshrc</code>:</p>
+      <pre><code>eval "$(_HANDLER_COMPLETE=zsh_source handler)"</code></pre>
+      <pre><code>source ~/.zshrc</code></pre>
+
+      <h4>Fish</h4>
+      <p>Add to <code>~/.config/fish/config.fish</code>:</p>
+      <pre><code>_HANDLER_COMPLETE=fish_source handler | source</code></pre>
+      <pre><code>source ~/.config/fish/config.fish</code></pre>
     </section>
 
     <section id="global-options">
