@@ -18,6 +18,7 @@
   <nav>
     <ul>
       <li><a href="#install">Install</a></li>
+      <li><a href="#global-options">Options</a></li>
       <li><a href="#message">Messages</a></li>
       <li><a href="#task">Tasks</a></li>
       <li><a href="#card">Agent Cards</a></li>
@@ -39,6 +40,17 @@
       <pre><code>uvx --from a2a-handler handler</code></pre>
       <p>For a full list of commands and options:</p>
       <pre><code>handler --help</code></pre>
+    </section>
+
+    <section id="global-options">
+      <h2>Global Options</h2>
+      <p>These options are available for all commands:</p>
+      <dl>
+        <dt><code>--verbose, -v</code></dt>
+        <dd>Enable verbose logging.</dd>
+        <dt><code>--debug, -d</code></dt>
+        <dd>Enable debug logging.</dd>
+      </dl>
     </section>
 
     <section id="message">
@@ -419,17 +431,6 @@ handler auth set https://api.example.com --bearer eyJhbG...</code></pre>
       </dl>
       <h4>Example</h4>
       <pre><code>handler web --port 3000</code></pre>
-    </section>
-
-    <section id="global-options">
-      <h2>Global Options</h2>
-      <p>These options are available for all commands:</p>
-      <dl>
-        <dt><code>--verbose, -v</code></dt>
-        <dd>Enable verbose logging.</dd>
-        <dt><code>--debug, -d</code></dt>
-        <dd>Enable debug logging.</dd>
-      </dl>
     </section>
 
     <section id="version">
