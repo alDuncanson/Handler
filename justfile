@@ -4,37 +4,9 @@
 default:
     @just --list
 
-# Install dependencies and set up environment
+# Install dependencies
 install:
     uv sync
-
-# Run the reference agent server
-server host="0.0.0.0" port="8000":
-    uv run handler server --host {{host}} --port {{port}}
-
-# Run the Handler TUI
-tui:
-    uv run handler tui
-
-# Run the TUI in development mode (with Textual devtools support)
-tui-dev:
-    uv run textual run --dev a2a_handler.tui:HandlerTUI
-
-# Serve the TUI for web access
-web:
-    uv run textual serve src/handler/tui.py
-
-# Run the Textual console (for devtools)
-console:
-    uv run textual console
-
-# Fetch an agent card (CLI)
-get-card url="http://localhost:8000":
-    uv run handler card {{url}}
-
-# Send a message to an agent (CLI)
-send url="http://localhost:8000" message="Hello":
-    uv run handler send {{url}} "{{message}}"
 
 # Run tests
 test:
@@ -48,7 +20,7 @@ check:
     uv run ruff format --check .
     @echo "\nRunning type checker..."
     uv run ty check
-    @echo "\n✓ All checks passed!"
+    @echo "\nAll checks passed!"
 
 # Fix auto-fixable issues (lint & format)
 fix:
