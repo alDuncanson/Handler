@@ -27,7 +27,7 @@ jobs:
           bun-version: latest
 
       - name: Build docs
-        run: bun run build.ts
+        run: bun build src/index.html --outdir dist --minify
         working-directory: docs
 
       - uses: actions/upload-pages-artifact@v3

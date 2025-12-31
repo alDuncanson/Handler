@@ -8,6 +8,8 @@ if (stored) {
 } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
   html.setAttribute('data-theme', 'dark');
   toggle.textContent = '\u2600';
+} else {
+  toggle.textContent = '\u263D';
 }
 
 toggle.addEventListener('click', () => {
