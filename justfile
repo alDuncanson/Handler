@@ -70,3 +70,15 @@ tag:
 # Tag and push the release to origin
 release: tag
     git push origin "v$(uv version --short)"
+
+# Build docs for production
+docs-build:
+    bun build docs/src/index.html --outdir docs/dist --minify
+
+# Serve docs locally for development
+docs-dev:
+    bun docs/src/index.html
+
+# Preview production docs build
+docs-preview: docs-build
+    uv run python -m http.server -d docs/dist 8080

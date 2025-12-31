@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Handler Documentation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <h1>Handler</h1>
+      <p class="tagline">An A2A Protocol client TUI and CLI</p>
+      <button id="theme-toggle" aria-label="Toggle dark mode"></button>
+    </div>
+  </header>
+
+  <nav>
+    <ul>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#global-options">Options</a></li>
+      <li><a href="#message">Messages</a></li>
+      <li><a href="#task">Tasks</a></li>
+      <li><a href="#card">Agent Cards</a></li>
+      <li><a href="#server">Servers</a></li>
+      <li><a href="#session">Sessions</a></li>
+      <li><a href="#auth">Authentication</a></li>
+      <li><a href="#mcp">MCP</a></li>
+      <li><a href="#tui">TUI</a></li>
+      <li><a href="#web">Web</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="install">
+      <h2>Installation</h2>
+      <p>Install Handler using <a href="https://github.com/astral-sh/uv">uv</a>:</p>
+      <pre><code>uv tool install a2a-handler</code></pre>
+      <p>Or run in an ephemeral environment:</p>
+      <pre><code>uvx --from a2a-handler handler</code></pre>
+      <p>For a full list of commands and options:</p>
+      <pre><code>handler --help</code></pre>
+    </section>
+
+    <section id="global-options">
+      <h2>Global Options</h2>
+      <p>These options are available for all commands:</p>
+      <dl>
+        <dt><code>--verbose, -v</code></dt>
+        <dd>Enable verbose logging.</dd>
+        <dt><code>--debug, -d</code></dt>
+        <dd>Enable debug logging.</dd>
+      </dl>
+    </section>
+
+    <section id="message">
+      <h2>Messages</h2>
+      <p>Send messages to A2A agents and receive responses.</p>
+
+      <h3>handler message send</h3>
+      <p>Send a message to an agent and receive a response.</p>
+      <pre><code>handler message send &lt;agent_url&gt; &lt;text&gt; [options]</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>agent_url</code></dt>
+        <dd>The URL of the A2A agent to send the message to.</dd>
+        <dt><code>text</code></dt>
+        <dd>The message text to send.</dd>
+      </dl>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--stream, -s</code></dt>
+        <dd>Stream responses in real-time.</dd>
+        <dt><code>--context-id</code></dt>
+        <dd>Context ID for conversation continuity.</dd>
+        <dt><code>--task-id</code></dt>
+        <dd>Task ID to continue.</dd>
+        <dt><code>--continue, -C</code></dt>
+        <dd>Continue from saved session state.</dd>
+        <dt><code>--push-url</code></dt>
+        <dd>Webhook URL for push notifications.</dd>
+        <dt><code>--push-token</code></dt>
+        <dd>Authentication token for push notifications.</dd>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token for authentication (overrides saved credentials).</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key for authentication (overrides saved credentials).</dd>
+      </dl>
+      <h4>Examples</h4>
+      <pre><code># Basic message
+handler message send http://localhost:8000 "What can you help me with?"
+
+# Continue a conversation
+handler message send http://localhost:8000 "Follow up question" --continue
+
+# With push notifications
+handler message send http://localhost:8000 "hello" --push-url http://localhost:9000/webhook</code></pre>
+
+      <h3>handler message stream</h3>
+      <p>Send a message and stream the response in real-time. This is equivalent to <code>handler message send --stream</code>.</p>
+      <pre><code>handler message stream &lt;agent_url&gt; &lt;text&gt; [options]</code></pre>
+      <h4>Example</h4>
+      <pre><code>handler message stream http://localhost:8000 "Tell me a story"</code></pre>
+    </section>
+
+    <section id="task">
+      <h2>Tasks</h2>
+      <p>Manage A2A tasks including retrieval, cancellation, and push notifications.</p>
+
+      <h3>handler task get</h3>
+      <p>Retrieve the current status of a task.</p>
+      <pre><code>handler task get &lt;agent_url&gt; &lt;task_id&gt; [options]</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>agent_url</code></dt>
+        <dd>The URL of the A2A agent.</dd>
+        <dt><code>task_id</code></dt>
+        <dd>The ID of the task to retrieve.</dd>
+      </dl>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--history-length, -n</code></dt>
+        <dd>Number of history messages to include.</dd>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token (overrides saved credentials).</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key (overrides saved credentials).</dd>
+      </dl>
+
+      <h3>handler task cancel</h3>
+      <p>Request cancellation of a task.</p>
+      <pre><code>handler task cancel &lt;agent_url&gt; &lt;task_id&gt; [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token (overrides saved credentials).</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key (overrides saved credentials).</dd>
+      </dl>
+
+      <h3>handler task resubscribe</h3>
+      <p>Resubscribe to a task's SSE stream after disconnection.</p>
+      <pre><code>handler task resubscribe &lt;agent_url&gt; &lt;task_id&gt; [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token (overrides saved credentials).</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key (overrides saved credentials).</dd>
+      </dl>
+
+      <h3>handler task notification set</h3>
+      <p>Configure a push notification webhook for a task.</p>
+      <pre><code>handler task notification set &lt;agent_url&gt; &lt;task_id&gt; --url &lt;webhook_url&gt; [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--url, -u</code> (required)</dt>
+        <dd>Webhook URL to receive notifications.</dd>
+        <dt><code>--token, -t</code></dt>
+        <dd>Authentication token for the webhook.</dd>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token (overrides saved credentials).</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key (overrides saved credentials).</dd>
+      </dl>
+
+      <h3>handler task notification get</h3>
+      <p>Get the push notification configuration for a task.</p>
+      <pre><code>handler task notification get &lt;agent_url&gt; &lt;task_id&gt; [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--config-id, -c</code></dt>
+        <dd>Specific push notification config ID.</dd>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token (overrides saved credentials).</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key (overrides saved credentials).</dd>
+      </dl>
+    </section>
+
+    <section id="card">
+      <h2>Agent Cards</h2>
+      <p>Retrieve and validate A2A agent cards.</p>
+
+      <h3>handler card get</h3>
+      <p>Retrieve an agent's card and display it as JSON.</p>
+      <pre><code>handler card get &lt;agent_url&gt; [options]</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>agent_url</code></dt>
+        <dd>The URL of the A2A agent.</dd>
+      </dl>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--authenticated, -a</code></dt>
+        <dd>Request authenticated extended card.</dd>
+      </dl>
+      <h4>Example</h4>
+      <pre><code>handler card get http://localhost:8000</code></pre>
+
+      <h3>handler card validate</h3>
+      <p>Validate an agent card from a URL or local file.</p>
+      <pre><code>handler card validate &lt;source&gt;</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>source</code></dt>
+        <dd>URL of an agent or path to a local agent card JSON file.</dd>
+      </dl>
+      <h4>Examples</h4>
+      <pre><code># Validate from URL
+handler card validate http://localhost:8000
+
+# Validate from file
+handler card validate ./agent-card.json</code></pre>
+    </section>
+
+    <section id="server">
+      <h2>Servers</h2>
+      <p>Run local A2A servers for development and testing.</p>
+
+      <h3>handler server agent</h3>
+      <p>Start a local A2A agent server. This is a reference implementation built with <a href="https://github.com/google/adk-python">Google ADK</a> and <a href="https://github.com/BerriAI/litellm">LiteLLM</a>, connecting to <a href="https://github.com/ollama/ollama">Ollama</a> for local inference.</p>
+      <pre><code>handler server agent [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--host</code></dt>
+        <dd>Host to bind to. Default: <code>0.0.0.0</code></dd>
+        <dt><code>--port</code></dt>
+        <dd>Port to bind to. Default: <code>8000</code></dd>
+        <dt><code>--auth / --no-auth</code></dt>
+        <dd>Require API key authentication. Default: <code>--no-auth</code></dd>
+        <dt><code>--api-key</code></dt>
+        <dd>Specific API key to use. If not set, one is auto-generated when <code>--auth</code> is enabled.</dd>
+        <dt><code>--model, -m</code></dt>
+        <dd>Model to use (e.g., <code>llama3.2:1b</code>, <code>qwen3</code>, <code>gemini-2.0-flash</code>). Use any model from <a href="https://ollama.com/library">Ollama's library</a>.</dd>
+      </dl>
+      <h4>Examples</h4>
+      <pre><code># Basic server
+handler server agent
+
+# With a specific model
+handler server agent --model llama3.2:1b
+
+# With authentication
+handler server agent --auth</code></pre>
+      <p><strong>Note:</strong> Handler will prompt to pull missing models automatically.</p>
+
+      <h3>handler server push</h3>
+      <p>Start a local webhook server for receiving push notifications from A2A agents.</p>
+      <pre><code>handler server push [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--host</code></dt>
+        <dd>Host to bind to. Default: <code>127.0.0.1</code></dd>
+        <dt><code>--port</code></dt>
+        <dd>Port to bind to. Default: <code>9000</code></dd>
+      </dl>
+      <h4>Example</h4>
+      <pre><code># Start webhook server
+handler server push
+
+# Send a message with push notifications
+handler message send http://localhost:8000 "hello" --push-url http://localhost:9000/webhook</code></pre>
+    </section>
+
+    <section id="session">
+      <h2>Sessions</h2>
+      <p>Manage saved session state for maintaining conversation context across commands.</p>
+
+      <h3>handler session list</h3>
+      <p>List all saved sessions.</p>
+      <pre><code>handler session list</code></pre>
+
+      <h3>handler session show</h3>
+      <p>Display session state for a specific agent.</p>
+      <pre><code>handler session show &lt;agent_url&gt;</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>agent_url</code></dt>
+        <dd>The URL of the A2A agent.</dd>
+      </dl>
+
+      <h3>handler session clear</h3>
+      <p>Clear saved session state.</p>
+      <pre><code>handler session clear [agent_url] [options]</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>agent_url</code></dt>
+        <dd>The URL of the agent to clear. Optional if using <code>--all</code>.</dd>
+      </dl>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--all, -a</code></dt>
+        <dd>Clear all saved sessions.</dd>
+      </dl>
+      <h4>Examples</h4>
+      <pre><code># Clear session for one agent
+handler session clear http://localhost:8000
+
+# Clear all sessions
+handler session clear --all</code></pre>
+    </section>
+
+    <section id="auth">
+      <h2>Authentication</h2>
+      <p>Manage authentication credentials for A2A agents.</p>
+
+      <h3>handler auth set</h3>
+      <p>Set authentication credentials for an agent. Provide either <code>--bearer</code> or <code>--api-key</code> (not both).</p>
+      <pre><code>handler auth set &lt;agent_url&gt; [options]</code></pre>
+      <h4>Arguments</h4>
+      <dl>
+        <dt><code>agent_url</code></dt>
+        <dd>The URL of the A2A agent.</dd>
+      </dl>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--bearer, -b</code></dt>
+        <dd>Bearer token for authentication.</dd>
+        <dt><code>--api-key, -k</code></dt>
+        <dd>API key for authentication.</dd>
+        <dt><code>--api-key-header</code></dt>
+        <dd>Header name for API key. Default: <code>X-API-Key</code></dd>
+      </dl>
+      <h4>Examples</h4>
+      <pre><code># Set API key
+handler auth set http://localhost:8000 --api-key my-secret
+
+# Set bearer token
+handler auth set https://api.example.com --bearer eyJhbG...</code></pre>
+
+      <h3>handler auth show</h3>
+      <p>Show authentication credentials for an agent (values are masked).</p>
+      <pre><code>handler auth show &lt;agent_url&gt;</code></pre>
+
+      <h3>handler auth clear</h3>
+      <p>Clear authentication credentials for an agent.</p>
+      <pre><code>handler auth clear &lt;agent_url&gt;</code></pre>
+    </section>
+
+    <section id="mcp">
+      <h2>MCP Server</h2>
+      <p>Run a local <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> server exposing Handler's A2A functionality as MCP tools and resources.</p>
+
+      <h3>handler mcp</h3>
+      <p>Start an MCP server that can be connected to from any MCP-compatible client (Claude Desktop, Cursor, etc.).</p>
+      <pre><code>handler mcp [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--transport, -t</code></dt>
+        <dd>Transport protocol to use. Choices: <code>stdio</code>, <code>sse</code>, <code>streamable-http</code>. Default: <code>stdio</code></dd>
+      </dl>
+
+      <h4>Available Tools</h4>
+      <p>The MCP server exposes the following tools:</p>
+      <h5>Card Tools</h5>
+      <ul>
+        <li><code>validate_agent_card</code> – Validate an agent card from URL or file</li>
+        <li><code>get_agent_card</code> – Retrieve an agent's full card details</li>
+      </ul>
+      <h5>Message Tools</h5>
+      <ul>
+        <li><code>send_message</code> – Send messages to agents with session/auth support</li>
+      </ul>
+      <h5>Task Tools</h5>
+      <ul>
+        <li><code>get_task</code> – Get task status and details</li>
+        <li><code>cancel_task</code> – Cancel a running task</li>
+        <li><code>set_task_notification</code> – Configure push notification webhooks</li>
+        <li><code>get_task_notification</code> – Get push notification config</li>
+      </ul>
+      <h5>Session Tools</h5>
+      <ul>
+        <li><code>list_sessions</code> – List all saved sessions</li>
+        <li><code>get_session_info</code> – Get session for a specific agent</li>
+        <li><code>clear_session_data</code> – Clear saved session state</li>
+      </ul>
+      <h5>Auth Tools</h5>
+      <ul>
+        <li><code>set_agent_credentials</code> – Save bearer token or API key</li>
+        <li><code>clear_agent_credentials</code> – Remove saved credentials</li>
+      </ul>
+
+      <h4>Claude Desktop Configuration</h4>
+      <p>Add this to your <code>claude_desktop_config.json</code>:</p>
+      <pre><code>{
+  "mcpServers": {
+    "handler": {
+      "command": "handler",
+      "args": ["mcp"]
+    }
+  }
+}</code></pre>
+    </section>
+
+    <section id="tui">
+      <h2>Terminal User Interface</h2>
+      <p>Handler includes an interactive terminal interface for working with A2A agents.</p>
+
+      <h3>handler tui</h3>
+      <p>Launch the interactive terminal interface.</p>
+      <pre><code>handler tui</code></pre>
+
+      <div class="screenshot-placeholder">
+        <p><em>Screenshot placeholder: Add TUI screenshot here</em></p>
+      </div>
+
+      <h4>Features</h4>
+      <ul>
+        <li>Connect to multiple A2A agents</li>
+        <li>Send messages and view responses</li>
+        <li>Stream responses in real-time</li>
+        <li>Manage sessions and authentication</li>
+        <li>View agent cards</li>
+      </ul>
+    </section>
+
+    <section id="web">
+      <h2>Web Interface</h2>
+      <p>Serve the TUI as a web application accessible in your browser.</p>
+
+      <h3>handler web</h3>
+      <p>Start a web server that serves the TUI interface.</p>
+      <pre><code>handler web [options]</code></pre>
+      <h4>Options</h4>
+      <dl>
+        <dt><code>--host</code></dt>
+        <dd>Host to bind to. Default: <code>localhost</code></dd>
+        <dt><code>--port, -p</code></dt>
+        <dd>Port to bind to. Default: <code>8001</code></dd>
+      </dl>
+      <h4>Example</h4>
+      <pre><code>handler web --port 3000</code></pre>
+    </section>
+
+    <section id="version">
+      <h2>Version</h2>
+      <h3>handler version</h3>
+      <p>Display the current Handler version.</p>
+      <pre><code>handler version</code></pre>
+    </section>
+  </main>
+
+  <footer>
+    <p>Handler – <a href="https://github.com/alDuncanson/handler">GitHub</a> – <a href="https://pypi.org/project/a2a-handler/">PyPI</a></p>
+  </footer>
+
+  <script src="theme.js"></script>
+</body>
+</html>
