@@ -10,7 +10,7 @@ resolution-markers = [
 
 [[package]]
 name = "a2a-handler"
-version = "0.1.13"
+version = "0.1.14"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
