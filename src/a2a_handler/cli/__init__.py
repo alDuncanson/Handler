@@ -9,6 +9,10 @@ Provides commands for interacting with A2A agents:
 - session list/show/clear: Manage saved sessions
 """
 
+import truststore
+
+truststore.inject_into_ssl()
+
 import logging
 
 logging.getLogger().setLevel(logging.WARNING)
