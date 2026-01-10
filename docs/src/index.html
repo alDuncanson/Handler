@@ -37,8 +37,24 @@
       <h2>Installation</h2>
       <p>Install Handler using <a href="https://github.com/astral-sh/uv">uv</a>:</p>
       <pre><code>uv tool install a2a-handler</code></pre>
-      <p>Or run in an ephemeral environment:</p>
-      <pre><code>uvx --from a2a-handler handler</code></pre>
+      <p>Or with <a href="https://pipx.pypa.io/">pipx</a>:</p>
+      <pre><code>pipx install a2a-handler</code></pre>
+      <p>Or with pip:</p>
+      <pre><code>pip install a2a-handler</code></pre>
+
+      <h3>Run Without Installing</h3>
+      <p>Run from an ephemeral environment:</p>
+      <pre><code># With uv
+uvx --from a2a-handler handler
+
+# With pipx
+pipx run a2a-handler</code></pre>
+
+      <h3>Development Environment</h3>
+      <p>A <a href="https://zero-to-nix.com/concepts/hermeticity/">hermetically sealed</a> development environment is available with <a href="https://zero-to-nix.com/concepts/nix/">Nix</a>:</p>
+      <pre><code>nix develop</code></pre>
+      <p>This provides Python, uv, and just with all commands ready to use.</p>
+
       <p>For a full list of commands and options:</p>
       <pre><code>handler --help</code></pre>
 
