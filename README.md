@@ -31,17 +31,49 @@ about agent-to-agent communication, Handler is a great place to start.
 
 ## Get Started
 
+### Install
+
 Install with [uv](https://github.com/astral-sh/uv):
 
 ```bash
 uv tool install a2a-handler
 ```
 
-Or run in an ephemeral environment:
+Or with [pipx](https://pipx.pypa.io/):
 
 ```bash
-uvx --from a2a-handler handler
+pipx install a2a-handler
 ```
+
+Or with pip:
+
+```bash
+pip install a2a-handler
+```
+
+### Run
+
+Or, run from an ephemeral environment:
+
+```bash
+# With uv
+uvx --from a2a-handler handler
+
+# With pipx
+pipx run a2a-handler
+```
+
+### Development Environment
+
+A [hermetically sealed](https://zero-to-nix.com/concepts/hermeticity/)
+development environment is available with
+[Nix](https://zero-to-nix.com/concepts/nix/):
+
+```bash
+nix develop
+```
+
+This provides Python, uv, and just with all commands ready to use.
 
 For usage documentation, see the
 [Handler docs](https://alduncanson.github.io/Handler/).

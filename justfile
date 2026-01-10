@@ -8,6 +8,10 @@ default:
 install:
     uv sync
 
+# Run handler (defaults to TUI)
+run *args="tui":
+    uv run handler {{args}}
+
 # Run tests
 test:
     uv run pytest
