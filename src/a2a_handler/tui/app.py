@@ -72,7 +72,7 @@ class HandlerTUI(App[Any]):
             return False
         return True
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, initial_bearer_token: str | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.current_agent_card: AgentCard | None = None
         self.http_client: httpx.AsyncClient | None = None
@@ -80,6 +80,7 @@ class HandlerTUI(App[Any]):
         self.current_agent_url: str | None = None
         self._agent_service: A2AService | None = None
         self._is_maximized: bool = False
+        self._initial_bearer_token = initial_bearer_token
 
     def compose(self) -> ComposeResult:
         with Container(id="root-container"):
@@ -102,6 +103,8 @@ class HandlerTUI(App[Any]):
 
         messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
         messages_panel.load_logs(tui_log_handler.get_lines())
+        if self._initial_bearer_token:
+            messages_panel.set_bearer_token(self._initial_bearer_token)
 
         contact_panel = self.query_one("#contact-container", ContactPanel)
         contact_panel.set_version(__version__)

@@ -251,6 +251,11 @@ class TabbedMessagesPanel(Container):
         auth_panel = self._get_auth_panel()
         return auth_panel.get_credentials()
 
+    def set_bearer_token(self, token: str) -> None:
+        """Preconfigure bearer token authentication in the auth panel."""
+        auth_panel = self._get_auth_panel()
+        auth_panel.set_bearer_token(token)
+
     def add_task(self, task: "Task") -> None:
         """Add a task to the tasks panel."""
         tasks_panel = self._get_tasks_panel()

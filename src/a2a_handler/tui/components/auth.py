@@ -97,3 +97,13 @@ class AuthPanel(Vertical):
         elif pressed.id == "auth-bearer":
             return AuthType.BEARER
         return None
+
+    def set_bearer_token(self, token: str) -> None:
+        """Preconfigure bearer token authentication."""
+        self.query_one("#bearer-token-input", Input).value = token
+        self.query_one("#auth-bearer", RadioButton).value = True
+
+        # Ensure fields are visible even if no RadioSet event is emitted.
+        self.query_one("#api-key-fields", Vertical).add_class("hidden")
+        self.query_one("#bearer-fields", Vertical).remove_class("hidden")
+        logger.debug("Preconfigured bearer token authentication")
