@@ -1,8 +1,11 @@
 """Tests for the TUI application."""
 
-import pytest
+from unittest.mock import AsyncMock, patch
 
-from a2a_handler.auth import AuthType
+import pytest
+from a2a.types import AgentCard
+
+from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
 
@@ -26,3 +29,26 @@ async def test_app_startup_with_initial_bearer_token():
         assert credentials is not None
         assert credentials.auth_type == AuthType.BEARER
         assert credentials.value == "test-token"
+
+
+@pytest.mark.asyncio
+async def test_connect_to_agent_uses_credentials_for_card_request():
+    """Test connect flow applies auth credentials before fetching card."""
+    app = HandlerTUI()
+    app.http_client = AsyncMock()
+    credentials = create_bearer_auth("test-token")
+    mock_card = AsyncMock(spec=AgentCard)
+
+    with patch("a2a_handler.tui.app.A2AService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        card = await app._connect_to_agent("https://agent.example.com", credentials)
+
+        assert card is mock_card
+        mock_service_cls.assert_called_once_with(
+            app.http_client,
+            "https://agent.example.com",
+            credentials=credentials,
+        )

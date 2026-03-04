@@ -19,6 +19,7 @@ from textual.logging import TextualHandler
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input
 
+from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.service import A2AService
 from a2a_handler.tui.components import (
@@ -128,12 +129,20 @@ class HandlerTUI(App[Any]):
         agent_card_panel = self.query_one("#agent-card-container", AgentCardPanel)
         agent_card_panel.refresh_theme()
 
-    async def _connect_to_agent(self, agent_url: str) -> AgentCard:
+    async def _connect_to_agent(
+        self,
+        agent_url: str,
+        credentials: AuthCredentials | None = None,
+    ) -> AgentCard:
         if not self.http_client:
             raise RuntimeError("HTTP client not initialized")
 
         logger.info("Connecting to agent at %s", agent_url)
-        self._agent_service = A2AService(self.http_client, agent_url)
+        self._agent_service = A2AService(
+            self.http_client,
+            agent_url,
+            credentials=credentials,
+        )
         return await self._agent_service.get_card()
 
     def _update_ui_for_connected_state(self, agent_card: AgentCard) -> None:
@@ -158,7 +167,8 @@ class HandlerTUI(App[Any]):
         messages_panel.add_system_message(f"Connecting to {agent_url}...")
 
         try:
-            agent_card = await self._connect_to_agent(agent_url)
+            credentials = messages_panel.get_auth_credentials()
+            agent_card = await self._connect_to_agent(agent_url, credentials)
 
             self.current_agent_card = agent_card
             self.current_agent_url = agent_url

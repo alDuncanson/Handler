@@ -92,6 +92,12 @@ just bump patch    # Bump version (major|minor|patch)
 just release       # Tag and push release
 ```
 
+## Commit Messages
+
+- Use **Conventional Commits** for all commit messages.
+- Preferred format: `type(scope): short imperative summary` (example: `fix(auth): apply credentials during card discovery`).
+- Keep the subject concise and lowercase after the colon.
+
 ## Code Style
 
 - **Python 3.11+** with full type hints
