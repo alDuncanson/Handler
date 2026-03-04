@@ -562,7 +562,9 @@ class TestA2AServiceAuthHeaders:
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver.local"
         ) as http_client:
-            service = A2AService(http_client=http_client, agent_url="http://example.com")
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
             service.set_credentials(create_bearer_auth("test-token"))
 
             response = await http_client.get("/ping")
@@ -580,7 +582,9 @@ class TestA2AServiceAuthHeaders:
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver.local"
         ) as http_client:
-            service = A2AService(http_client=http_client, agent_url="http://example.com")
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
             service.set_credentials(create_bearer_auth("test-token"))
             service.clear_credentials()
 
