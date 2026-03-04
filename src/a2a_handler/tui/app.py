@@ -214,6 +214,8 @@ class HandlerTUI(App[Any]):
             credentials = messages_panel.get_auth_credentials()
             if credentials:
                 self._agent_service.set_credentials(credentials)
+            else:
+                self._agent_service.clear_credentials()
 
             send_result = await self._agent_service.send(
                 message_text,

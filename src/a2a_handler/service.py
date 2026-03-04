@@ -261,7 +261,19 @@ class A2AService:
         auth_headers = credentials.to_headers()
         self.http_client.headers.update(auth_headers)
         self._applied_auth_headers = set(auth_headers.keys())
+        # Rebuild the SDK client so updated headers are guaranteed to be used.
+        self._cached_client = None
         logger.debug("Applied authentication headers: %s", list(auth_headers.keys()))
+
+    def clear_credentials(self) -> None:
+        """Clear authentication credentials from the service and HTTP client."""
+        for header_name in self._applied_auth_headers:
+            self.http_client.headers.pop(header_name, None)
+        self._applied_auth_headers.clear()
+        self.credentials = None
+        # Rebuild the SDK client so cleared headers are guaranteed to be used.
+        self._cached_client = None
+        logger.debug("Cleared authentication headers")
 
     async def get_card(self) -> AgentCard:
         """Fetch and cache the agent card.
