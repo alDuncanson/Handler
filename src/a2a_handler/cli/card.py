@@ -9,6 +9,7 @@ from a2a.types import AgentCard
 
 from a2a_handler.common import Output, get_logger
 from a2a_handler.service import A2AService
+from a2a_handler.session import get_credentials
 from a2a_handler.validation import (
     ValidationResult,
     validate_agent_card_from_file,
@@ -34,12 +35,15 @@ def card() -> None:
 def card_get(agent_url: str, authenticated: bool) -> None:
     """Retrieve an agent's card."""
     log.info("Fetching agent card from %s", agent_url)
+    credentials = get_credentials(agent_url) if authenticated else None
+    if authenticated and credentials is None:
+        log.warning("No saved credentials found for %s", agent_url)
 
     async def do_get() -> None:
         output = Output()
         try:
             async with build_http_client() as http_client:
-                service = A2AService(http_client, agent_url)
+                service = A2AService(http_client, agent_url, credentials=credentials)
                 card_data = await service.get_card()
                 log.info("Retrieved card for agent: %s", card_data.name)
 

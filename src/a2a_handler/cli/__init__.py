@@ -67,11 +67,12 @@ def version() -> None:
 
 
 @cli.command()
-def tui() -> None:
+@click.option("--bearer", "-b", "bearer_token", help="Bearer token for agent auth")
+def tui(bearer_token: str | None) -> None:
     """Launch the interactive terminal interface."""
     log.info("Launching TUI")
     logging.getLogger().handlers = []
-    app = HandlerTUI()
+    app = HandlerTUI(initial_bearer_token=bearer_token)
     app.run()
 
 

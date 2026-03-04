@@ -48,6 +48,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
     OPEN_PATHS = {
         "/.well-known/agent-card.json",
+        "/.well-known/agent.json",
         "/health",
     }
 

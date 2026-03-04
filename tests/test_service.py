@@ -1,12 +1,17 @@
 """Tests for the A2A service layer module."""
 
+import httpx
+import pytest
 from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
 
+from a2a_handler.auth import create_bearer_auth
 from a2a_handler.service import (
+    A2AService,
     SendResult,
     StreamEvent,
     TaskResult,
     TERMINAL_TASK_STATES,
+    extract_text_from_task,
     extract_text_from_message_parts,
 )
 
@@ -450,3 +455,139 @@ class TestExtractTextFromTask:
 
         result = extract_text_from_task(task)
         assert result == ""
+
+
+class _FakeStreamingClient:
+    def __init__(self, events):
+        self._events = events
+
+    async def send_message(self, _message):
+        for event in self._events:
+            yield event
+
+    async def resubscribe(self, _task_id_params):
+        for event in self._events:
+            yield event
+
+
+@pytest.mark.asyncio
+class TestA2AServiceStreamingCompatibility:
+    async def test_stream_handles_tuple_with_none_update(self):
+        """Test stream() maps tuple events with None update to task events."""
+        task = _make_task(TaskState.completed)
+        fake_client = _FakeStreamingClient(events=[(task, None)])
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+
+            async def _get_client():
+                return fake_client
+
+            service._get_or_create_client = _get_client  # type: ignore[method-assign]
+
+            events = [event async for event in service.stream("hello")]
+
+        assert len(events) == 1
+        assert events[0].event_type == "task"
+        assert events[0].task_id == task.id
+        assert events[0].text == extract_text_from_task(task)
+
+    async def test_resubscribe_handles_tuple_with_none_update(self):
+        """Test resubscribe() maps tuple events with None update to task events."""
+        task = _make_task(TaskState.working)
+        fake_client = _FakeStreamingClient(events=[(task, None)])
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+
+            async def _get_client():
+                return fake_client
+
+            service._get_or_create_client = _get_client  # type: ignore[method-assign]
+
+            events = [event async for event in service.resubscribe(task.id)]
+
+        assert len(events) == 1
+        assert events[0].event_type == "task"
+        assert events[0].task_id == task.id
+
+    async def test_send_returns_task_text_for_tuple_with_none_update(self):
+        """Test send() still returns task text when update payload is None."""
+        task = Task(
+            id="task-123",
+            context_id="ctx-123",
+            status=TaskStatus(state=TaskState.completed),
+            history=[
+                Message(
+                    message_id="msg-1",
+                    role=Role.agent,
+                    parts=[Part(root=TextPart(text="Done"))],
+                    context_id="ctx-123",
+                )
+            ],
+        )
+        fake_client = _FakeStreamingClient(events=[(task, None)])
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+
+            async def _get_client():
+                return fake_client
+
+            service._get_or_create_client = _get_client  # type: ignore[method-assign]
+
+            result = await service.send("hello")
+
+        assert result.task_id == "task-123"
+        assert result.state == TaskState.completed
+        assert result.text == "Done"
+
+
+@pytest.mark.asyncio
+class TestA2AServiceAuthHeaders:
+    async def test_set_credentials_applies_bearer_header_to_requests(self):
+        """Test service credentials are included in outgoing HTTP requests."""
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers.get("Authorization") == "Bearer test-token"
+            return httpx.Response(200, json={"ok": True})
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver.local"
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            service.set_credentials(create_bearer_auth("test-token"))
+
+            response = await http_client.get("/ping")
+
+        assert response.status_code == 200
+
+    async def test_clear_credentials_removes_auth_header_from_requests(self):
+        """Test clearing credentials removes auth header from outgoing requests."""
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers.get("Authorization") is None
+            return httpx.Response(200, json={"ok": True})
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver.local"
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            service.set_credentials(create_bearer_auth("test-token"))
+            service.clear_credentials()
+
+            response = await http_client.get("/ping")
+
+        assert response.status_code == 200

@@ -12,6 +12,13 @@ just run --help  # Show CLI help
 
 Run `just` to see all available commands.
 
+## Environment And Package Management
+
+- This project is managed with `uv`; use `uv` and `uv run` for Python and dependency operations.
+- Do not use system `python`, `python3`, `pip`, or `pip3` directly for project tasks.
+- Prefer `just` commands first; when running tools manually, use `uv run <tool>`.
+- For dependency updates, edit `pyproject.toml` and regenerate the lockfile with `uv lock`.
+
 ## Project Structure
 
 ```
@@ -84,6 +91,12 @@ just version       # Show current version
 just bump patch    # Bump version (major|minor|patch)
 just release       # Tag and push release
 ```
+
+## Commit Messages
+
+- Use **Conventional Commits** for all commit messages.
+- Preferred format: `type(scope): short imperative summary` (example: `fix(auth): apply credentials during card discovery`).
+- Keep the subject concise and lowercase after the colon.
 
 ## Code Style
 

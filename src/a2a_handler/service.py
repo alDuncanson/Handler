@@ -9,6 +9,7 @@ from typing import AsyncIterator
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
+from a2a.client.errors import A2AClientHTTPError
 from a2a.types import (
     AgentCard,
     GetTaskPushNotificationConfigParams,
@@ -25,6 +26,11 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
     TransportProtocol,
+)
+
+from a2a.utils.constants import (
+    AGENT_CARD_WELL_KNOWN_PATH,
+    PREV_AGENT_CARD_WELL_KNOWN_PATH,
 )
 
 from a2a_handler.auth import AuthCredentials
@@ -255,10 +261,26 @@ class A2AService:
         auth_headers = credentials.to_headers()
         self.http_client.headers.update(auth_headers)
         self._applied_auth_headers = set(auth_headers.keys())
+        # Rebuild the SDK client so updated headers are guaranteed to be used.
+        self._cached_client = None
         logger.debug("Applied authentication headers: %s", list(auth_headers.keys()))
+
+    def clear_credentials(self) -> None:
+        """Clear authentication credentials from the service and HTTP client."""
+        for header_name in self._applied_auth_headers:
+            self.http_client.headers.pop(header_name, None)
+        self._applied_auth_headers.clear()
+        self.credentials = None
+        # Rebuild the SDK client so cleared headers are guaranteed to be used.
+        self._cached_client = None
+        logger.debug("Cleared authentication headers")
 
     async def get_card(self) -> AgentCard:
         """Fetch and cache the agent card.
+
+        Tries the standard well-known path first (``agent-card.json``), then
+        falls back to the previous path (``agent.json``) used by older ADK
+        versions.
 
         Returns:
             The agent's card with metadata and capabilities
@@ -266,7 +288,20 @@ class A2AService:
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
             card_resolver = A2ACardResolver(self.http_client, self.agent_url)
-            self._cached_agent_card = await card_resolver.get_agent_card()
+            try:
+                self._cached_agent_card = await card_resolver.get_agent_card()
+            except (A2AClientHTTPError, httpx.HTTPStatusError):
+                logger.info(
+                    "Agent card not found at %s, trying %s",
+                    AGENT_CARD_WELL_KNOWN_PATH,
+                    PREV_AGENT_CARD_WELL_KNOWN_PATH,
+                )
+                fallback_resolver = A2ACardResolver(
+                    self.http_client,
+                    self.agent_url,
+                    agent_card_path=PREV_AGENT_CARD_WELL_KNOWN_PATH,
+                )
+                self._cached_agent_card = await fallback_resolver.get_agent_card()
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
         return self._cached_agent_card
 

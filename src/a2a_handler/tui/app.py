@@ -19,6 +19,7 @@ from textual.logging import TextualHandler
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input
 
+from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.service import A2AService
 from a2a_handler.tui.components import (
@@ -72,7 +73,7 @@ class HandlerTUI(App[Any]):
             return False
         return True
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, initial_bearer_token: str | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.current_agent_card: AgentCard | None = None
         self.http_client: httpx.AsyncClient | None = None
@@ -80,6 +81,7 @@ class HandlerTUI(App[Any]):
         self.current_agent_url: str | None = None
         self._agent_service: A2AService | None = None
         self._is_maximized: bool = False
+        self._initial_bearer_token = initial_bearer_token
 
     def compose(self) -> ComposeResult:
         with Container(id="root-container"):
@@ -102,6 +104,8 @@ class HandlerTUI(App[Any]):
 
         messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
         messages_panel.load_logs(tui_log_handler.get_lines())
+        if self._initial_bearer_token:
+            messages_panel.set_bearer_token(self._initial_bearer_token)
 
         contact_panel = self.query_one("#contact-container", ContactPanel)
         contact_panel.set_version(__version__)
@@ -125,12 +129,20 @@ class HandlerTUI(App[Any]):
         agent_card_panel = self.query_one("#agent-card-container", AgentCardPanel)
         agent_card_panel.refresh_theme()
 
-    async def _connect_to_agent(self, agent_url: str) -> AgentCard:
+    async def _connect_to_agent(
+        self,
+        agent_url: str,
+        credentials: AuthCredentials | None = None,
+    ) -> AgentCard:
         if not self.http_client:
             raise RuntimeError("HTTP client not initialized")
 
         logger.info("Connecting to agent at %s", agent_url)
-        self._agent_service = A2AService(self.http_client, agent_url)
+        self._agent_service = A2AService(
+            self.http_client,
+            agent_url,
+            credentials=credentials,
+        )
         return await self._agent_service.get_card()
 
     def _update_ui_for_connected_state(self, agent_card: AgentCard) -> None:
@@ -155,7 +167,8 @@ class HandlerTUI(App[Any]):
         messages_panel.add_system_message(f"Connecting to {agent_url}...")
 
         try:
-            agent_card = await self._connect_to_agent(agent_url)
+            credentials = messages_panel.get_auth_credentials()
+            agent_card = await self._connect_to_agent(agent_url, credentials)
 
             self.current_agent_card = agent_card
             self.current_agent_url = agent_url
@@ -214,6 +227,8 @@ class HandlerTUI(App[Any]):
             credentials = messages_panel.get_auth_credentials()
             if credentials:
                 self._agent_service.set_credentials(credentials)
+            else:
+                self._agent_service.clear_credentials()
 
             send_result = await self._agent_service.send(
                 message_text,
