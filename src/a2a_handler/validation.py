@@ -11,7 +11,12 @@ from typing import Any
 
 import httpx
 from a2a.client import A2ACardResolver
+from a2a.client.errors import A2AClientHTTPError
 from a2a.types import AgentCard
+from a2a.utils.constants import (
+    AGENT_CARD_WELL_KNOWN_PATH,
+    PREV_AGENT_CARD_WELL_KNOWN_PATH,
+)
 from pydantic import ValidationError
 
 from a2a_handler.common import get_logger
@@ -101,7 +106,20 @@ async def validate_agent_card_from_url(
 
     try:
         resolver = A2ACardResolver(http_client, agent_url)
-        agent_card = await resolver.get_agent_card()
+        try:
+            agent_card = await resolver.get_agent_card()
+        except (A2AClientHTTPError, httpx.HTTPStatusError):
+            logger.info(
+                "Agent card not found at %s, trying %s",
+                AGENT_CARD_WELL_KNOWN_PATH,
+                PREV_AGENT_CARD_WELL_KNOWN_PATH,
+            )
+            fallback_resolver = A2ACardResolver(
+                http_client,
+                agent_url,
+                agent_card_path=PREV_AGENT_CARD_WELL_KNOWN_PATH,
+            )
+            agent_card = await fallback_resolver.get_agent_card()
 
         logger.info("Agent card validation successful for %s", agent_card.name)
         return ValidationResult(
