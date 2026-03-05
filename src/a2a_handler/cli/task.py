@@ -68,14 +68,21 @@ def task_get(
                 {"task_id", "history_length", "bearer_token", "api_key"},
                 "params",
             )
-        if isinstance(payload.get("task_id"), str):
-            task_id = payload["task_id"]
-        if history_length is None and isinstance(payload.get("history_length"), int):
-            history_length = payload["history_length"]
-        if not bearer_token and isinstance(payload.get("bearer_token"), str):
-            bearer_token = payload["bearer_token"]
-        if not api_key and isinstance(payload.get("api_key"), str):
-            api_key = payload["api_key"]
+        payload_task_id = payload.get("task_id")
+        if isinstance(payload_task_id, str):
+            task_id = payload_task_id
+
+        payload_history_length = payload.get("history_length")
+        if history_length is None and isinstance(payload_history_length, int):
+            history_length = payload_history_length
+
+        payload_bearer_token = payload.get("bearer_token")
+        if not bearer_token and isinstance(payload_bearer_token, str):
+            bearer_token = payload_bearer_token
+
+        payload_api_key = payload.get("api_key")
+        if not api_key and isinstance(payload_api_key, str):
+            api_key = payload_api_key
 
         validate_resource_id(task_id, "task_id")
         if bearer_token:

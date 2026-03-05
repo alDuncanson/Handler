@@ -44,10 +44,11 @@ def _serialize_command(command: click.Command, path: str) -> dict[str, object]:
 
 def build_cli_schema(root: click.Group) -> dict[str, object]:
     """Build a full schema snapshot for the root CLI group."""
+    commands: dict[str, dict[str, object]] = {}
     schema: dict[str, object] = {
         "name": root.name,
         "help": root.help,
-        "commands": {},
+        "commands": commands,
     }
 
     def walk(group: click.Group, prefix: tuple[str, ...] = ()) -> None:
@@ -55,7 +56,7 @@ def build_cli_schema(root: click.Group) -> dict[str, object]:
             command = group.commands[name]
             path_tokens = (*prefix, name)
             path = " ".join(path_tokens)
-            schema["commands"][path] = _serialize_command(command, path)
+            commands[path] = _serialize_command(command, path)
             if isinstance(command, click.Group):
                 walk(command, path_tokens)
 
@@ -63,7 +64,9 @@ def build_cli_schema(root: click.Group) -> dict[str, object]:
     return schema
 
 
-def resolve_command(root: click.Group, path_tokens: tuple[str, ...]) -> click.Command | None:
+def resolve_command(
+    root: click.Group, path_tokens: tuple[str, ...]
+) -> click.Command | None:
     """Resolve a command by path tokens from the root group."""
     current: click.Command = root
     for token in path_tokens:

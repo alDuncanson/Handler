@@ -92,25 +92,40 @@ def message_send(
                 raise InputValidationError(
                     code="missing_message_text",
                     message="Provide message text as argument or in --json payload",
-                    suggestion="Pass TEXT or include {\"text\": \"...\"} in --json",
+                    suggestion='Pass TEXT or include {"text": "..."} in --json',
                 )
 
-        if not context_id and isinstance(payload.get("context_id"), str):
-            context_id = payload["context_id"]
-        if not task_id and isinstance(payload.get("task_id"), str):
-            task_id = payload["task_id"]
-        if not stream and isinstance(payload.get("stream"), bool):
-            stream = payload["stream"]
-        if not use_session and isinstance(payload.get("use_session"), bool):
-            use_session = payload["use_session"]
-        if not push_url and isinstance(payload.get("push_url"), str):
-            push_url = payload["push_url"]
-        if not push_token and isinstance(payload.get("push_token"), str):
-            push_token = payload["push_token"]
-        if not bearer_token and isinstance(payload.get("bearer_token"), str):
-            bearer_token = payload["bearer_token"]
-        if not api_key and isinstance(payload.get("api_key"), str):
-            api_key = payload["api_key"]
+        payload_context_id = payload.get("context_id")
+        if not context_id and isinstance(payload_context_id, str):
+            context_id = payload_context_id
+
+        payload_task_id = payload.get("task_id")
+        if not task_id and isinstance(payload_task_id, str):
+            task_id = payload_task_id
+
+        payload_stream = payload.get("stream")
+        if not stream and isinstance(payload_stream, bool):
+            stream = payload_stream
+
+        payload_use_session = payload.get("use_session")
+        if not use_session and isinstance(payload_use_session, bool):
+            use_session = payload_use_session
+
+        payload_push_url = payload.get("push_url")
+        if not push_url and isinstance(payload_push_url, str):
+            push_url = payload_push_url
+
+        payload_push_token = payload.get("push_token")
+        if not push_token and isinstance(payload_push_token, str):
+            push_token = payload_push_token
+
+        payload_bearer_token = payload.get("bearer_token")
+        if not bearer_token and isinstance(payload_bearer_token, str):
+            bearer_token = payload_bearer_token
+
+        payload_api_key = payload.get("api_key")
+        if not api_key and isinstance(payload_api_key, str):
+            api_key = payload_api_key
 
         if context_id:
             validate_resource_id(context_id, "context_id")

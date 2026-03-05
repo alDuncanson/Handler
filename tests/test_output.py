@@ -7,11 +7,18 @@ import pytest
 from a2a_handler.common.output import (
     Output,
     _supports_color,
+    configure_output,
     TERMINAL_STATES,
     SUCCESS_STATES,
     ERROR_STATES,
     WARNING_STATES,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_output_defaults() -> None:
+    """Reset global output defaults to avoid cross-test leakage."""
+    configure_output(output_format="text", quiet=False)
 
 
 class TestSupportsColor:
@@ -77,7 +84,7 @@ class TestOutput:
     @pytest.fixture
     def output(self):
         """Create an Output instance for testing."""
-        output = Output()
+        output = Output(output_format="text")
         output._use_color = False
         return output
 
@@ -211,7 +218,7 @@ class TestOutputWithColor:
     @pytest.fixture
     def color_output(self):
         """Create an Output instance with color enabled."""
-        output = Output()
+        output = Output(output_format="text")
         output._use_color = True
         return output
 
@@ -285,7 +292,7 @@ class TestStructuredOutput:
     def test_json_mode_emits_structured_line(self):
         output = Output(output_format="json")
         captured: list[str] = []
-        output._print = captured.append
+        setattr(output, "_print", captured.append)
 
         output.line("hello")
 
@@ -296,16 +303,16 @@ class TestStructuredOutput:
     def test_ndjson_mode_emits_single_line(self):
         output = Output(output_format="ndjson")
         captured: list[str] = []
-        output._print = captured.append
+        setattr(output, "_print", captured.append)
 
         output.error_obj(code="x", message="bad")
 
         assert captured == ['{"type": "error", "code": "x", "message": "bad"}']
 
     def test_quiet_mode_suppresses_non_errors(self):
-        output = Output(quiet=True)
+        output = Output(output_format="text", quiet=True)
         captured: list[str] = []
-        output._print = captured.append
+        setattr(output, "_print", captured.append)
 
         output.line("hidden")
         output.error("visible")
