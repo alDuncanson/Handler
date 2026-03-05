@@ -20,7 +20,8 @@ logging.getLogger().setLevel(logging.WARNING)
 import rich_click as click
 
 from a2a_handler import __version__
-from a2a_handler.common import get_logger, setup_logging
+from a2a_handler.common import Output, configure_output, get_logger, setup_logging
+from a2a_handler.common.output import OutputFormat
 from a2a_handler.tui import HandlerTUI
 
 from . import _config  # noqa: F401 - configures rich-click on import
@@ -38,10 +39,32 @@ log = get_logger(__name__)
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 @click.option("--debug", "-d", is_flag=True, help="Enable debug logging")
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["text", "json", "ndjson"]),
+    default="text",
+    show_default=True,
+    help="Output format for command results",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    help="Suppress non-error output",
+)
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool, debug: bool) -> None:
+def cli(
+    ctx: click.Context,
+    verbose: bool,
+    debug: bool,
+    output_format: OutputFormat,
+    quiet: bool,
+) -> None:
     """Handler - A2A protocol client CLI."""
     ctx.ensure_object(dict)
+    ctx.obj["output_format"] = output_format
+    ctx.obj["quiet"] = quiet
+    configure_output(output_format=output_format, quiet=quiet)
 
     if debug:
         setup_logging(level="DEBUG")
@@ -61,9 +84,15 @@ cli.add_command(mcp)
 
 
 @cli.command()
-def version() -> None:
+@click.pass_context
+def version(ctx: click.Context) -> None:
     """Display the current version."""
-    click.echo(__version__)
+    output = Output()
+    output_format = (ctx.obj or {}).get("output_format", "text")
+    if output_format == "text":
+        output.line(__version__)
+    else:
+        output.json({"version": __version__})
 
 
 @cli.command()

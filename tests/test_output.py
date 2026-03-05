@@ -277,3 +277,37 @@ class TestOutputWithColor:
         color_output.state("Status", "completed")
         assert len(captured_output) == 1
         assert GREEN in captured_output[0]
+
+
+class TestStructuredOutput:
+    """Tests for json/ndjson output modes."""
+
+    def test_json_mode_emits_structured_line(self):
+        output = Output(output_format="json")
+        captured: list[str] = []
+        output._print = captured.append
+
+        output.line("hello")
+
+        assert len(captured) == 1
+        assert '"type": "line"' in captured[0]
+        assert '"text": "hello"' in captured[0]
+
+    def test_ndjson_mode_emits_single_line(self):
+        output = Output(output_format="ndjson")
+        captured: list[str] = []
+        output._print = captured.append
+
+        output.error_obj(code="x", message="bad")
+
+        assert captured == ['{"type": "error", "code": "x", "message": "bad"}']
+
+    def test_quiet_mode_suppresses_non_errors(self):
+        output = Output(quiet=True)
+        captured: list[str] = []
+        output._print = captured.append
+
+        output.line("hidden")
+        output.error("visible")
+
+        assert captured == ["visible"]
