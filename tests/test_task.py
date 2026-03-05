@@ -193,6 +193,16 @@ class TestTaskGet:
             assert result.exit_code == 0
             mock_service.get_task.assert_called_once_with("task-999", 3)
 
+    def test_task_get_rejects_invalid_task_id(self, runner):
+        """Test task get rejects malformed task IDs."""
+        result = runner.invoke(
+            task,
+            ["get", "http://localhost:8000", "task-123?fields=name"],
+        )
+
+        assert result.exit_code == 1
+        assert "task_id contains reserved URL characters" in result.output
+
 
 class TestTaskCancel:
     """Tests for task cancel command."""

@@ -258,6 +258,13 @@ class TestMessageSend:
         assert result.exit_code == 1
         assert "Provide message text" in result.output
 
+    def test_message_send_rejects_invalid_agent_url(self, runner):
+        """Test message send rejects invalid agent URLs."""
+        result = runner.invoke(message, ["send", "not-a-url", "Hello"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestMessageStream:
     """Tests for message stream command."""
