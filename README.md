@@ -78,6 +78,20 @@ This provides Python, uv, and just with all commands ready to use.
 For usage documentation, see the
 [Handler docs](https://alduncanson.github.io/Handler/).
 
+### Pilotty TUI Smoke Automation
+
+An opt-in pilotty smoke harness is included for agent-style TUI automation checks.
+
+```bash
+# Install pilotty
+npm install -g pilotty
+
+# Run local smoke test
+just pilotty-smoke
+```
+
+The CI workflow `.github/workflows/pilotty-smoke.yml` runs this smoke test on a schedule and via manual dispatch.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
