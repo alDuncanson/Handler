@@ -9,6 +9,7 @@ from a2a.client.errors import (
 )
 
 from a2a_handler.common import Output, get_logger
+from a2a_handler.common.input_validation import InputValidationError
 
 TIMEOUT = 120
 log = get_logger(__name__)
@@ -76,3 +77,13 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         )
     else:
         click.echo(f"Error [{error_code}]: {message}", err=True)
+
+
+def handle_validation_error(error: InputValidationError, output: Output) -> None:
+    """Render input validation errors in the standard envelope."""
+    output.error_obj(
+        code=error.code,
+        message=error.message,
+        details=error.details,
+        suggestion=error.suggestion,
+    )

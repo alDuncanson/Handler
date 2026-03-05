@@ -7,6 +7,13 @@ from mcp.server.fastmcp import FastMCP
 
 from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import get_logger
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    reject_control_chars,
+    validate_agent_url,
+    validate_resource_id,
+    validate_webhook_url,
+)
 from a2a_handler.service import A2AService
 from a2a_handler.session import (
     clear_credentials as session_clear_credentials,
@@ -28,6 +35,11 @@ from a2a_handler.validation import (
 logger = get_logger(__name__)
 
 TIMEOUT = 120
+
+
+def _validation_error(error: InputValidationError) -> ValueError:
+    """Convert validation errors to MCP-friendly exceptions."""
+    return ValueError(f"{error.code}: {error.message}")
 
 
 def _build_http_client(timeout: int = TIMEOUT) -> httpx.AsyncClient:
@@ -86,6 +98,12 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Validating agent card from %s", source)
 
+        if not from_file:
+            try:
+                validate_agent_url(source)
+            except InputValidationError as error:
+                raise _validation_error(error) from error
+
         result: ValidationResult
         if from_file:
             result = validate_agent_card_from_file(source)
@@ -142,6 +160,10 @@ def create_mcp_server() -> FastMCP:
             The agent card as a dictionary with all available fields.
         """
         logger.info("Getting agent card from %s", agent_url)
+        try:
+            validate_agent_url(agent_url)
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         async with _build_http_client() as http_client:
             service = A2AService(http_client, agent_url)
@@ -184,6 +206,18 @@ def create_mcp_server() -> FastMCP:
             - needs_auth: Whether authentication is required
         """
         logger.info("Sending message to %s", agent_url)
+        try:
+            validate_agent_url(agent_url)
+            if context_id:
+                validate_resource_id(context_id, "context_id")
+            if task_id:
+                validate_resource_id(task_id, "task_id")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         if use_session and not context_id:
             session = get_session(agent_url)
@@ -240,6 +274,15 @@ def create_mcp_server() -> FastMCP:
             - text: Response text from artifacts or history
         """
         logger.info("Getting task %s from %s", task_id, agent_url)
+        try:
+            validate_agent_url(agent_url)
+            validate_resource_id(task_id, "task_id")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         credentials = _resolve_credentials(agent_url, bearer_token, api_key)
 
@@ -279,6 +322,15 @@ def create_mcp_server() -> FastMCP:
             - text: Any final response text
         """
         logger.info("Canceling task %s at %s", task_id, agent_url)
+        try:
+            validate_agent_url(agent_url)
+            validate_resource_id(task_id, "task_id")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         credentials = _resolve_credentials(agent_url, bearer_token, api_key)
 
@@ -323,6 +375,18 @@ def create_mcp_server() -> FastMCP:
             - config_id: The notification config ID (if provided by agent)
         """
         logger.info("Setting push config for task %s at %s", task_id, agent_url)
+        try:
+            validate_agent_url(agent_url)
+            validate_resource_id(task_id, "task_id")
+            validate_webhook_url(webhook_url)
+            if webhook_token:
+                reject_control_chars(webhook_token, "webhook_token")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         credentials = _resolve_credentials(agent_url, bearer_token, api_key)
 
@@ -368,6 +432,17 @@ def create_mcp_server() -> FastMCP:
             - config_id: The notification config ID
         """
         logger.info("Getting push config for task %s at %s", task_id, agent_url)
+        try:
+            validate_agent_url(agent_url)
+            validate_resource_id(task_id, "task_id")
+            if config_id:
+                validate_resource_id(config_id, "config_id")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         credentials = _resolve_credentials(agent_url, bearer_token, api_key)
 
@@ -436,6 +511,10 @@ def create_mcp_server() -> FastMCP:
             - has_credentials: Whether credentials are saved
         """
         logger.info("Getting session for %s", agent_url)
+        try:
+            validate_agent_url(agent_url)
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         session = get_session(agent_url)
 
@@ -462,6 +541,10 @@ def create_mcp_server() -> FastMCP:
         """
         if agent_url:
             logger.info("Clearing session for %s", agent_url)
+            try:
+                validate_agent_url(agent_url)
+            except InputValidationError as error:
+                raise _validation_error(error) from error
             clear_session(agent_url)
             return {"cleared": f"Session for {agent_url}"}
         else:
@@ -491,6 +574,14 @@ def create_mcp_server() -> FastMCP:
             - auth_type: Type of auth configured ("bearer" or "api_key")
         """
         logger.info("Setting credentials for %s", agent_url)
+        try:
+            validate_agent_url(agent_url)
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         if bearer_token:
             credentials = create_bearer_auth(bearer_token)
@@ -518,6 +609,10 @@ def create_mcp_server() -> FastMCP:
             - cleared: True if credentials were cleared
         """
         logger.info("Clearing credentials for %s", agent_url)
+        try:
+            validate_agent_url(agent_url)
+        except InputValidationError as error:
+            raise _validation_error(error) from error
 
         session_clear_credentials(agent_url)
 

@@ -1,16 +1,26 @@
 """Message commands for sending messages to A2A agents."""
 
 import asyncio
+from typing import Any
 from typing import Optional
 
 import rich_click as click
 
 from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import Output, get_logger
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    parse_json_object,
+    reject_control_chars,
+    reject_unknown_keys,
+    validate_agent_url,
+    validate_resource_id,
+    validate_webhook_url,
+)
 from a2a_handler.service import A2AService, SendResult
 from a2a_handler.session import get_credentials, get_session, update_session
 
-from ._helpers import build_http_client, handle_client_error
+from ._helpers import build_http_client, handle_client_error, handle_validation_error
 
 log = get_logger(__name__)
 
@@ -23,8 +33,13 @@ def message() -> None:
 
 @message.command("send")
 @click.argument("agent_url")
-@click.argument("text")
+@click.argument("text", required=False)
 @click.option("--stream", "-s", is_flag=True, help="Stream responses in real-time")
+@click.option(
+    "--json",
+    "json_payload",
+    help="Raw JSON payload for agent-friendly invocation",
+)
 @click.option("--context-id", help="Context ID for conversation continuity")
 @click.option("--task-id", help="Task ID to continue")
 @click.option(
@@ -36,8 +51,9 @@ def message() -> None:
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def message_send(
     agent_url: str,
-    text: str,
+    text: Optional[str],
     stream: bool,
+    json_payload: Optional[str],
     context_id: Optional[str],
     task_id: Optional[str],
     use_session: bool,
@@ -47,6 +63,73 @@ def message_send(
     api_key: Optional[str],
 ) -> None:
     """Send a message to an agent and receive a response."""
+    output = Output()
+    payload: dict[str, Any] = {}
+    try:
+        validate_agent_url(agent_url)
+        if json_payload:
+            payload = parse_json_object(json_payload, "json_payload")
+            reject_unknown_keys(
+                payload,
+                {
+                    "text",
+                    "message",
+                    "stream",
+                    "context_id",
+                    "task_id",
+                    "use_session",
+                    "push_url",
+                    "push_token",
+                    "bearer_token",
+                    "api_key",
+                },
+                "json_payload",
+            )
+
+        if text is None:
+            text = payload.get("text") or payload.get("message")  # type: ignore[assignment]
+            if not isinstance(text, str) or not text:
+                raise InputValidationError(
+                    code="missing_message_text",
+                    message="Provide message text as argument or in --json payload",
+                    suggestion="Pass TEXT or include {\"text\": \"...\"} in --json",
+                )
+
+        if not context_id and isinstance(payload.get("context_id"), str):
+            context_id = payload["context_id"]
+        if not task_id and isinstance(payload.get("task_id"), str):
+            task_id = payload["task_id"]
+        if not stream and isinstance(payload.get("stream"), bool):
+            stream = payload["stream"]
+        if not use_session and isinstance(payload.get("use_session"), bool):
+            use_session = payload["use_session"]
+        if not push_url and isinstance(payload.get("push_url"), str):
+            push_url = payload["push_url"]
+        if not push_token and isinstance(payload.get("push_token"), str):
+            push_token = payload["push_token"]
+        if not bearer_token and isinstance(payload.get("bearer_token"), str):
+            bearer_token = payload["bearer_token"]
+        if not api_key and isinstance(payload.get("api_key"), str):
+            api_key = payload["api_key"]
+
+        if context_id:
+            validate_resource_id(context_id, "context_id")
+        if task_id:
+            validate_resource_id(task_id, "task_id")
+        if push_url:
+            validate_webhook_url(push_url)
+        if push_token:
+            reject_control_chars(push_token, "push_token")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    assert text is not None
+
     log.info("Sending message to %s", agent_url)
 
     if use_session and not context_id:
@@ -64,7 +147,6 @@ def message_send(
         credentials = get_credentials(agent_url)
 
     async def do_send() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(
