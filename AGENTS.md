@@ -124,3 +124,11 @@ just release       # Tag and push release
 - Both CLI and TUI use `A2AService` for protocol operations
 - Sessions persist context_id, task_id, and credentials to `~/.handler/sessions.json`
 - The MCP server exposes A2A capabilities as tools for AI assistants
+
+## MCP Runtime Verification Notes
+
+- Use a live localhost agent (`http://localhost:8000`) for MCP smoke checks whenever MCP server behavior changes.
+- Verify core MCP path in this order: `get_agent_card` → `validate_agent_card` → `send_message` → `get_task`.
+- Verify notification path with `set_task_notification` + `get_task_notification` on a known task id.
+- Confirm terminal-task semantics: completed tasks cannot be continued with `task_id` and cannot be canceled.
+- Confirm context/session continuity semantics: reuse `context_id` (without terminal `task_id`) to continue a conversation and `use_session=true` to use persisted state.

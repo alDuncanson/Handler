@@ -28,6 +28,16 @@ Validates `handler` behavior with fast feedback loops and explicit regression co
 1. Full tests: `just test`
 1. Lint and type checks before finalization: `just check`
 
+## Live MCP Verification
+
+Use this when MCP server behavior, task/session semantics, or notification tools change.
+
+1. Start a local agent at `http://localhost:8000`.
+1. Run: `get_agent_card` → `validate_agent_card` → `send_message` → `get_task`.
+1. Run notification round-trip: `set_task_notification` → `get_task_notification`.
+1. Confirm completed tasks are terminal: continuation with `task_id` fails and `cancel_task` fails.
+1. Confirm continuity semantics: continue with `context_id` only, and verify `use_session=true` works.
+
 ## Coverage Guidelines
 
 1. Cover success and failure paths for new CLI options.

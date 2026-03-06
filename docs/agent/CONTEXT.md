@@ -16,6 +16,14 @@ Use this guide when operating `handler` from an AI agent.
 1. Poll or stream task status using IDs instead of resending broad prompts.
 1. Save useful state in session storage only when needed for follow-up commands.
 
+## MCP Runtime Semantics (Verified)
+
+1. A completed task is terminal: sending with the same `task_id` fails.
+1. A completed task cannot be canceled.
+1. To continue a conversation after completion, reuse `context_id` without reusing the terminal `task_id`.
+1. `use_session=true` should continue from persisted session state when present.
+1. Notification config should round-trip cleanly with `set_task_notification` and `get_task_notification`.
+
 ## Context Budgeting
 
 1. Ask for only the fields needed for the current decision.

@@ -40,6 +40,13 @@ This contract applies to:
 1. Mutating operations should have a non-destructive planning/validation mode when practical.
 1. Sensitive values should be masked in logs and user-visible output unless explicitly requested.
 
+## Task Lifecycle Guarantees
+
+1. Terminal tasks are immutable for execution flow: completed tasks cannot be resumed by `task_id`.
+1. Cancel operations on terminal tasks must return a clear, typed error.
+1. Conversation continuity after completion must be possible via `context_id` reuse without terminal `task_id` reuse.
+1. Session continuity (`use_session=true`) must preserve and apply persisted context/task metadata safely.
+
 ## Compatibility Policy
 
 1. Structured output field removals are considered breaking changes.
