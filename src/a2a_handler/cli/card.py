@@ -1,13 +1,13 @@
 """Card commands for agent card operations."""
 
 import asyncio
-import json
 from typing import Any
 
 import rich_click as click
 from a2a.types import AgentCard
 
 from a2a_handler.common import Output, get_logger
+from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
 from a2a_handler.service import A2AService
 from a2a_handler.session import get_credentials
 from a2a_handler.validation import (
@@ -16,7 +16,11 @@ from a2a_handler.validation import (
     validate_agent_card_from_url,
 )
 
-from ._helpers import build_http_client, handle_client_error
+from ._helpers import (
+    build_http_client,
+    handle_client_error,
+    handle_validation_error,
+)
 
 log = get_logger(__name__)
 
@@ -34,13 +38,19 @@ def card() -> None:
 )
 def card_get(agent_url: str, authenticated: bool) -> None:
     """Retrieve an agent's card."""
+    output = Output()
+    try:
+        validate_agent_url(agent_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     log.info("Fetching agent card from %s", agent_url)
     credentials = get_credentials(agent_url) if authenticated else None
     if authenticated and credentials is None:
         log.warning("No saved credentials found for %s", agent_url)
 
     async def do_get() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
@@ -61,20 +71,28 @@ def _format_agent_card(card_data: object, output: Output) -> None:
     card_dict: dict[str, Any]
     if isinstance(card_data, AgentCard):
         card_dict = card_data.model_dump(exclude_none=True)
+    elif isinstance(card_data, dict):
+        card_dict = {str(key): value for key, value in card_data.items()}
     else:
         card_dict = {}
-    output.line(json.dumps(card_dict, indent=2))
+    output.json(card_dict)
 
 
 @card.command("validate")
 @click.argument("source")
 def card_validate(source: str) -> None:
     """Validate an agent card from URL or file."""
+    output = Output()
     log.info("Validating agent card from %s", source)
     is_url = source.startswith(("http://", "https://"))
+    if is_url:
+        try:
+            validate_agent_url(source)
+        except InputValidationError as error:
+            handle_validation_error(error, output)
+            raise click.Abort() from error
 
     async def do_validate() -> None:
-        output = Output()
         if is_url:
             async with build_http_client() as http_client:
                 result = await validate_agent_card_from_url(source, http_client)

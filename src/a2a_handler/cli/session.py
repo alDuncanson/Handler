@@ -5,7 +5,10 @@ from typing import Optional
 import rich_click as click
 
 from a2a_handler.common import Output
+from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
 from a2a_handler.session import clear_session, get_session, get_session_store
+
+from ._helpers import handle_validation_error
 
 
 @click.group()
@@ -40,6 +43,12 @@ def session_list() -> None:
 def session_show(agent_url: str) -> None:
     """Display session state for an agent."""
     output = Output()
+    try:
+        validate_agent_url(agent_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     s = get_session(agent_url)
     output.header(f"Session for {agent_url}")
     output.field("Context ID", s.context_id or "none", dim_value=not s.context_id)
@@ -56,6 +65,12 @@ def session_clear(agent_url: Optional[str], clear_all: bool) -> None:
         clear_session()
         output.success("Cleared all sessions")
     elif agent_url:
+        try:
+            validate_agent_url(agent_url)
+        except InputValidationError as error:
+            handle_validation_error(error, output)
+            raise click.Abort() from error
+
         clear_session(agent_url)
         output.success(f"Cleared session for {agent_url}")
     else:

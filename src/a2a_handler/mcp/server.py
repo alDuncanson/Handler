@@ -576,6 +576,18 @@ def create_mcp_server() -> FastMCP:
         logger.info("Setting credentials for %s", agent_url)
         try:
             validate_agent_url(agent_url)
+            if bearer_token and api_key:
+                raise InputValidationError(
+                    code="invalid_auth_arguments",
+                    message="Provide either bearer_token or api_key, not both",
+                    suggestion="Pass only one auth mechanism per call",
+                )
+            if not bearer_token and not api_key:
+                raise InputValidationError(
+                    code="missing_auth_arguments",
+                    message="Either bearer_token or api_key is required",
+                    suggestion="Provide bearer_token or api_key",
+                )
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
             if api_key:
@@ -587,12 +599,12 @@ def create_mcp_server() -> FastMCP:
             credentials = create_bearer_auth(bearer_token)
             set_credentials(agent_url, credentials)
             return {"agent_url": agent_url, "auth_type": "bearer"}
-        elif api_key:
+        if api_key:
             credentials = create_api_key_auth(api_key)
             set_credentials(agent_url, credentials)
             return {"agent_url": agent_url, "auth_type": "api_key"}
-        else:
-            return {"error": "Either bearer_token or api_key must be provided"}
+
+        raise AssertionError("validated auth inputs should guarantee a return")
 
     @mcp.tool()
     async def clear_agent_credentials(agent_url: str) -> dict:

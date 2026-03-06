@@ -103,6 +103,13 @@ class TestAuthSet:
 
         assert result.exit_code == 1
 
+    def test_set_rejects_invalid_agent_url(self, runner):
+        """Test setting credentials rejects malformed agent URL."""
+        result = runner.invoke(auth, ["set", "not-a-url", "--bearer", "token"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestAuthShow:
     """Tests for auth show command."""
@@ -151,6 +158,13 @@ class TestAuthShow:
             assert "****" in result.output
             assert "short" not in result.output
 
+    def test_show_rejects_invalid_agent_url(self, runner):
+        """Test show fails early for malformed URL."""
+        result = runner.invoke(auth, ["show", "not-a-url"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestAuthClear:
     """Tests for auth clear command."""
@@ -163,3 +177,10 @@ class TestAuthClear:
             assert result.exit_code == 0
             assert "Cleared" in result.output
             mock_clear.assert_called_once_with("http://localhost:8000")
+
+    def test_clear_rejects_invalid_agent_url(self, runner):
+        """Test clear fails early for malformed URL."""
+        result = runner.invoke(auth, ["clear", "not-a-url"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output

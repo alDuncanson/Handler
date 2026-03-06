@@ -6,7 +6,14 @@ import rich_click as click
 
 from a2a_handler.auth import AuthType, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import Output
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    reject_control_chars,
+    validate_agent_url,
+)
 from a2a_handler.session import clear_credentials, get_credentials, set_credentials
+
+from ._helpers import handle_validation_error
 
 
 @click.group()
@@ -35,6 +42,17 @@ def auth_set(
     Provide either --bearer or --api-key (not both).
     """
     output = Output()
+    try:
+        validate_agent_url(agent_url)
+        reject_control_chars(api_key_header, "api_key_header")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     if bearer_token and api_key:
         output.error("Provide either --bearer or --api-key, not both")
         raise click.Abort()
@@ -60,6 +78,12 @@ def auth_set(
 def auth_show(agent_url: str) -> None:
     """Show authentication credentials for an agent."""
     output = Output()
+    try:
+        validate_agent_url(agent_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     credentials = get_credentials(agent_url)
 
     output.header(f"Auth for {agent_url}")
@@ -85,5 +109,11 @@ def auth_show(agent_url: str) -> None:
 def auth_clear(agent_url: str) -> None:
     """Clear authentication credentials for an agent."""
     output = Output()
+    try:
+        validate_agent_url(agent_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     clear_credentials(agent_url)
     output.success(f"Cleared credentials for {agent_url}")

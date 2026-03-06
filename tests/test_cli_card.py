@@ -10,6 +10,7 @@ from click.testing import CliRunner
 from a2a.types import AgentCard, AgentSkill, AgentCapabilities
 
 from a2a_handler.auth import create_bearer_auth
+from a2a_handler.cli import cli
 from a2a_handler.cli.card import card, _format_agent_card, _format_validation_result
 from a2a_handler.common import Output
 from a2a_handler.validation import ValidationResult, ValidationIssue, ValidationSource
@@ -119,6 +120,39 @@ class TestCardGet:
                 credentials=credentials,
             )
 
+    def test_card_get_json_output_is_structured(self, runner):
+        """Test card get emits structured payload in global json mode."""
+        mock_card = _make_agent_card()
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_card.return_value = mock_card
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "card", "get", "http://localhost:8000"],
+            )
+
+            assert result.exit_code == 0
+            assert '"type": "data"' in result.output
+            assert '"name": "Test Agent"' in result.output
+
+    def test_card_get_rejects_invalid_agent_url(self, runner):
+        """Test card get rejects malformed URLs early."""
+        result = runner.invoke(card, ["get", "not-a-url"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestCardValidate:
     """Tests for card validate command."""
@@ -200,6 +234,13 @@ class TestCardValidate:
             assert result.exit_code == 0
             assert "Valid" in result.output
 
+    def test_validate_rejects_invalid_url(self, runner):
+        """Test validating malformed URL source fails with validation envelope."""
+        result = runner.invoke(card, ["validate", "http:///"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestFormatAgentCard:
     """Tests for _format_agent_card helper."""
@@ -211,10 +252,10 @@ class TestFormatAgentCard:
 
         _format_agent_card(mock_card, output)
 
-        output.line.assert_called_once()
-        # Verify the output contains JSON
-        call_args = output.line.call_args[0][0]
-        parsed = json.loads(call_args)
+        output.json.assert_called_once()
+        # Verify the output payload is structured data
+        call_args = output.json.call_args[0][0]
+        parsed = call_args
         assert parsed["name"] == "Test Agent"
 
     def test_format_non_agent_card(self):
@@ -223,9 +264,7 @@ class TestFormatAgentCard:
 
         _format_agent_card({"name": "raw dict"}, output)
 
-        output.line.assert_called_once()
-        call_args = output.line.call_args[0][0]
-        assert call_args == "{}"
+        output.json.assert_called_once_with({"name": "raw dict"})
 
 
 class TestFormatValidationResult:
