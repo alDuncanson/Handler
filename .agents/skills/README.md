@@ -1,11 +1,29 @@
 # Handler Local Skills
 
-This repository ships local skills for agent development workflows.
+This repository ships local skills for both handler users and handler maintainers.
 
-1. `developing-handler`: implementation and refactoring workflow for CLI, TUI, MCP, and service changes.
-1. `testing-handler`: targeted and full-suite testing workflow with regression coverage guidance.
-1. `testing-remote-a2a-agents`: remote and enterprise interoperability validation workflow for hosted A2A agents.
-1. `releasing-handler`: version bump, validation, and tag/release workflow.
+## Skill Audiences
+
+1. `handler`: public umbrella skill for routing handler usage tasks with progressive disclosure.
+1. `testing-remote-a2a-agents`: public specialist skill for validating remote A2A agents with handler MCP and CLI flows.
+1. `developing-handler`: maintainer skill for implementing and refactoring handler itself (`metadata.internal: true`).
+1. `testing-handler`: maintainer skill for handler repo regression and contract testing (`metadata.internal: true`).
+1. `releasing-handler`: maintainer skill for versioning and release operations (`metadata.internal: true`).
+
+## Installation Profiles
+
+1. Install the public umbrella skill only (recommended): `npx skills add alDuncanson/handler --skill handler`.
+1. Install the public specialist remote-testing skill directly: `npx skills add alDuncanson/handler --skill testing-remote-a2a-agents`.
+1. Preview what is publicly installable without internal skills: `npx skills add alDuncanson/handler --list`.
+1. Include internal maintainer skills in discovery: `INSTALL_INTERNAL_SKILLS=1 npx skills add alDuncanson/handler --list`.
+1. Install all skills, including internal maintainer skills: `INSTALL_INTERNAL_SKILLS=1 npx skills add alDuncanson/handler --skill '*'`.
+1. Target a specific agent explicitly when needed: `npx skills add alDuncanson/handler --skill handler --agent amp`.
+
+## Agent-Agnostic Guidance
+
+1. Keep all skills in `.agents/skills` for compatibility with Amp and other agents that read this path.
+1. Use `metadata.internal: true` for maintainer-only skills so Vercel Skills users do not install them by default.
+1. For ecosystems that do not honor `metadata.internal`, use explicit `--skill` selection to install only public skills.
 
 ## MCP Smoke Baseline
 

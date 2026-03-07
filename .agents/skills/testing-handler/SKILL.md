@@ -1,6 +1,8 @@
 ---
 name: testing-handler
 description: Runs and extends handler test coverage across CLI TUI service and MCP paths. Use when fixing regressions, adding new behavior, or validating agent-facing safety and output contracts.
+metadata:
+  internal: true
 ---
 
 # Testing Handler

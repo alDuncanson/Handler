@@ -1,6 +1,8 @@
 ---
 name: releasing-handler
 description: Prepares and verifies handler releases using version bump, checks, and tagging workflows. Use when cutting patch minor major releases or validating release readiness.
+metadata:
+  internal: true
 ---
 
 # Releasing Handler

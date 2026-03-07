@@ -1,6 +1,8 @@
 ---
 name: developing-handler
 description: Implements and refactors handler features using the repository's uv and just workflows. Use when adding CLI TUI MCP behavior, updating shared service logic, or preparing scoped code changes.
+metadata:
+  internal: true
 ---
 
 # Developing Handler
