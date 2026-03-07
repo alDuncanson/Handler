@@ -35,6 +35,12 @@ from a2a.utils.constants import (
 
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_logger
+from a2a_handler.common.input_validation import (
+    reject_control_chars,
+    validate_agent_url,
+    validate_resource_id,
+    validate_webhook_url,
+)
 
 logger = get_logger(__name__)
 
@@ -234,6 +240,12 @@ class A2AService:
             push_notification_token: Optional token for push notification auth
             credentials: Optional authentication credentials
         """
+        validate_agent_url(agent_url)
+        if push_notification_url:
+            validate_webhook_url(push_notification_url)
+        if push_notification_token:
+            reject_control_chars(push_notification_token, "push_notification_token")
+
         self.http_client = http_client
         self.agent_url = agent_url
         self.enable_streaming = enable_streaming
@@ -590,6 +602,11 @@ class A2AService:
         Returns:
             The created push notification configuration
         """
+        validate_resource_id(task_id, "task_id")
+        validate_webhook_url(webhook_url)
+        if authentication_token:
+            reject_control_chars(authentication_token, "authentication_token")
+
         client = await self._get_or_create_client()
 
         push_config = TaskPushNotificationConfig(

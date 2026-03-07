@@ -5,6 +5,7 @@ import pytest
 from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
 
 from a2a_handler.auth import create_bearer_auth
+from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
     SendResult,
@@ -470,6 +471,15 @@ class _FakeStreamingClient:
             yield event
 
 
+class _FakePushConfigClient:
+    def __init__(self) -> None:
+        self.push_config = None
+
+    async def set_task_callback(self, push_config):
+        self.push_config = push_config
+        return push_config
+
+
 @pytest.mark.asyncio
 class TestA2AServiceStreamingCompatibility:
     async def test_stream_handles_tuple_with_none_update(self):
@@ -547,6 +557,60 @@ class TestA2AServiceStreamingCompatibility:
         assert result.task_id == "task-123"
         assert result.state == TaskState.completed
         assert result.text == "Done"
+
+
+@pytest.mark.asyncio
+class TestA2AServicePushConfigValidation:
+    async def test_init_rejects_invalid_push_notification_url(self) -> None:
+        """Service constructor validates optional push notification defaults."""
+        async with httpx.AsyncClient() as http_client:
+            with pytest.raises(InputValidationError) as error:
+                A2AService(
+                    http_client=http_client,
+                    agent_url="http://example.com",
+                    push_notification_url="not-a-url",
+                )
+
+        assert isinstance(error.value, InputValidationError)
+        assert error.value.code == "invalid_webhook_url"
+
+    async def test_set_push_config_rejects_invalid_webhook_url(self) -> None:
+        """Service rejects malformed webhook URLs before sending requests."""
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+
+            with pytest.raises(InputValidationError) as error:
+                await service.set_push_config("task-123", "not-a-url")
+
+        assert isinstance(error.value, InputValidationError)
+        assert error.value.code == "invalid_webhook_url"
+
+    async def test_set_push_config_passes_valid_values_to_client(self) -> None:
+        """Service keeps passing valid callback configs to the SDK client."""
+        fake_client = _FakePushConfigClient()
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+
+            async def _get_client():
+                return fake_client
+
+            service._get_or_create_client = _get_client  # type: ignore[method-assign]
+
+            result = await service.set_push_config(
+                "task-123",
+                "https://example.com/webhook",
+                "token-123",
+            )
+
+        assert result.task_id == "task-123"
+        assert result.push_notification_config is not None
+        assert result.push_notification_config.url == "https://example.com/webhook"
+        assert fake_client.push_config is not None
 
 
 @pytest.mark.asyncio

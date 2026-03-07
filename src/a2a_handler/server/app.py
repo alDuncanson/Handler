@@ -11,7 +11,8 @@ from a2a.server.tasks import (
     InMemoryPushNotificationConfigStore,
     InMemoryTaskStore,
 )
-from a2a.types import AgentCard
+from a2a.types import AgentCard, InvalidParamsError, PushNotificationConfig
+from a2a.utils.errors import ServerError
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.agents.llm_agent import Agent
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
@@ -28,10 +29,40 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from a2a_handler.common import get_logger
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    reject_control_chars,
+    validate_resource_id,
+    validate_webhook_url,
+)
 
 logger = get_logger(__name__)
 
 DEFAULT_HTTP_TIMEOUT_SECONDS = 30
+
+
+class ValidatingPushNotificationConfigStore(InMemoryPushNotificationConfigStore):
+    """Push config store that rejects malformed callback targets."""
+
+    async def set_info(
+        self,
+        task_id: str,
+        notification_config: PushNotificationConfig,
+    ) -> None:
+        """Validate webhook settings before storing push configuration."""
+        try:
+            validate_resource_id(task_id, "task_id")
+            validate_webhook_url(notification_config.url)
+            if notification_config.token:
+                reject_control_chars(notification_config.token, "webhook_token")
+        except InputValidationError as error:
+            raise ServerError(
+                error=InvalidParamsError(
+                    message=f"{error.code}: {error.message}",
+                )
+            ) from error
+
+        await super().set_info(task_id, notification_config)
 
 
 def generate_api_key() -> str:
@@ -141,7 +172,7 @@ def create_a2a_application(
         Configured Starlette application
     """
     task_store = InMemoryTaskStore()
-    push_notification_config_store = InMemoryPushNotificationConfigStore()
+    push_notification_config_store = ValidatingPushNotificationConfigStore()
     http_client = httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
     push_notification_sender = BasePushNotificationSender(
         http_client, push_notification_config_store
