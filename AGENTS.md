@@ -1,5 +1,15 @@
 # Agent Development Guide
 
+## Guidance Hierarchy
+
+- This root file defines repository-wide defaults.
+- Additional `AGENTS.md` files provide progressively disclosed instructions in narrower scopes:
+  - `.agents/AGENTS.md` and `.agents/skills/AGENTS.md` for local skill-pack development.
+  - `src/a2a_handler/AGENTS.md` for runtime and interface contract expectations.
+  - `tests/AGENTS.md` for regression and contract coverage expectations.
+  - `docs/AGENTS.md` and `docs/spec/a2a/AGENTS.md` for docs maintenance and protocol mirror usage.
+- When guidance overlaps, prefer the most specific (deepest) `AGENTS.md` in the current path.
+
 ## Quick Start
 
 ```bash
