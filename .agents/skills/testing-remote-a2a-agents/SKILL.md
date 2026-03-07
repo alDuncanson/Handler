@@ -23,6 +23,8 @@ Runs pragmatic, reproducible qualification checks against non-local A2A agents u
 
 ## Preconditions
 
+1. Bootstrap `handler` CLI availability before testing: run `handler --help`; if unavailable, install with `uv tool install a2a-handler` (or `pipx install a2a-handler`).
+1. If global installation is blocked, run CLI checks with `uvx --from a2a-handler handler <subcommand...>`.
 1. Confirm approved target endpoint(s), test credentials, and environment scope (dev, stage, prod-like).
 1. Ensure secrets are provided via secure channels and never echoed in logs or transcripts.
 1. Prefer machine-readable output (`--output json` in CLI paths) for evidence collection.

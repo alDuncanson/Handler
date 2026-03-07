@@ -9,6 +9,8 @@ This repository ships local skills for both handler users and handler maintainer
 1. `developing-handler`: maintainer skill for implementing and refactoring handler itself (`metadata.internal: true`).
 1. `testing-handler`: maintainer skill for handler repo regression and contract testing (`metadata.internal: true`).
 1. `releasing-handler`: maintainer skill for versioning and release operations (`metadata.internal: true`).
+1. `testing-handler-skills`: maintainer skill for dry-running local handler skills and preflighting workflows (`metadata.internal: true`).
+1. `exploring-handler-repository`: maintainer skill for progressive repository tours, architecture overviews, and flow diagrams (`metadata.internal: true`).
 
 ## Installation Profiles
 
@@ -17,6 +19,8 @@ This repository ships local skills for both handler users and handler maintainer
 1. Preview what is publicly installable without internal skills: `npx skills add alDuncanson/handler --list`.
 1. Include internal maintainer skills in discovery: `INSTALL_INTERNAL_SKILLS=1 npx skills add alDuncanson/handler --list`.
 1. Install all skills, including internal maintainer skills: `INSTALL_INTERNAL_SKILLS=1 npx skills add alDuncanson/handler --skill '*'`.
+1. Install the maintainer dry-run skill directly: `INSTALL_INTERNAL_SKILLS=1 npx skills add alDuncanson/handler --skill testing-handler-skills`.
+1. Install the maintainer repository-exploration skill directly: `INSTALL_INTERNAL_SKILLS=1 npx skills add alDuncanson/handler --skill exploring-handler-repository`.
 1. Target a specific agent explicitly when needed: `npx skills add alDuncanson/handler --skill handler --agent amp`.
 
 ## Agent-Agnostic Guidance
@@ -38,5 +42,6 @@ When MCP behavior changes, run a live localhost smoke pass against `http://local
 ## Remote Qualification Notes
 
 1. The `testing-remote-a2a-agents` skill is handler-specific and should be run with handler MCP tools first, then CLI fallbacks if needed.
+1. Public skills should bootstrap CLI availability with `handler --help`, install with `uv tool install a2a-handler` when missing, and use `uvx --from a2a-handler handler` when global install is blocked.
 1. Avoid brittle assertions on exact model text during lifecycle checks; assert IDs and state transitions instead.
 1. Invalid webhook probes should fail through handler validation (`invalid_webhook_url`) before remote dispatch.
