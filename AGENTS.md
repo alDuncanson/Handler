@@ -4,7 +4,6 @@
 
 - This root file defines repository-wide defaults.
 - Additional `AGENTS.md` files provide progressively disclosed instructions in narrower scopes:
-  - `.agents/AGENTS.md` and `.agents/skills/AGENTS.md` for local skill-pack development.
   - `src/a2a_handler/AGENTS.md` for runtime and interface contract expectations.
   - `tests/AGENTS.md` for regression and contract coverage expectations.
   - `docs/AGENTS.md` for documentation maintenance guidance.
@@ -143,9 +142,4 @@ just release       # Tag and push release
 - Confirm terminal-task semantics: completed tasks cannot be continued with `task_id` and cannot be canceled.
 - Confirm context/session continuity semantics: reuse `context_id` (without terminal `task_id`) to continue a conversation and `use_session=true` to use persisted state.
 
-## Skill Maintenance
 
-- At the end of every session, review whether any internal skill (`developing-handler`, `testing-handler`, `releasing-handler`, `testing-handler-skills`, `exploring-handler-repository`) failed, produced incorrect guidance, or would have benefitted from additional or refined instructions.
-- If so, update the affected `SKILL.md` (and any associated references under its `references/` directory) before the session ends.
-- Fixes include adding missing steps, correcting commands, tightening prerequisites, removing stale guidance, and codifying workarounds discovered during the session.
-- Keep changes scoped to the skill that was exercised; do not speculatively edit skills that were not used.

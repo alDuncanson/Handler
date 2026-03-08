@@ -78,37 +78,6 @@ This provides Python, uv, and just with all commands ready to use.
 For usage documentation, see the
 [Handler docs](https://alduncanson.github.io/Handler/).
 
-### Agent Skills for Remote Agent Testing
-
-Handler ships installable Agent Skills so your coding agent can use Handler to
-test remote A2A agents with reproducible card, lifecycle, and notification
-checks.
-
-```bash
-# Recommended: install the public umbrella skill
-npx skills add alDuncanson/handler --skill handler
-
-# Direct: install the remote-agent testing specialist skill
-npx skills add alDuncanson/handler --skill testing-remote-a2a-agents
-
-# Preview public skills available in this repo
-npx skills add alDuncanson/handler --list
-```
-
-### Pilotty TUI Smoke Automation
-
-An opt-in pilotty smoke harness is included for agent-style TUI automation checks.
-
-```bash
-# Install pilotty
-npm install -g pilotty
-
-# Run local smoke test
-just pilotty-smoke
-```
-
-The CI workflow `.github/workflows/pilotty-smoke.yml` runs this smoke test on a schedule and via manual dispatch.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

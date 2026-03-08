@@ -16,10 +16,6 @@ run *args="tui":
 test:
     uv run pytest
 
-# Run pilotty-powered TUI smoke test (requires pilotty installed)
-pilotty-smoke:
-    ./scripts/pilotty-tui-smoke.sh
-
 # Run all code quality checks (lint, format, typecheck)
 check:
     @echo "Running linter..."
