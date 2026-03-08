@@ -7,13 +7,6 @@ metadata:
 
 # Testing Handler
 
-## Use This Skill When
-
-1. A bug fix needs reproducible tests.
-1. A new command or flag changes output or validation behavior.
-1. MCP tool behavior is modified.
-1. Agent-facing safety constraints are added.
-
 ## Test Strategy
 
 1. Start with the smallest failing test or add one for the bug.

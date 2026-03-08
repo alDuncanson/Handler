@@ -12,13 +12,6 @@ description: Validates remote A2A agents with handler MCP tools using staged int
 1. Use `use_session=true` only after at least one successful `send_message` call has persisted session state.
 1. CLI fallback for humans: use `handler card get`, `handler card validate`, `handler message send`, `handler task get`, `handler task cancel`, and `handler task notification set/get`.
 
-## Use This Skill When
-
-1. Testing a hosted or enterprise-network A2A agent endpoint.
-1. Validating auth/session/task semantics before rollout.
-1. Investigating remote interoperability issues that do not appear in localhost tests.
-1. Producing evidence for security, platform, or vendor review.
-
 ## Preconditions
 
 1. Bootstrap `handler` CLI availability before testing: run `handler --help`; if unavailable, install with `uv tool install a2a-handler` (or `pipx install a2a-handler`).

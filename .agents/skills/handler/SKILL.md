@@ -5,13 +5,6 @@ description: Routes handler usage work with progressive disclosure for remote A2
 
 # Handler
 
-## Use This Skill When
-
-1. A user asks to use handler tools but does not know which handler workflow to run.
-1. A user wants one installable skill that can cover remote-agent testing with progressive disclosure.
-1. A user asks for handler protocol checks, task lifecycle checks, or notification verification.
-1. A user asks for reproducible qualification evidence for a remote A2A endpoint.
-
 ## Workflow
 
 1. Classify the request as one of three tracks: `remote-agent-qualification`, `handler-tool-usage`, or `interoperability-triage`.

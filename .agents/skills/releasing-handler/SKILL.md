@@ -7,12 +7,6 @@ metadata:
 
 # Releasing Handler
 
-## Use This Skill When
-
-1. Preparing a new release version.
-1. Verifying release readiness after significant changes.
-1. Creating tags and pushing release refs.
-
 ## Release Workflow
 
 1. Ensure branch is up to date and intended changes are committed.

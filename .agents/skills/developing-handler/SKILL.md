@@ -7,13 +7,6 @@ metadata:
 
 # Developing Handler
 
-## Use This Skill When
-
-1. Adding or changing CLI commands under `src/a2a_handler/cli`.
-1. Updating TUI behavior in `src/a2a_handler/tui`.
-1. Extending MCP functionality in `src/a2a_handler/mcp`.
-1. Modifying A2A service flows in `src/a2a_handler/service.py`.
-
 ## Development Workflow
 
 1. Read `AGENTS.md` and confirm toolchain expectations (`uv`, `just`, Python 3.11+).

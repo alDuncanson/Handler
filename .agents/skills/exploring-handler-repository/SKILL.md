@@ -7,13 +7,6 @@ metadata:
 
 # Exploring Handler Repository
 
-## Use This Skill When
-
-1. A user asks to explore how handler is structured or how major components interact.
-1. A user asks for architecture diagrams, runtime flow maps, or onboarding overviews.
-1. A user asks for a focused codepath trace across CLI, TUI, MCP, service, and server modules.
-1. A user asks for impact analysis before changing handler internals.
-
 ## Workflow
 
 1. Classify the request as `architecture-overview`, `runtime-flow-trace`, `module-deep-dive`, or `change-impact-scan`.

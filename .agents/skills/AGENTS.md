@@ -5,7 +5,7 @@ Use this file as the default guidance for all local skills in this directory.
 ## Required Skill Structure
 
 - Include frontmatter with `name` and `description`.
-- Use stable section headers: `Use This Skill When`, `Workflow`, `Commands`, and `Done Criteria`.
+- Use stable section headers: `Workflow`, `Commands`, and `Done Criteria`.
 - Keep command examples copy/paste-safe and aligned to repository tooling.
 
 ## Validation Expectations

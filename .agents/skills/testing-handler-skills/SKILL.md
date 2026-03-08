@@ -7,13 +7,6 @@ metadata:
 
 # Testing Handler Skills
 
-## Use This Skill When
-
-1. A user asks to dry run a maintainer workflow before executing it.
-1. A user asks for a release preview, including what commands would run and what artifacts would be produced.
-1. A user asks to preflight local skill workflows with quick evidence from non-mutating checks.
-1. A user wants execution-ready checklists for `developing-handler`, `testing-handler`, or `releasing-handler` tasks.
-
 ## Workflow
 
 1. Classify the request as one of: `dry-run-development`, `dry-run-testing`, `dry-run-release`, `dry-run-remote-qualification`, or `dry-run-repository-exploration`.
