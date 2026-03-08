@@ -2,8 +2,6 @@ name: Pilotty TUI Smoke
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 7 * * *"
 
 permissions:
   contents: read
@@ -11,6 +9,7 @@ permissions:
 jobs:
   pilotty-smoke:
     name: Pilotty Smoke
+    if: ${{ false }} # Temporarily disabled; keep workflow file for easy re-enable.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
