@@ -5,6 +5,7 @@ across CLI invocations for conversation continuity.
 """
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,32 @@ from typing import Any
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_logger
 
+keyring: Any | None
+
+try:
+    import keyring as _keyring
+    from keyring.errors import KeyringError
+
+    keyring = _keyring
+except ImportError:  # pragma: no cover - exercised when keyring dependency is absent
+    keyring = None
+
+    class KeyringError(Exception):
+        """Fallback KeyringError when keyring is unavailable."""
+
+        pass
+
+
 logger = get_logger(__name__)
 
 DEFAULT_SESSION_DIRECTORY = Path.home() / ".handler"
 SESSION_FILENAME = "sessions.json"
+SESSION_DIRECTORY_MODE = 0o700
+SESSION_FILE_MODE = 0o600
+
+KEYRING_SERVICE_NAME = "a2a-handler"
+CREDENTIAL_STORAGE_KEYRING = "keyring"
+CREDENTIAL_STORAGE_PLAINTEXT = "plaintext"
 
 
 @dataclass
@@ -58,24 +81,164 @@ class SessionStore:
         """Path to the session file."""
         return self.session_directory / SESSION_FILENAME
 
+    def _harden_path_permissions(self, path: Path, mode: int) -> None:
+        """Apply restrictive permissions to session storage paths."""
+        try:
+            path.chmod(mode)
+        except OSError as error:
+            logger.warning("Failed to set permissions on %s: %s", path, error)
+
     def _ensure_directory_exists(self) -> None:
         """Ensure the session directory exists."""
-        self.session_directory.mkdir(parents=True, exist_ok=True)
+        self.session_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+            mode=SESSION_DIRECTORY_MODE,
+        )
+        self._harden_path_permissions(self.session_directory, SESSION_DIRECTORY_MODE)
+
+    def _store_credential_in_keyring(self, agent_url: str, value: str) -> bool:
+        """Persist credential values in the OS keyring when available."""
+        if keyring is None:
+            return False
+
+        try:
+            keyring.set_password(KEYRING_SERVICE_NAME, agent_url, value)
+            return True
+        except KeyringError as error:
+            logger.warning(
+                "Keyring storage unavailable for %s, falling back to plaintext: %s",
+                agent_url,
+                error,
+            )
+        except Exception as error:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Unexpected keyring failure for %s, falling back to plaintext: %s",
+                agent_url,
+                error,
+            )
+
+        return False
+
+    def _get_credential_from_keyring(self, agent_url: str) -> str | None:
+        """Load credential values from the OS keyring."""
+        if keyring is None:
+            return None
+
+        try:
+            return keyring.get_password(KEYRING_SERVICE_NAME, agent_url)
+        except KeyringError as error:
+            logger.warning(
+                "Failed to read keyring credential for %s: %s", agent_url, error
+            )
+        except Exception as error:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Unexpected keyring read failure for %s: %s",
+                agent_url,
+                error,
+            )
+
+        return None
+
+    def _delete_credential_from_keyring(self, agent_url: str) -> None:
+        """Remove a credential value from the OS keyring."""
+        if keyring is None:
+            return
+
+        try:
+            keyring.delete_password(KEYRING_SERVICE_NAME, agent_url)
+        except KeyringError:
+            # Missing/unsupported entries are safe to ignore.
+            return
+        except Exception as error:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Unexpected keyring delete failure for %s: %s",
+                agent_url,
+                error,
+            )
+
+    def _serialize_credentials(
+        self,
+        agent_url: str,
+        credentials: AuthCredentials,
+    ) -> dict[str, str | None]:
+        """Serialize credentials while storing secret values in keyring."""
+        serialized: dict[str, str | None] = {
+            "auth_type": credentials.auth_type.value,
+            "header_name": credentials.header_name,
+        }
+
+        if self._store_credential_in_keyring(agent_url, credentials.value):
+            serialized["storage"] = CREDENTIAL_STORAGE_KEYRING
+        else:
+            serialized["storage"] = CREDENTIAL_STORAGE_PLAINTEXT
+            serialized["value"] = credentials.value
+
+        return serialized
+
+    def _deserialize_credentials(
+        self,
+        agent_url: str,
+        cred_data: dict[str, Any],
+    ) -> AuthCredentials | None:
+        """Deserialize credentials from session data with keyring support."""
+        storage = cred_data.get("storage")
+        value: str | None = None
+
+        if storage == CREDENTIAL_STORAGE_KEYRING:
+            value = self._get_credential_from_keyring(agent_url)
+            if value is None and isinstance(cred_data.get("value"), str):
+                # Compatibility fallback for mixed-format data.
+                value = cred_data["value"]
+        elif isinstance(cred_data.get("value"), str):
+            value = cred_data["value"]
+
+        if value is None:
+            logger.warning(
+                "Credentials missing for %s (storage=%s)", agent_url, storage
+            )
+            return None
+
+        normalized_data = {
+            "auth_type": cred_data.get("auth_type"),
+            "value": value,
+            "header_name": cred_data.get("header_name"),
+        }
+
+        try:
+            return AuthCredentials.from_dict(normalized_data)
+        except (KeyError, TypeError, ValueError) as error:
+            logger.warning("Invalid credential data for %s: %s", agent_url, error)
+            return None
 
     def load(self) -> None:
         """Load sessions from disk."""
+        if self.session_directory.exists():
+            self._harden_path_permissions(
+                self.session_directory, SESSION_DIRECTORY_MODE
+            )
         if not self.session_file_path.exists():
             logger.debug("No session file found at %s", self.session_file_path)
             return
 
         try:
+            self._harden_path_permissions(self.session_file_path, SESSION_FILE_MODE)
             with open(self.session_file_path) as session_file:
                 session_data = json.load(session_file)
 
             for agent_url, agent_session_data in session_data.items():
+                if not isinstance(agent_session_data, dict):
+                    logger.warning("Skipping invalid session entry for %s", agent_url)
+                    continue
+
                 credentials = None
                 if cred_data := agent_session_data.get("credentials"):
-                    credentials = AuthCredentials.from_dict(cred_data)
+                    if isinstance(cred_data, dict):
+                        credentials = self._deserialize_credentials(
+                            agent_url, cred_data
+                        )
+                    else:
+                        logger.warning("Skipping invalid credentials for %s", agent_url)
 
                 self.sessions[agent_url] = AgentSession(
                     agent_url=agent_url,
@@ -106,12 +269,21 @@ class SessionStore:
                 "task_id": agent_session.task_id,
             }
             if agent_session.credentials:
-                data["credentials"] = agent_session.credentials.to_dict()
+                data["credentials"] = self._serialize_credentials(
+                    agent_url,
+                    agent_session.credentials,
+                )
             session_data[agent_url] = data
 
         try:
-            with open(self.session_file_path, "w") as session_file:
+            file_descriptor = os.open(
+                self.session_file_path,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                SESSION_FILE_MODE,
+            )
+            with os.fdopen(file_descriptor, "w") as session_file:
                 json.dump(session_data, session_file, indent=2)
+            self._harden_path_permissions(self.session_file_path, SESSION_FILE_MODE)
             logger.debug(
                 "Saved %d sessions to %s",
                 len(self.sessions),
@@ -161,6 +333,7 @@ class SessionStore:
 
     def clear_credentials(self, agent_url: str) -> None:
         """Clear credentials for an agent."""
+        self._delete_credential_from_keyring(agent_url)
         if agent_url in self.sessions:
             self.sessions[agent_url].clear_credentials()
             self.save()
@@ -181,10 +354,13 @@ class SessionStore:
         """
         if agent_url:
             if agent_url in self.sessions:
+                self._delete_credential_from_keyring(agent_url)
                 del self.sessions[agent_url]
                 logger.info("Cleared session for %s", agent_url)
         else:
             session_count = len(self.sessions)
+            for existing_agent_url in self.sessions:
+                self._delete_credential_from_keyring(existing_agent_url)
             self.sessions.clear()
             logger.info("Cleared all %d sessions", session_count)
         self.save()

@@ -14,6 +14,8 @@ import truststore
 truststore.inject_into_ssl()
 
 import logging
+import shlex
+import subprocess
 
 logging.getLogger().setLevel(logging.WARNING)
 
@@ -21,6 +23,7 @@ import rich_click as click
 
 from a2a_handler import __version__
 from a2a_handler.common import Output, configure_output, get_logger, setup_logging
+from a2a_handler.common.input_validation import reject_control_chars
 from a2a_handler.common.output import OutputFormat
 from a2a_handler.tui import HandlerTUI
 
@@ -100,11 +103,68 @@ def version(ctx: click.Context) -> None:
 
 @cli.command()
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token for agent auth")
-def tui(bearer_token: str | None) -> None:
+@click.option(
+    "--bearer-command",
+    help="Command that prints a bearer token to stdout (e.g. 'gcloud auth print-identity-token')",
+)
+@click.option(
+    "--bearer-stdin",
+    is_flag=True,
+    help="Read bearer token from stdin",
+)
+def tui(
+    bearer_token: str | None,
+    bearer_command: str | None,
+    bearer_stdin: bool,
+) -> None:
     """Launch the interactive terminal interface."""
+    auth_sources = [
+        bool(bearer_token),
+        bool(bearer_command),
+        bearer_stdin,
+    ]
+    if sum(auth_sources) > 1:
+        raise click.ClickException(
+            "Use only one of --bearer, --bearer-command, or --bearer-stdin"
+        )
+
+    resolved_bearer_token = bearer_token
+    if bearer_command:
+        reject_control_chars(bearer_command, "bearer_command")
+        try:
+            command_parts = shlex.split(bearer_command)
+            if not command_parts:
+                raise click.ClickException("--bearer-command cannot be empty")
+            command_result = subprocess.run(
+                command_parts,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except ValueError as error:
+            raise click.ClickException(f"Invalid --bearer-command: {error}") from error
+        except subprocess.CalledProcessError as error:
+            stderr = error.stderr.strip() if error.stderr else ""
+            message = f"--bearer-command failed with exit code {error.returncode}"
+            if stderr:
+                message = f"{message}: {stderr}"
+            raise click.ClickException(message) from error
+
+        resolved_bearer_token = command_result.stdout.strip()
+        if not resolved_bearer_token:
+            raise click.ClickException("--bearer-command produced an empty token")
+
+    elif bearer_stdin:
+        resolved_bearer_token = click.get_text_stream("stdin").read().strip()
+        if not resolved_bearer_token:
+            raise click.ClickException("--bearer-stdin received an empty token")
+
+    if resolved_bearer_token:
+        reject_control_chars(resolved_bearer_token, "bearer_token")
+
     log.info("Launching TUI")
     logging.getLogger().handlers = []
-    app = HandlerTUI(initial_bearer_token=bearer_token)
+    app = HandlerTUI(initial_bearer_token=resolved_bearer_token)
     app.run()
 
 

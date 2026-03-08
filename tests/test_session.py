@@ -1,9 +1,21 @@
 """Tests for the session state management module."""
 
+import json
+import stat
+import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
-from a2a_handler.session import AgentSession, SessionStore
+import pytest
+
+from a2a_handler.auth import create_bearer_auth
+from a2a_handler.session import (
+    CREDENTIAL_STORAGE_KEYRING,
+    CREDENTIAL_STORAGE_PLAINTEXT,
+    AgentSession,
+    SessionStore,
+)
 
 
 class TestAgentSession:
@@ -164,6 +176,108 @@ class TestSessionStore:
             loaded_session = new_store.sessions["http://localhost:8000"]
             assert loaded_session.context_id == "ctx-123"
             assert loaded_session.task_id == "task-456"
+
+    def test_save_and_load_sessions_with_keyring_credentials(self):
+        """Test credential values are loaded from keyring-backed storage."""
+        agent_url = "http://localhost:8000"
+
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions[agent_url] = AgentSession(
+                agent_url=agent_url,
+                credentials=create_bearer_auth("secret-token"),
+            )
+
+            with (
+                patch.object(
+                    SessionStore,
+                    "_store_credential_in_keyring",
+                    return_value=True,
+                ),
+                patch.object(
+                    SessionStore,
+                    "_get_credential_from_keyring",
+                    return_value="secret-token",
+                ),
+            ):
+                store.save()
+
+                raw_data = json.loads(store.session_file_path.read_text())
+                credentials_data = raw_data[agent_url]["credentials"]
+                assert credentials_data["storage"] == CREDENTIAL_STORAGE_KEYRING
+                assert "value" not in credentials_data
+
+                new_store = SessionStore(session_directory=Path(temp_directory))
+                new_store.load()
+
+                loaded_credentials = new_store.get_credentials(agent_url)
+                assert loaded_credentials is not None
+                assert loaded_credentials.value == "secret-token"
+
+    def test_save_falls_back_to_plaintext_credentials(self):
+        """Test session file stores plaintext when keyring is unavailable."""
+        agent_url = "http://localhost:8000"
+
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions[agent_url] = AgentSession(
+                agent_url=agent_url,
+                credentials=create_bearer_auth("secret-token"),
+            )
+
+            with patch.object(
+                SessionStore,
+                "_store_credential_in_keyring",
+                return_value=False,
+            ):
+                store.save()
+
+            raw_data = json.loads(store.session_file_path.read_text())
+            credentials_data = raw_data[agent_url]["credentials"]
+            assert credentials_data["storage"] == CREDENTIAL_STORAGE_PLAINTEXT
+            assert credentials_data["value"] == "secret-token"
+
+    def test_clear_credentials_deletes_keyring_entry(self):
+        """Test clearing credentials removes any keyring secret."""
+        agent_url = "http://localhost:8000"
+
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions[agent_url] = AgentSession(
+                agent_url=agent_url,
+                credentials=create_bearer_auth("secret-token"),
+            )
+
+            with patch.object(
+                SessionStore,
+                "_delete_credential_from_keyring",
+            ) as mock_delete:
+                store.clear_credentials(agent_url)
+
+            mock_delete.assert_called_once_with(agent_url)
+
+    @pytest.mark.skipif(
+        sys.platform.startswith("win"),
+        reason="Permission mode checks are POSIX-specific",
+    )
+    def test_save_hardens_session_storage_permissions(self):
+        """Test save enforces restrictive directory and file permissions."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            session_directory = Path(temp_directory) / "handler-session"
+            session_directory.mkdir(mode=0o755)
+
+            store = SessionStore(session_directory=session_directory)
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="ctx-123",
+            )
+            store.save()
+
+            directory_mode = stat.S_IMODE(session_directory.stat().st_mode)
+            file_mode = stat.S_IMODE(store.session_file_path.stat().st_mode)
+
+            assert directory_mode == 0o700
+            assert file_mode == 0o600
 
     def test_load_nonexistent_file(self):
         """Test loading from nonexistent file does nothing."""
