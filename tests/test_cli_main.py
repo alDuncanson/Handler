@@ -1,5 +1,6 @@
 """Tests for top-level CLI commands."""
 
+import re
 import subprocess
 from unittest.mock import patch
 
@@ -7,6 +8,14 @@ import pytest
 from click.testing import CliRunner
 
 from a2a_handler.cli import cli
+
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _normalized_output(output: str) -> str:
+    """Normalize rich-formatted CLI output for stable assertions."""
+    without_ansi = ANSI_ESCAPE_PATTERN.sub("", output)
+    return " ".join(without_ansi.split())
 
 
 @pytest.fixture
@@ -66,8 +75,8 @@ def test_tui_rejects_multiple_bearer_sources(runner: CliRunner) -> None:
     )
 
     assert result.exit_code == 1
-    assert (
-        "Use only one of --bearer, --bearer-command, or --bearer-stdin" in result.output
+    assert "Use only one of --bearer, --bearer-command, or --bearer-stdin" in (
+        _normalized_output(result.output)
     )
 
 
@@ -86,9 +95,8 @@ def test_tui_reports_bearer_command_failure(runner: CliRunner) -> None:
         )
 
         assert result.exit_code == 1
-        assert (
-            "--bearer-command failed with exit code 2: permission denied"
-            in result.output
+        assert "--bearer-command failed with exit code 2: permission denied" in (
+            _normalized_output(result.output)
         )
 
 
@@ -97,7 +105,7 @@ def test_tui_rejects_empty_stdin_token(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["tui", "--bearer-stdin"], input="\n")
 
     assert result.exit_code == 1
-    assert "--bearer-stdin received an empty token" in result.output
+    assert "--bearer-stdin received an empty token" in _normalized_output(result.output)
 
 
 def test_version_plain_text_default(runner: CliRunner) -> None:
