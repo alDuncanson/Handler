@@ -8,6 +8,12 @@ Use this file as the default guidance for all local skills in this directory.
 - Use stable section headers: `Workflow`, `Commands`, and `Done Criteria`.
 - Keep command examples copy/paste-safe and aligned to repository tooling.
 
+## Packaging Expectations
+
+- Publish a coherent entrypoint skill that can be installed with `npx skills add alDuncanson/handler`.
+- Prefer progressive disclosure via `references/` documents over splitting into many top-level skills.
+- Keep references narrowly scoped to one competency so contributors can extend safely.
+
 ## Validation Expectations
 
 - If a skill changes MCP behavior, include localhost smoke verification in this order: `get_agent_card` -> `validate_agent_card` -> `send_message` -> `get_task`.
