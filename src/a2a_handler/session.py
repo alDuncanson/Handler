@@ -190,6 +190,12 @@ class SessionStore:
             if value is None and isinstance(cred_data.get("value"), str):
                 # Compatibility fallback for mixed-format data.
                 value = cred_data["value"]
+        elif storage is None:
+            # Legacy data may not include storage metadata. Prefer keyring when
+            # available so stale plaintext values don't override managed secrets.
+            value = self._get_credential_from_keyring(agent_url)
+            if value is None and isinstance(cred_data.get("value"), str):
+                value = cred_data["value"]
         elif isinstance(cred_data.get("value"), str):
             value = cred_data["value"]
 

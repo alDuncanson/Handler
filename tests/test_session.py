@@ -214,6 +214,40 @@ class TestSessionStore:
                 assert loaded_credentials is not None
                 assert loaded_credentials.value == "secret-token"
 
+    def test_load_legacy_credentials_prefers_keyring_secret(self):
+        """Legacy plaintext credentials should defer to available keyring values."""
+        agent_url = "http://localhost:8000"
+
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store._ensure_directory_exists()
+            store.session_file_path.write_text(
+                json.dumps(
+                    {
+                        agent_url: {
+                            "context_id": None,
+                            "task_id": None,
+                            "credentials": {
+                                "auth_type": "bearer",
+                                "value": "legacy-plaintext-token",
+                                "header_name": None,
+                            },
+                        }
+                    }
+                )
+            )
+
+            with patch.object(
+                SessionStore,
+                "_get_credential_from_keyring",
+                return_value="keyring-token",
+            ):
+                store.load()
+
+            loaded_credentials = store.get_credentials(agent_url)
+            assert loaded_credentials is not None
+            assert loaded_credentials.value == "keyring-token"
+
     def test_save_falls_back_to_plaintext_credentials(self):
         """Test session file stores plaintext when keyring is unavailable."""
         agent_url = "http://localhost:8000"

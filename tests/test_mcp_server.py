@@ -1,10 +1,15 @@
 """Tests for MCP server tool registration and validation guards."""
 
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+import a2a_handler.session as session_module
 from a2a_handler.mcp.server import create_mcp_server
+from a2a_handler.session import SessionStore
 
 
 def _tool_fn(server, name: str):
@@ -74,9 +79,42 @@ async def test_set_agent_credentials_rejects_multiple_auth_values() -> None:
     server = create_mcp_server()
     set_agent_credentials = _tool_fn(server, "set_agent_credentials")
 
-    with pytest.raises(ValueError, match="invalid_auth_arguments"):
-        await set_agent_credentials(
-            agent_url="http://localhost:8000",
-            bearer_token="token",
-            api_key="secret-key",
-        )
+    with patch("a2a_handler.mcp.server.set_credentials") as mock_set:
+        with pytest.raises(ValueError, match="invalid_auth_arguments"):
+            await set_agent_credentials(
+                agent_url="http://localhost:8000",
+                bearer_token="token",
+                api_key="secret-key",
+            )
+
+    mock_set.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_set_agent_credentials_serializes_with_keyring_metadata() -> None:
+    server = create_mcp_server()
+    set_agent_credentials = _tool_fn(server, "set_agent_credentials")
+    agent_url = "http://localhost:8000"
+
+    with tempfile.TemporaryDirectory() as temp_directory:
+        store = SessionStore(session_directory=Path(temp_directory))
+
+        with (
+            patch.object(session_module, "_global_session_store", store),
+            patch.object(
+                SessionStore,
+                "_store_credential_in_keyring",
+                return_value=True,
+            ),
+        ):
+            result = await set_agent_credentials(
+                agent_url=agent_url,
+                bearer_token="secret-token",
+            )
+
+        assert result == {"agent_url": agent_url, "auth_type": "bearer"}
+
+        serialized = json.loads(store.session_file_path.read_text())
+        credentials_data = serialized[agent_url]["credentials"]
+        assert credentials_data["storage"] == "keyring"
+        assert "value" not in credentials_data
