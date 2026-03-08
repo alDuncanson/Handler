@@ -5,8 +5,6 @@ metadata:
   internal: true
 ---
 
-# Developing Handler
-
 ## Development Workflow
 
 1. Read `AGENTS.md` and confirm toolchain expectations (`uv`, `just`, Python 3.11+).

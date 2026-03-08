@@ -3,8 +3,6 @@ name: testing-remote-a2a-agents
 description: Validates remote A2A agents with handler MCP tools using staged interoperability, auth, task lifecycle, and push notification checks.
 ---
 
-# Testing Remote A2A Agents
-
 ## Handler Usage Surface
 
 1. Primary path: use handler MCP tools (`get_agent_card`, `validate_agent_card`, `send_message`, `get_task`, `cancel_task`, `set_task_notification`, `get_task_notification`).

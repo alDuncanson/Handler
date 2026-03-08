@@ -5,8 +5,6 @@ metadata:
   internal: true
 ---
 
-# Testing Handler
-
 ## Test Strategy
 
 1. Start with the smallest failing test or add one for the bug.

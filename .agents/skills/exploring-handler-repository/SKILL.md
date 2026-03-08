@@ -5,8 +5,6 @@ metadata:
   internal: true
 ---
 
-# Exploring Handler Repository
-
 ## Workflow
 
 1. Classify the request as `architecture-overview`, `runtime-flow-trace`, `module-deep-dive`, or `change-impact-scan`.

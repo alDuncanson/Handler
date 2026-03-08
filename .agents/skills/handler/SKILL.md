@@ -3,8 +3,6 @@ name: handler
 description: Routes handler usage work with progressive disclosure for remote A2A qualification and handler CLI or MCP operations. Use when asked to use handler tools, validate remote agents, or run protocol, lifecycle, and notification checks.
 ---
 
-# Handler
-
 ## Workflow
 
 1. Classify the request as one of three tracks: `remote-agent-qualification`, `handler-tool-usage`, or `interoperability-triage`.

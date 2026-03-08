@@ -5,8 +5,6 @@ metadata:
   internal: true
 ---
 
-# Testing Handler Skills
-
 ## Workflow
 
 1. Classify the request as one of: `dry-run-development`, `dry-run-testing`, `dry-run-release`, `dry-run-remote-qualification`, or `dry-run-repository-exploration`.

@@ -5,8 +5,6 @@ metadata:
   internal: true
 ---
 
-# Releasing Handler
-
 ## Release Workflow
 
 1. Ensure branch is up to date and intended changes are committed.
