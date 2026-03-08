@@ -17,11 +17,13 @@ from .logging import (
     setup_logging,
 )
 from .output import Output
+from .output import configure_output
 
 __all__ = [
     "LogLevel",
     "LogRecord",
     "Output",
+    "configure_output",
     "TUILogHandler",
     "get_logger",
     "get_theme",

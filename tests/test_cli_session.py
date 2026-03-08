@@ -90,6 +90,13 @@ class TestSessionShow:
             assert result.exit_code == 0
             assert "none" in result.output.lower()
 
+    def test_show_rejects_invalid_agent_url(self, runner):
+        """Test show rejects malformed agent URL."""
+        result = runner.invoke(session, ["show", "not-a-url"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestSessionClear:
     """Tests for session clear command."""
@@ -118,3 +125,10 @@ class TestSessionClear:
 
         assert result.exit_code == 0
         assert "Provide" in result.output or "--all" in result.output
+
+    def test_clear_rejects_invalid_agent_url(self, runner):
+        """Test clearing a malformed URL fails with validation error."""
+        result = runner.invoke(session, ["clear", "not-a-url"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output

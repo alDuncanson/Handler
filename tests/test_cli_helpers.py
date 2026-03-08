@@ -45,8 +45,9 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        assert output.error_obj.call_args.kwargs["code"] == "request_timeout"
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "timed out" in call_args.lower()
 
     def test_http_error_connection(self):
@@ -56,8 +57,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "Connection failed" in call_args or "Connection refused" in call_args
 
     def test_http_error_other(self):
@@ -67,8 +68,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "Some HTTP error" in call_args
 
     def test_generic_a2a_client_error(self):
@@ -78,8 +79,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "Generic A2A error" in call_args
 
     def test_httpx_connect_error(self):
@@ -89,8 +90,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "Connection refused" in call_args
 
     def test_httpx_timeout_error(self):
@@ -100,8 +101,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "timed out" in call_args.lower()
 
     def test_httpx_status_error(self):
@@ -115,8 +116,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "404" in call_args
 
     def test_generic_exception(self):
@@ -126,8 +127,8 @@ class TestHandleClientError:
 
         handle_client_error(error, "http://localhost:8000", output)
 
-        output.error.assert_called_once()
-        call_args = output.error.call_args[0][0]
+        output.error_obj.assert_called_once()
+        call_args = output.error_obj.call_args.kwargs["message"]
         assert "Something went wrong" in call_args
 
     def test_no_output_falls_back_to_echo(self, capsys):

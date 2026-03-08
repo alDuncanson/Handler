@@ -22,3 +22,21 @@ def test_tui_passes_bearer_token_to_app(runner: CliRunner) -> None:
         assert result.exit_code == 0
         mock_tui_cls.assert_called_once_with(initial_bearer_token="token-123")
         mock_tui_cls.return_value.run.assert_called_once()
+
+
+def test_version_plain_text_default(runner: CliRunner) -> None:
+    """Version command defaults to text output."""
+    result = runner.invoke(cli, ["version"])
+
+    assert result.exit_code == 0
+    assert result.output.strip()
+    assert "version" not in result.output.lower()
+
+
+def test_version_json_output(runner: CliRunner) -> None:
+    """Version command supports global json output mode."""
+    result = runner.invoke(cli, ["--output", "json", "version"])
+
+    assert result.exit_code == 0
+    assert '"type": "data"' in result.output
+    assert '"version"' in result.output

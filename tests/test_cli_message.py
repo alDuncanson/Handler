@@ -216,6 +216,55 @@ class TestMessageSend:
 
             assert result.exit_code == 1
 
+    def test_message_send_with_json_payload(self, runner):
+        """Test message send accepts raw json payload."""
+        mock_task = _make_task(TaskState.completed)
+        mock_result = SendResult(task=mock_task, text="Response")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_result
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "http://localhost:8000",
+                    "--json",
+                    '{"text":"Hello from json","context_id":"ctx-9"}',
+                ],
+            )
+
+            assert result.exit_code == 0
+            mock_service.send.assert_called_once_with("Hello from json", "ctx-9", None)
+
+    def test_message_send_json_requires_text(self, runner):
+        """Test message send fails when text is missing in both argument and json."""
+        result = runner.invoke(
+            message,
+            ["send", "http://localhost:8000", "--json", '{"context_id":"ctx"}'],
+        )
+
+        assert result.exit_code == 1
+        assert "Provide message text" in result.output
+
+    def test_message_send_rejects_invalid_agent_url(self, runner):
+        """Test message send rejects invalid agent URLs."""
+        result = runner.invoke(message, ["send", "not-a-url", "Hello"])
+
+        assert result.exit_code == 1
+        assert "agent_url must be a valid http(s) URL" in result.output
+
 
 class TestMessageStream:
     """Tests for message stream command."""

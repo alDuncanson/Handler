@@ -124,3 +124,4 @@ just release       # Tag and push release
 - Both CLI and TUI use `A2AService` for protocol operations
 - Sessions persist context_id, task_id, and credentials to `~/.handler/sessions.json`
 - The MCP server exposes A2A capabilities as tools for AI assistants
+

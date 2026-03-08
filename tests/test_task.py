@@ -161,6 +161,48 @@ class TestTaskGet:
             assert result.exit_code == 1
             assert "Connection refused" in result.output
 
+    def test_task_get_with_json_params(self, runner):
+        """Test task get supports raw json params."""
+        mock_task = _make_task(TaskState.completed)
+        mock_result = TaskResult(task=mock_task)
+
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_task.return_value = mock_result
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "get",
+                    "http://localhost:8000",
+                    "task-123",
+                    "--params",
+                    '{"task_id":"task-999","history_length":3}',
+                ],
+            )
+
+            assert result.exit_code == 0
+            mock_service.get_task.assert_called_once_with("task-999", 3)
+
+    def test_task_get_rejects_invalid_task_id(self, runner):
+        """Test task get rejects malformed task IDs."""
+        result = runner.invoke(
+            task,
+            ["get", "http://localhost:8000", "task-123?fields=name"],
+        )
+
+        assert result.exit_code == 1
+        assert "task_id contains reserved URL characters" in result.output
+
 
 class TestTaskCancel:
     """Tests for task cancel command."""

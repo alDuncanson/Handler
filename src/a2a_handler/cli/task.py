@@ -1,16 +1,30 @@
 """Task commands for managing A2A tasks."""
 
 import asyncio
+from typing import Any
 from typing import Optional
 
 import rich_click as click
 
 from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import Output, get_logger
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    parse_json_object,
+    reject_control_chars,
+    reject_unknown_keys,
+    validate_agent_url,
+    validate_resource_id,
+    validate_webhook_url,
+)
 from a2a_handler.service import A2AService, TaskResult
 from a2a_handler.session import get_credentials
 
-from ._helpers import build_http_client, handle_client_error
+from ._helpers import (
+    build_http_client,
+    handle_client_error,
+    handle_validation_error,
+)
 
 log = get_logger(__name__)
 
@@ -27,16 +41,58 @@ def task() -> None:
 @click.option(
     "--history-length", "-n", type=int, help="Number of history messages to include"
 )
+@click.option(
+    "--params",
+    "json_params",
+    help="Raw JSON params object for agent-friendly invocation",
+)
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def task_get(
     agent_url: str,
     task_id: str,
     history_length: Optional[int],
+    json_params: Optional[str],
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
     """Retrieve the current status of a task."""
+    output = Output()
+    payload: dict[str, Any] = {}
+    try:
+        validate_agent_url(agent_url)
+        if json_params:
+            payload = parse_json_object(json_params, "params")
+            reject_unknown_keys(
+                payload,
+                {"task_id", "history_length", "bearer_token", "api_key"},
+                "params",
+            )
+        payload_task_id = payload.get("task_id")
+        if isinstance(payload_task_id, str):
+            task_id = payload_task_id
+
+        payload_history_length = payload.get("history_length")
+        if history_length is None and isinstance(payload_history_length, int):
+            history_length = payload_history_length
+
+        payload_bearer_token = payload.get("bearer_token")
+        if not bearer_token and isinstance(payload_bearer_token, str):
+            bearer_token = payload_bearer_token
+
+        payload_api_key = payload.get("api_key")
+        if not api_key and isinstance(payload_api_key, str):
+            api_key = payload_api_key
+
+        validate_resource_id(task_id, "task_id")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     log.info("Getting task %s from %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
@@ -48,7 +104,6 @@ def task_get(
         credentials = get_credentials(agent_url)
 
     async def do_get() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
@@ -73,6 +128,18 @@ def task_cancel(
     api_key: Optional[str],
 ) -> None:
     """Request cancellation of a task."""
+    output = Output()
+    try:
+        validate_agent_url(agent_url)
+        validate_resource_id(task_id, "task_id")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     log.info("Canceling task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
@@ -84,7 +151,6 @@ def task_cancel(
         credentials = get_credentials(agent_url)
 
     async def do_cancel() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
@@ -115,6 +181,18 @@ def task_resubscribe(
     api_key: Optional[str],
 ) -> None:
     """Resubscribe to a task's SSE stream after disconnection."""
+    output = Output()
+    try:
+        validate_agent_url(agent_url)
+        validate_resource_id(task_id, "task_id")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     log.info("Resubscribing to task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
@@ -126,7 +204,6 @@ def task_resubscribe(
         credentials = get_credentials(agent_url)
 
     async def do_resubscribe() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
@@ -184,6 +261,21 @@ def notification_set(
     api_key: Optional[str],
 ) -> None:
     """Configure a push notification webhook for a task."""
+    output = Output()
+    try:
+        validate_agent_url(agent_url)
+        validate_resource_id(task_id, "task_id")
+        validate_webhook_url(url)
+        if token:
+            reject_control_chars(token, "token")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     log.info("Setting push config for task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
@@ -195,7 +287,6 @@ def notification_set(
         credentials = get_credentials(agent_url)
 
     async def do_set() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
@@ -235,6 +326,20 @@ def notification_get(
     api_key: Optional[str],
 ) -> None:
     """Get the push notification configuration for a task."""
+    output = Output()
+    try:
+        validate_agent_url(agent_url)
+        validate_resource_id(task_id, "task_id")
+        if config_id:
+            validate_resource_id(config_id, "config_id")
+        if bearer_token:
+            reject_control_chars(bearer_token, "bearer_token")
+        if api_key:
+            reject_control_chars(api_key, "api_key")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
     log.info("Getting push config for task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
@@ -246,7 +351,6 @@ def notification_get(
         credentials = get_credentials(agent_url)
 
     async def do_get() -> None:
-        output = Output()
         try:
             async with build_http_client() as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
