@@ -7,8 +7,6 @@ metadata:
 
 # Testing Handler Skills
 
-Provides safe rehearsal flows for maintainer-oriented handler skills before executing mutating actions.
-
 ## Use This Skill When
 
 1. A user asks to dry run a maintainer workflow before executing it.

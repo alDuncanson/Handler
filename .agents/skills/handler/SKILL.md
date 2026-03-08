@@ -5,8 +5,6 @@ description: Routes handler usage work with progressive disclosure for remote A2
 
 # Handler
 
-Provides a single public entrypoint for handler usage workflows.
-
 ## Use This Skill When
 
 1. A user asks to use handler tools but does not know which handler workflow to run.

@@ -7,8 +7,6 @@ metadata:
 
 # Releasing Handler
 
-Runs the repository release flow with consistent checks and conventional metadata.
-
 ## Use This Skill When
 
 1. Preparing a new release version.

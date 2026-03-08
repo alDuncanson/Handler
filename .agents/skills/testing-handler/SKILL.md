@@ -7,8 +7,6 @@ metadata:
 
 # Testing Handler
 
-Validates `handler` behavior with fast feedback loops and explicit regression coverage.
-
 ## Use This Skill When
 
 1. A bug fix needs reproducible tests.

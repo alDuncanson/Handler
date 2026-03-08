@@ -7,8 +7,6 @@ metadata:
 
 # Developing Handler
 
-Builds production-ready changes in `handler` with minimal drift from project standards.
-
 ## Use This Skill When
 
 1. Adding or changing CLI commands under `src/a2a_handler/cli`.

@@ -5,8 +5,6 @@ description: Validates remote A2A agents with handler MCP tools using staged int
 
 # Testing Remote A2A Agents
 
-Runs pragmatic, reproducible qualification checks against non-local A2A agents using `handler`.
-
 ## Handler Usage Surface
 
 1. Primary path: use handler MCP tools (`get_agent_card`, `validate_agent_card`, `send_message`, `get_task`, `cancel_task`, `set_task_notification`, `get_task_notification`).

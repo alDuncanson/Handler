@@ -7,8 +7,6 @@ metadata:
 
 # Exploring Handler Repository
 
-Builds concise, evidence-backed repository tours for humans and agents working on `handler`.
-
 ## Use This Skill When
 
 1. A user asks to explore how handler is structured or how major components interact.
