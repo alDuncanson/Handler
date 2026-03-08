@@ -4,7 +4,6 @@ This directory stores source documentation. Keep docs content source-first and a
 
 ## Docs Layout
 
-- Keep long-form protocol reference material in `docs/spec`.
 - Do not recreate legacy docs application trees such as `docs/src`.
 - Do not add agent playbooks under `docs/agent`; agent-operational guidance belongs in scoped `AGENTS.md` files.
 
