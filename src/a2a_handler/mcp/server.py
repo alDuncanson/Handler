@@ -14,13 +14,13 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
+from a2a_handler.credentials import resolve_auth_credentials
 from a2a_handler.service import A2AService
 from a2a_handler.session import (
     clear_credentials as session_clear_credentials,
 )
 from a2a_handler.session import (
     clear_session,
-    get_credentials,
     get_session,
     get_session_store,
     set_credentials,
@@ -53,11 +53,14 @@ def _resolve_credentials(
     api_key: str | None = None,
 ) -> AuthCredentials | None:
     """Resolve credentials from explicit args or saved session."""
-    if bearer_token:
-        return create_bearer_auth(bearer_token)
-    if api_key:
-        return create_api_key_auth(api_key)
-    return get_credentials(agent_url)
+    try:
+        return resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        raise _validation_error(error) from error
 
 
 def create_mcp_server() -> FastMCP:

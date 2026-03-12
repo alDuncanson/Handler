@@ -6,6 +6,7 @@ Provides styled console output with ANSI colors.
 from __future__ import annotations
 
 import json as json_module
+import re
 import sys
 from typing import Any, Literal, TextIO
 
@@ -27,6 +28,80 @@ OutputFormat = Literal["text", "json", "ndjson"]
 
 _DEFAULT_OUTPUT_FORMAT: OutputFormat = "text"
 _DEFAULT_QUIET = False
+_REDACTED = "[REDACTED]"
+_SENSITIVE_KEY_MARKERS = (
+    "password",
+    "passwd",
+    "passphrase",
+    "token",
+    "secret",
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "credential",
+)
+_AUTH_BEARER_PATTERN = re.compile(r"(?i)(authorization\s*[:=]\s*bearer\s+)([^\s,;]+)")
+_AUTH_GENERIC_PATTERN = re.compile(
+    r"(?i)(authorization\s*[:=]\s*)(?!bearer\b)([^\s,;]+)"
+)
+_CLI_SECRET_OPTION_PATTERN = re.compile(
+    r"(?i)(--(?:password|passwd|passphrase|token|api-key|api_key|bearer|secret))(=|\s+)([^\s]+)"
+)
+_SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)(\"?(?:password|passwd|passphrase|token|api[_-]?key|secret)\"?\s*[:=]\s*\"?)([^\"'\s,;]+)(\"?)"
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """Return True when a key name likely contains a secret value."""
+    normalized = "_".join(key.strip().lower().split()).replace("-", "_")
+    return any(marker in normalized for marker in _SENSITIVE_KEY_MARKERS)
+
+
+def _redact_text(text: str) -> str:
+    """Mask common inline secret patterns in plain text strings."""
+    redacted = _AUTH_BEARER_PATTERN.sub(r"\1[REDACTED]", text)
+    redacted = _AUTH_GENERIC_PATTERN.sub(r"\1[REDACTED]", redacted)
+    redacted = _CLI_SECRET_OPTION_PATTERN.sub(r"\1\2[REDACTED]", redacted)
+    return _SENSITIVE_ASSIGNMENT_PATTERN.sub(r"\1[REDACTED]\3", redacted)
+
+
+def _redact_secret_value(value: Any) -> Any:
+    """Replace a secret value while preserving explicit nulls."""
+    if value is None:
+        return None
+    return _REDACTED
+
+
+def _redact_data(value: Any) -> Any:
+    """Recursively redact secrets from structured output payloads."""
+    if isinstance(value, dict):
+        redacted: dict[Any, Any] = {}
+        for key, inner_value in value.items():
+            key_str = str(key)
+            if _is_sensitive_key(key_str):
+                redacted[key] = _redact_secret_value(inner_value)
+                continue
+            redacted[key] = _redact_data(inner_value)
+
+        field_name = redacted.get("name")
+        if isinstance(field_name, str) and _is_sensitive_key(field_name):
+            if "value" in redacted:
+                redacted["value"] = _redact_secret_value(redacted["value"])
+
+        return redacted
+
+    if isinstance(value, list):
+        return [_redact_data(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_redact_data(item) for item in value)
+
+    if isinstance(value, str):
+        return _redact_text(value)
+
+    return value
 
 
 def configure_output(output_format: OutputFormat = "text", quiet: bool = False) -> None:
@@ -69,22 +144,23 @@ class Output:
 
     def _print(self, text: str) -> None:
         """Print text to stdout."""
-        print(text)
+        sys.stdout.write(f"{text}\n")
 
     def _emit_text(self, text: str, force: bool = False) -> None:
         """Print plain text output with quiet-mode handling."""
         if self._quiet and not force:
             return
-        self._print(text)
+        self._print(_redact_text(text))
 
     def _emit_structured(self, payload: dict[str, Any], force: bool = False) -> None:
         """Emit structured output in json/ndjson mode."""
         if self._quiet and not force:
             return
+        safe_payload = _redact_data(payload)
         if self._output_format == "ndjson":
-            self._print(json_module.dumps(payload, default=str))
+            self._print(json_module.dumps(safe_payload, default=str))
         else:
-            self._print(json_module.dumps(payload, indent=2, default=str))
+            self._print(json_module.dumps(safe_payload, indent=2, default=str))
 
     def line(self, text: str, style: str | None = None) -> None:
         """Print a line of text with optional style."""
@@ -111,13 +187,18 @@ class Output:
         value_style: str | None = None,
     ) -> None:
         """Print a field as 'Name: value' with formatting."""
-        value_str = str(value) if value is not None else "none"
+        safe_value = (
+            _redact_secret_value(value)
+            if _is_sensitive_key(name)
+            else _redact_data(value)
+        )
+        value_str = str(safe_value) if safe_value is not None else "none"
         if self._output_format != "text":
             self._emit_structured(
                 {
                     "type": "field",
                     "name": name,
-                    "value": value,
+                    "value": safe_value,
                     "dim_value": dim_value,
                     "value_style": value_style,
                 }

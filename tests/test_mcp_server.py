@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 import a2a_handler.session as session_module
+from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.mcp.server import create_mcp_server
 from a2a_handler.session import SessionStore
 
@@ -118,3 +119,19 @@ async def test_set_agent_credentials_serializes_with_keyring_metadata() -> None:
         credentials_data = serialized[agent_url]["credentials"]
         assert credentials_data["storage"] == "keyring"
         assert "value" not in credentials_data
+
+
+@pytest.mark.asyncio
+async def test_send_message_reports_configured_auth_source_failures() -> None:
+    server = create_mcp_server()
+    send_message = _tool_fn(server, "send_message")
+
+    with patch(
+        "a2a_handler.mcp.server.resolve_auth_credentials",
+        side_effect=InputValidationError(
+            code="bearer_command_failed",
+            message="bearer_command failed with exit code 1",
+        ),
+    ):
+        with pytest.raises(ValueError, match="bearer_command_failed"):
+            await send_message(agent_url="http://localhost:8000", message="hello")

@@ -21,6 +21,8 @@ from textual.widgets import Button, Footer, Input
 
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
+from a2a_handler.common.input_validation import InputValidationError
+from a2a_handler.credentials import resolve_auth_credentials
 from a2a_handler.service import A2AService
 from a2a_handler.tui.components import (
     AgentCardPanel,
@@ -145,6 +147,14 @@ class HandlerTUI(App[Any]):
         )
         return await self._agent_service.get_card()
 
+    def _resolve_auth_for_agent(self, agent_url: str) -> AuthCredentials | None:
+        """Resolve credentials from TUI input first, then configured defaults."""
+        messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
+        credentials = messages_panel.get_auth_credentials()
+        if credentials:
+            return credentials
+        return resolve_auth_credentials(agent_url)
+
     def _update_ui_for_connected_state(self, agent_card: AgentCard) -> None:
         agent_card_panel = self.query_one("#agent-card-container", AgentCardPanel)
         agent_card_panel.update_card(agent_card)
@@ -167,7 +177,7 @@ class HandlerTUI(App[Any]):
         messages_panel.add_system_message(f"Connecting to {agent_url}...")
 
         try:
-            credentials = messages_panel.get_auth_credentials()
+            credentials = self._resolve_auth_for_agent(agent_url)
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
             self.current_agent_card = agent_card
@@ -182,6 +192,10 @@ class HandlerTUI(App[Any]):
             agent_card_panel = self.query_one("#agent-card-container", AgentCardPanel)
             agent_card_panel.focus()
 
+        except InputValidationError as error:
+            messages_panel.add_system_message(
+                f"Authentication setup error: {error.message}"
+            )
         except Exception as error:
             logger.error("Connection failed: %s", error, exc_info=True)
             messages_panel.add_system_message(f"Connection failed: {error!s}")
@@ -224,7 +238,7 @@ class HandlerTUI(App[Any]):
         try:
             logger.info("Sending message: %s", message_text[:50])
 
-            credentials = messages_panel.get_auth_credentials()
+            credentials = self._resolve_auth_for_agent(self.current_agent_url)
             if credentials:
                 self._agent_service.set_credentials(credentials)
             else:
@@ -264,6 +278,16 @@ class HandlerTUI(App[Any]):
                             self.current_context_id or "",
                         )
 
+            if send_result.needs_auth:
+                messages_panel.add_system_message(
+                    "Authentication required. Run 'handler auth source set --provider gcloud' "
+                    "or set credentials with 'handler auth set <agent_url> --bearer <token>'."
+                )
+
+        except InputValidationError as error:
+            messages_panel.add_system_message(
+                f"Authentication setup error: {error.message}"
+            )
         except Exception as error:
             logger.error("Error sending message: %s", error, exc_info=True)
             messages_panel.add_system_message(f"Error: {error!s}")

@@ -63,7 +63,7 @@ def session_clear(agent_url: Optional[str], clear_all: bool) -> None:
     output = Output()
     if clear_all:
         clear_session()
-        output.success("Cleared all sessions")
+        output.success("Cleared all sessions (credentials preserved)")
     elif agent_url:
         try:
             validate_agent_url(agent_url)
@@ -72,6 +72,6 @@ def session_clear(agent_url: Optional[str], clear_all: bool) -> None:
             raise click.Abort() from error
 
         clear_session(agent_url)
-        output.success(f"Cleared session for {agent_url}")
+        output.success(f"Cleared session for {agent_url} (credentials preserved)")
     else:
         output.warning("Provide AGENT_URL or use --all to clear sessions")

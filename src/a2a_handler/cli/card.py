@@ -8,8 +8,8 @@ from a2a.types import AgentCard
 
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
+from a2a_handler.credentials import resolve_auth_credentials
 from a2a_handler.service import A2AService
-from a2a_handler.session import get_credentials
 from a2a_handler.validation import (
     ValidationResult,
     validate_agent_card_from_file,
@@ -46,9 +46,15 @@ def card_get(agent_url: str, authenticated: bool) -> None:
         raise click.Abort() from error
 
     log.info("Fetching agent card from %s", agent_url)
-    credentials = get_credentials(agent_url) if authenticated else None
-    if authenticated and credentials is None:
-        log.warning("No saved credentials found for %s", agent_url)
+    credentials = None
+    if authenticated:
+        try:
+            credentials = resolve_auth_credentials(agent_url)
+        except InputValidationError as error:
+            handle_validation_error(error, output)
+            raise click.Abort() from error
+        if credentials is None:
+            log.warning("No credentials or auth source found for %s", agent_url)
 
     async def do_get() -> None:
         try:

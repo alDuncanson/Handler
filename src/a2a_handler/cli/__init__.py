@@ -102,15 +102,20 @@ def version(ctx: click.Context) -> None:
 
 
 @cli.command()
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token for agent auth")
+@click.option(
+    "--bearer",
+    "-b",
+    "bearer_token",
+    help="Temporary bearer token for this TUI run (not saved)",
+)
 @click.option(
     "--bearer-command",
-    help="Command that prints a bearer token to stdout (e.g. 'gcloud auth print-identity-token')",
+    help="Command that prints a temporary bearer token to stdout",
 )
 @click.option(
     "--bearer-stdin",
     is_flag=True,
-    help="Read bearer token from stdin",
+    help="Read a temporary bearer token from stdin",
 )
 def tui(
     bearer_token: str | None,

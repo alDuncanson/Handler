@@ -360,14 +360,20 @@ class SessionStore:
         """
         if agent_url:
             if agent_url in self.sessions:
-                self._delete_credential_from_keyring(agent_url)
-                del self.sessions[agent_url]
+                agent_session = self.sessions[agent_url]
+                agent_session.context_id = None
+                agent_session.task_id = None
+                if agent_session.credentials is None:
+                    del self.sessions[agent_url]
                 logger.info("Cleared session for %s", agent_url)
         else:
             session_count = len(self.sessions)
-            for existing_agent_url in self.sessions:
-                self._delete_credential_from_keyring(existing_agent_url)
-            self.sessions.clear()
+            for existing_agent_url in list(self.sessions):
+                existing_session = self.sessions[existing_agent_url]
+                existing_session.context_id = None
+                existing_session.task_id = None
+                if existing_session.credentials is None:
+                    del self.sessions[existing_agent_url]
             logger.info("Cleared all %d sessions", session_count)
         self.save()
 

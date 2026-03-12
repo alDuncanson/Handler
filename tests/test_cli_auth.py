@@ -184,3 +184,67 @@ class TestAuthClear:
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output
+
+
+class TestAuthSource:
+    """Tests for auth source command group."""
+
+    def test_source_set_global_provider(self, runner):
+        """Setting global auth source with built-in provider saves command."""
+        with patch("a2a_handler.cli.auth.save_default_bearer_command") as mock_save:
+            result = runner.invoke(auth, ["source", "set", "--provider", "gcloud"])
+
+            assert result.exit_code == 0
+            mock_save.assert_called_once_with("gcloud auth print-identity-token")
+            assert "Set global auth source" in result.output
+
+    def test_source_set_agent_command(self, runner):
+        """Setting per-agent auth source stores command for that agent."""
+        with patch("a2a_handler.cli.auth.save_agent_bearer_command") as mock_save:
+            result = runner.invoke(
+                auth,
+                [
+                    "source",
+                    "set",
+                    "http://localhost:8000",
+                    "--command",
+                    "gcloud auth print-identity-token",
+                ],
+            )
+
+            assert result.exit_code == 0
+            mock_save.assert_called_once_with(
+                "http://localhost:8000",
+                "gcloud auth print-identity-token",
+            )
+
+    def test_source_set_requires_provider_or_command(self, runner):
+        """Auth source set requires one source mode."""
+        result = runner.invoke(auth, ["source", "set"])
+
+        assert result.exit_code == 1
+        assert "Provide --provider or --command" in result.output
+
+    def test_source_show_agent_falls_back_to_default(self, runner):
+        """Agent source show falls back to configured global default."""
+        with (
+            patch("a2a_handler.cli.auth.get_agent_bearer_command", return_value=None),
+            patch(
+                "a2a_handler.cli.auth.get_default_bearer_command",
+                return_value="gcloud auth print-identity-token",
+            ),
+        ):
+            result = runner.invoke(auth, ["source", "show", "http://localhost:8000"])
+
+            assert result.exit_code == 0
+            assert "Default fallback" in result.output
+            assert "gcloud auth print-identity-token" in result.output
+
+    def test_source_clear_global(self, runner):
+        """Clearing global source removes default bearer command."""
+        with patch("a2a_handler.cli.auth.save_default_bearer_command") as mock_save:
+            result = runner.invoke(auth, ["source", "clear"])
+
+            assert result.exit_code == 0
+            mock_save.assert_called_once_with(None)
+            assert "Cleared global auth source" in result.output

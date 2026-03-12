@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 from a2a.types import Task, TaskState, TaskStatus
 
+from a2a_handler.auth import create_bearer_auth
 from a2a_handler.cli.message import message, _format_send_result, _stream_message
 from a2a_handler.common import Output
 from a2a_handler.service import SendResult, StreamEvent
@@ -160,6 +161,39 @@ class TestMessageSend:
             assert result.exit_code == 0
             call_kwargs = mock_service_cls.call_args.kwargs
             assert call_kwargs["credentials"] is not None
+
+    def test_message_send_uses_resolved_auth_source(self, runner):
+        """Message send uses resolver output when inline creds are omitted."""
+        mock_task = _make_task(TaskState.completed)
+        mock_result = SendResult(task=mock_task, text="Response")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.resolve_auth_credentials") as mock_resolve,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_result
+            mock_service_cls.return_value = mock_service
+            mock_resolve.return_value = create_bearer_auth("resolved-token")
+
+            result = runner.invoke(
+                message,
+                ["send", "http://localhost:8000", "Hello"],
+            )
+
+            assert result.exit_code == 0
+            mock_resolve.assert_called_once_with(
+                "http://localhost:8000",
+                bearer_token=None,
+                api_key=None,
+            )
 
     def test_message_send_with_push_url(self, runner):
         """Test message send with push notification URL."""

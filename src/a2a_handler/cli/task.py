@@ -6,7 +6,7 @@ from typing import Optional
 
 import rich_click as click
 
-from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
+from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
@@ -17,8 +17,8 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
+from a2a_handler.credentials import resolve_auth_credentials
 from a2a_handler.service import A2AService, TaskResult
-from a2a_handler.session import get_credentials
 
 from ._helpers import (
     build_http_client,
@@ -96,12 +96,15 @@ def task_get(
     log.info("Getting task %s from %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    try:
+        credentials = resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
 
     async def do_get() -> None:
         try:
@@ -143,12 +146,15 @@ def task_cancel(
     log.info("Canceling task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    try:
+        credentials = resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
 
     async def do_cancel() -> None:
         try:
@@ -196,12 +202,15 @@ def task_resubscribe(
     log.info("Resubscribing to task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    try:
+        credentials = resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
 
     async def do_resubscribe() -> None:
         try:
@@ -279,12 +288,15 @@ def notification_set(
     log.info("Setting push config for task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    try:
+        credentials = resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
 
     async def do_set() -> None:
         try:
@@ -343,12 +355,15 @@ def notification_get(
     log.info("Getting push config for task %s at %s", task_id, agent_url)
 
     credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    try:
+        credentials = resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
 
     async def do_get() -> None:
         try:

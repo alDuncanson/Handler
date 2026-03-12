@@ -1,5 +1,6 @@
 """Tests for the Output class and related utilities."""
 
+import json
 from io import StringIO
 
 import pytest
@@ -109,6 +110,21 @@ class TestOutput:
         output.line("Styled text", style="green")
         assert captured_output == ["Styled text"]
 
+    def test_line_redacts_inline_secret_assignment(self, output, captured_output):
+        """Test line output masks inline password values."""
+        output.line("password=my-secret-value")
+        assert captured_output == ["password=[REDACTED]"]
+
+    def test_line_redacts_bearer_token_but_keeps_scheme(self, output, captured_output):
+        """Test line output masks bearer token while preserving context."""
+        output.line("Authorization: Bearer my-secret-token")
+        assert captured_output == ["Authorization: Bearer [REDACTED]"]
+
+    def test_line_redacts_generic_authorization_value(self, output, captured_output):
+        """Test line output masks non-bearer authorization values."""
+        output.line("Authorization=ApiKeyValue")
+        assert captured_output == ["Authorization=[REDACTED]"]
+
     def test_field_basic(self, output, captured_output):
         """Test basic field output."""
         output.field("Name", "Value")
@@ -120,6 +136,12 @@ class TestOutput:
         """Test field with None value."""
         output.field("Name", None)
         assert "none" in captured_output[0]
+
+    def test_field_masks_sensitive_name_value(self, output, captured_output):
+        """Test field output masks values for sensitive field names."""
+        output.field("Bearer Token", "secret-token")
+        assert "[REDACTED]" in captured_output[0]
+        assert "secret-token" not in captured_output[0]
 
     def test_header(self, output, captured_output):
         """Test header output."""
@@ -308,6 +330,35 @@ class TestStructuredOutput:
         output.error_obj(code="x", message="bad")
 
         assert captured == ['{"type": "error", "code": "x", "message": "bad"}']
+
+    def test_json_mode_masks_sensitive_field_value(self):
+        output = Output(output_format="json")
+        captured: list[str] = []
+        setattr(output, "_print", captured.append)
+
+        output.field("API Key", "secret-key")
+
+        assert len(captured) == 1
+        payload = json.loads(captured[0])
+        assert payload["type"] == "field"
+        assert payload["name"] == "API Key"
+        assert payload["value"] == "[REDACTED]"
+
+    def test_json_mode_masks_error_details(self):
+        output = Output(output_format="json")
+        captured: list[str] = []
+        setattr(output, "_print", captured.append)
+
+        output.error_obj(
+            code="x",
+            message="bad",
+            details={"password": "swordfish", "nested": {"token": "abc123"}},
+        )
+
+        assert len(captured) == 1
+        payload = json.loads(captured[0])
+        assert payload["details"]["password"] == "[REDACTED]"
+        assert payload["details"]["nested"]["token"] == "[REDACTED]"
 
     def test_quiet_mode_suppresses_non_errors(self):
         output = Output(output_format="text", quiet=True)

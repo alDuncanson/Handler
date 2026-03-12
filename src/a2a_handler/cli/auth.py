@@ -6,10 +6,21 @@ import rich_click as click
 
 from a2a_handler.auth import AuthType, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import Output
+from a2a_handler.common import (
+    clear_agent_bearer_command,
+    get_agent_bearer_command,
+    get_default_bearer_command,
+    save_agent_bearer_command,
+    save_default_bearer_command,
+)
 from a2a_handler.common.input_validation import (
     InputValidationError,
     reject_control_chars,
     validate_agent_url,
+)
+from a2a_handler.credentials import (
+    BUILTIN_BEARER_PROVIDERS,
+    get_builtin_provider_command,
 )
 from a2a_handler.session import clear_credentials, get_credentials, set_credentials
 
@@ -70,7 +81,7 @@ def auth_set(
 
     set_credentials(agent_url, credentials)
 
-    output.success(f"Set {auth_type_display} for {agent_url}")
+    output.success(f"Set {auth_type_display} for {agent_url} (saved to OS keyring)")
 
 
 @auth.command("show")
@@ -117,3 +128,130 @@ def auth_clear(agent_url: str) -> None:
 
     clear_credentials(agent_url)
     output.success(f"Cleared credentials for {agent_url}")
+
+
+@auth.group("source")
+def auth_source() -> None:
+    """Manage automatic bearer token sources."""
+    pass
+
+
+@auth_source.command("set")
+@click.argument("agent_url", required=False)
+@click.option(
+    "--provider",
+    type=click.Choice(sorted(BUILTIN_BEARER_PROVIDERS.keys())),
+    help="Built-in provider for bearer tokens (for example: gcloud)",
+)
+@click.option(
+    "--command",
+    "bearer_command",
+    help="Command that prints a bearer token to stdout",
+)
+def auth_source_set(
+    agent_url: str | None,
+    provider: str | None,
+    bearer_command: str | None,
+) -> None:
+    """Set an automatic bearer token command for an agent or globally.
+
+    If AGENT_URL is omitted, sets the global default source.
+    """
+    output = Output()
+    try:
+        if agent_url:
+            validate_agent_url(agent_url)
+        if provider and bearer_command:
+            raise InputValidationError(
+                code="invalid_auth_source_arguments",
+                message="Provide either --provider or --command, not both",
+                suggestion="Pick one auth source mode",
+            )
+        if not provider and not bearer_command:
+            raise InputValidationError(
+                code="missing_auth_source_arguments",
+                message="Provide --provider or --command",
+                suggestion="For gcloud use: --provider gcloud",
+            )
+        if bearer_command:
+            reject_control_chars(bearer_command, "bearer_command")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    command = bearer_command
+    if provider:
+        command = get_builtin_provider_command(provider)
+        if command is None:
+            output.error(f"Unsupported provider: {provider}")
+            raise click.Abort()
+
+    assert command is not None
+    if agent_url:
+        save_agent_bearer_command(agent_url, command)
+        output.success(f"Set auth source for {agent_url}")
+    else:
+        save_default_bearer_command(command)
+        output.success("Set global auth source")
+
+    if provider:
+        output.field("Provider", provider)
+    output.field("Command", command)
+
+
+@auth_source.command("show")
+@click.argument("agent_url", required=False)
+def auth_source_show(agent_url: str | None) -> None:
+    """Show configured automatic bearer token sources."""
+    output = Output()
+    try:
+        if agent_url:
+            validate_agent_url(agent_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    output.header("Auth Source")
+
+    if agent_url:
+        command = get_agent_bearer_command(agent_url)
+        if command:
+            output.field("Scope", f"Agent: {agent_url}")
+            output.field("Command", command)
+            return
+
+        default_command = get_default_bearer_command()
+        if default_command:
+            output.field("Scope", f"Default fallback for {agent_url}")
+            output.field("Command", default_command)
+            return
+
+        output.dim("No auth source configured")
+        return
+
+    command = get_default_bearer_command()
+    if command:
+        output.field("Scope", "Global")
+        output.field("Command", command)
+    else:
+        output.dim("No global auth source configured")
+
+
+@auth_source.command("clear")
+@click.argument("agent_url", required=False)
+def auth_source_clear(agent_url: str | None) -> None:
+    """Clear automatic bearer token source for an agent or globally."""
+    output = Output()
+    try:
+        if agent_url:
+            validate_agent_url(agent_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    if agent_url:
+        clear_agent_bearer_command(agent_url)
+        output.success(f"Cleared auth source for {agent_url}")
+    else:
+        save_default_bearer_command(None)
+        output.success("Cleared global auth source")

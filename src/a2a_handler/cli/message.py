@@ -6,7 +6,7 @@ from typing import Optional
 
 import rich_click as click
 
-from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
+from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
@@ -17,8 +17,9 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
+from a2a_handler.credentials import resolve_auth_credentials
 from a2a_handler.service import A2AService, SendResult
-from a2a_handler.session import get_credentials, get_session, update_session
+from a2a_handler.session import get_session, update_session
 
 from ._helpers import build_http_client, handle_client_error, handle_validation_error
 
@@ -154,12 +155,15 @@ def message_send(
             log.info("Using saved context: %s", context_id)
 
     credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    try:
+        credentials = resolve_auth_credentials(
+            agent_url,
+            bearer_token=bearer_token,
+            api_key=api_key,
+        )
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
 
     async def do_send() -> None:
         try:
@@ -272,6 +276,9 @@ async def _stream_message(
         output.line(
             "Set credentials with: handler auth set <agent_url> --bearer <token>"
         )
+        output.line(
+            "Or configure automatic tokens: handler auth source set --provider gcloud"
+        )
 
 
 def _format_send_result(result: SendResult, output: Output) -> None:
@@ -293,6 +300,9 @@ def _format_send_result(result: SendResult, output: Output) -> None:
         )
         output.line(
             "Or provide inline: handler message send <agent_url> --bearer <token> ..."
+        )
+        output.line(
+            "Or configure automatic tokens: handler auth source set --provider gcloud"
         )
     elif result.text:
         output.markdown(result.text)

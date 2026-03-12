@@ -97,14 +97,16 @@ class TestCardGet:
 
         with (
             patch("a2a_handler.cli.card.build_http_client") as mock_client,
-            patch("a2a_handler.cli.card.get_credentials") as mock_get_credentials,
+            patch(
+                "a2a_handler.cli.card.resolve_auth_credentials"
+            ) as mock_resolve_credentials,
             patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
         ):
             mock_http = AsyncMock()
             mock_http.__aenter__.return_value = mock_http
             mock_http.__aexit__.return_value = None
             mock_client.return_value = mock_http
-            mock_get_credentials.return_value = credentials
+            mock_resolve_credentials.return_value = credentials
 
             mock_service = AsyncMock()
             mock_service.get_card.return_value = mock_card
@@ -113,7 +115,7 @@ class TestCardGet:
             result = runner.invoke(card, ["get", "http://localhost:8000", "-a"])
 
             assert result.exit_code == 0
-            mock_get_credentials.assert_called_once_with("http://localhost:8000")
+            mock_resolve_credentials.assert_called_once_with("http://localhost:8000")
             mock_service_cls.assert_called_once_with(
                 mock_http,
                 "http://localhost:8000",

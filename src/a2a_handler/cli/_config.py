@@ -67,6 +67,12 @@ click.rich_click.OPTION_GROUPS = {
             "options": ["--bearer", "--api-key", "--api-key-header"],
         },
     ],
+    "handler auth source set": [
+        {
+            "name": "Source Options",
+            "options": ["--provider", "--command"],
+        },
+    ],
 }
 
 click.rich_click.COMMAND_GROUPS = {
@@ -97,6 +103,12 @@ click.rich_click.COMMAND_GROUPS = {
         {"name": "Session Commands", "commands": ["list", "show", "clear"]},
     ],
     "handler auth": [
-        {"name": "Auth Commands", "commands": ["set", "show", "clear"]},
+        {
+            "name": "Auth Commands",
+            "commands": ["set", "show", "clear", "source"],
+        },
+    ],
+    "handler auth source": [
+        {"name": "Source Commands", "commands": ["set", "show", "clear"]},
     ],
 }

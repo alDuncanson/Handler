@@ -145,6 +145,67 @@ class TestSessionStore:
 
             assert len(store.sessions) == 0
 
+    def test_clear_preserves_credentials_for_agent(self):
+        """Clearing session state keeps saved credentials for that agent."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="ctx-1",
+                task_id="task-1",
+                credentials=create_bearer_auth("token-1"),
+            )
+
+            store.clear("http://localhost:8000")
+
+            assert "http://localhost:8000" in store.sessions
+            session = store.sessions["http://localhost:8000"]
+            assert session.context_id is None
+            assert session.task_id is None
+            assert session.credentials is not None
+
+    def test_clear_all_preserves_credentials(self):
+        """Clearing all session state retains entries with credentials."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="ctx-1",
+                task_id="task-1",
+                credentials=create_bearer_auth("token-1"),
+            )
+            store.sessions["http://localhost:9000"] = AgentSession(
+                agent_url="http://localhost:9000",
+                context_id="ctx-2",
+                task_id="task-2",
+            )
+
+            store.clear()
+
+            assert list(store.sessions.keys()) == ["http://localhost:8000"]
+            kept = store.sessions["http://localhost:8000"]
+            assert kept.context_id is None
+            assert kept.task_id is None
+
+    def test_clear_does_not_delete_keyring_credentials(self):
+        """Session clearing does not touch keyring credential entries."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="ctx-1",
+                task_id="task-1",
+                credentials=create_bearer_auth("token-1"),
+            )
+
+            with patch.object(
+                SessionStore,
+                "_delete_credential_from_keyring",
+            ) as mock_delete:
+                store.clear("http://localhost:8000")
+
+            mock_delete.assert_not_called()
+
     def test_list_all_sessions(self):
         """Test listing all sessions."""
         store = SessionStore()
