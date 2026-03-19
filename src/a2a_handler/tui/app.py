@@ -17,11 +17,17 @@ from textual.binding import Binding
 from textual.containers import Container, Vertical
 from textual.logging import TextualHandler
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Input
+from textual.widgets import Button, Footer, Input, RadioSet, Select
 
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
+from a2a_handler.profiles import (
+    ConnectionProfile,
+    load_profiles,
+    resolve_profile_credentials,
+)
 from a2a_handler.service import A2AService
+from a2a_handler.session import get_credentials, get_session_store
 from a2a_handler.tui.components import (
     AgentCardPanel,
     ContactPanel,
@@ -82,6 +88,12 @@ class HandlerTUI(App[Any]):
         self._agent_service: A2AService | None = None
         self._is_maximized: bool = False
         self._initial_bearer_token = initial_bearer_token
+        self._profiles: dict[str, ConnectionProfile] = {}
+        self._profile_credentials: dict[str, AuthCredentials] = {}
+        self._profile_warnings: dict[str, str] = {}
+        self._manual_auth_override: bool = False
+        self._is_syncing_auth_panel: bool = False
+        self._suspend_target_change_events: bool = False
 
     def compose(self) -> ComposeResult:
         with Container(id="root-container"):
@@ -96,6 +108,7 @@ class HandlerTUI(App[Any]):
 
     async def on_mount(self) -> None:
         logger.info("TUI application starting")
+        self._suspend_target_change_events = True
         self.http_client = build_http_client()
         self.theme = get_theme()
 
@@ -104,15 +117,171 @@ class HandlerTUI(App[Any]):
 
         messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
         messages_panel.load_logs(tui_log_handler.get_lines())
-        if self._initial_bearer_token:
-            messages_panel.set_bearer_token(self._initial_bearer_token)
 
         contact_panel = self.query_one("#contact-container", ContactPanel)
         contact_panel.set_version(__version__)
+        self._load_connection_targets()
+        self._sync_auth_panel_with_resolved_credentials()
+
+        if self._initial_bearer_token:
+            self._is_syncing_auth_panel = True
+            try:
+                messages_panel.set_bearer_token(self._initial_bearer_token)
+            finally:
+                self._is_syncing_auth_panel = False
+            self._manual_auth_override = True
+
+        self._refresh_auth_source_status()
 
         messages_panel.add_system_message(
             "Welcome! Connect to an agent to start chatting."
         )
+        self._suspend_target_change_events = False
+
+    def _load_connection_targets(self) -> None:
+        """Load profile and saved URL targets into the contact panel."""
+        self._profiles = load_profiles()
+        self._profile_credentials = {}
+        self._profile_warnings = {}
+
+        for profile_name, profile in self._profiles.items():
+            credentials, warning = resolve_profile_credentials(profile)
+            if credentials:
+                self._profile_credentials[profile_name] = credentials
+            if warning:
+                self._profile_warnings[profile_name] = warning
+                logger.warning("Profile %s: %s", profile_name, warning)
+
+        profile_urls = {
+            profile_name: profile.agent_url
+            for profile_name, profile in self._profiles.items()
+        }
+
+        saved_urls = sorted(
+            {session.agent_url for session in get_session_store().list_all()}
+        )
+
+        contact_panel = self.query_one("#contact-container", ContactPanel)
+        contact_panel.set_connection_targets(
+            profile_urls=profile_urls, saved_urls=saved_urls
+        )
+
+    def _resolve_connection_credentials(
+        self,
+        agent_url: str,
+        selected_profile_name: str | None,
+        manual_credentials: AuthCredentials | None,
+        manual_override: bool = False,
+    ) -> tuple[AuthCredentials | None, str, str | None]:
+        """Resolve credentials for connect/send using a consistent precedence order."""
+        if manual_credentials:
+            return manual_credentials, "manual (Auth tab)", None
+        if manual_override:
+            return None, "manual (none)", None
+
+        profile = None
+        if selected_profile_name:
+            profile = self._profiles.get(selected_profile_name)
+
+        if profile and profile.agent_url == agent_url:
+            profile_credentials = self._profile_credentials.get(profile.name)
+            if profile_credentials:
+                return profile_credentials, f"profile '{profile.name}'", None
+
+            profile_warning = self._profile_warnings.get(profile.name)
+            if profile_warning:
+                saved_credentials = get_credentials(agent_url)
+                if saved_credentials:
+                    return (
+                        saved_credentials,
+                        f"saved (profile '{profile.name}' unavailable)",
+                        profile_warning,
+                    )
+                return None, f"profile '{profile.name}' unavailable", profile_warning
+
+            saved_credentials = get_credentials(agent_url)
+            if saved_credentials:
+                return (
+                    saved_credentials,
+                    f"saved (profile '{profile.name}' has no auth)",
+                    None,
+                )
+            return None, f"profile '{profile.name}' (none)", None
+
+        if profile and profile.agent_url != agent_url:
+            saved_credentials = get_credentials(agent_url)
+            if saved_credentials:
+                return (
+                    saved_credentials,
+                    f"saved (selected profile '{profile.name}' URL differs)",
+                    None,
+                )
+            return None, f"none (selected profile '{profile.name}' URL differs)", None
+
+        saved_credentials = get_credentials(agent_url)
+        if saved_credentials:
+            return saved_credentials, "saved", None
+
+        return None, "none", None
+
+    def _refresh_auth_source_status(self) -> None:
+        """Refresh the contact panel auth source indicator."""
+        try:
+            contact_panel = self.query_one("#contact-container", ContactPanel)
+            messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
+        except Exception:
+            return
+
+        agent_url = contact_panel.get_url()
+        if not agent_url:
+            contact_panel.set_auth_source_status("none")
+            return
+
+        manual_credentials = messages_panel.get_auth_credentials()
+        selected_profile_name = contact_panel.get_selected_profile_name()
+        _, source_description, _ = self._resolve_connection_credentials(
+            agent_url=agent_url,
+            selected_profile_name=selected_profile_name,
+            manual_credentials=manual_credentials,
+            manual_override=self._manual_auth_override,
+        )
+        contact_panel.set_auth_source_status(source_description)
+
+    def _sync_auth_panel_with_resolved_credentials(self) -> None:
+        """Populate auth tab fields from resolved credentials for the current URL."""
+        if self._manual_auth_override:
+            return
+
+        contact_panel = self.query_one("#contact-container", ContactPanel)
+        messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
+
+        agent_url = contact_panel.get_url()
+        if not agent_url:
+            messages_panel.set_auth_credentials(None)
+            return
+
+        selected_profile_name = contact_panel.get_selected_profile_name()
+        resolved_credentials, _, _ = self._resolve_connection_credentials(
+            agent_url=agent_url,
+            selected_profile_name=selected_profile_name,
+            manual_credentials=None,
+        )
+        self._is_syncing_auth_panel = True
+        try:
+            messages_panel.set_auth_credentials(resolved_credentials)
+        finally:
+            self._is_syncing_auth_panel = False
+
+    def _handle_connection_target_transition(self) -> None:
+        """Apply profile/saved auth when a non-custom target is selected."""
+        contact_panel = self.query_one("#contact-container", ContactPanel)
+        target_id = contact_panel.get_selected_target_id()
+        if target_id == "custom":
+            return
+
+        self._manual_auth_override = False
+        self._sync_auth_panel_with_resolved_credentials()
+        self._refresh_auth_source_status()
 
     def _on_log_line(self, line: str) -> None:
         """Callback for new log lines."""
@@ -152,6 +321,47 @@ class HandlerTUI(App[Any]):
         messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
         messages_panel.update_message_count()
 
+    @on(Select.Changed, "#connection-target")
+    def _handle_connection_target_changed(self) -> None:
+        if self._suspend_target_change_events:
+            return
+        self._handle_connection_target_transition()
+
+    @on(Input.Changed, "#agent-url")
+    def _handle_agent_url_changed(self) -> None:
+        contact_panel = self.query_one("#contact-container", ContactPanel)
+        target_id = contact_panel.get_selected_target_id()
+        if target_id != "custom":
+            self._handle_connection_target_transition()
+            return
+
+        self._sync_auth_panel_with_resolved_credentials()
+        self._refresh_auth_source_status()
+
+    @on(RadioSet.Changed, "#auth-type-selector")
+    def _handle_auth_type_changed(self) -> None:
+        if not self._is_syncing_auth_panel:
+            self._manual_auth_override = True
+        self._refresh_auth_source_status()
+
+    @on(Input.Changed, "#api-key-input")
+    def _handle_api_key_changed(self) -> None:
+        if not self._is_syncing_auth_panel:
+            self._manual_auth_override = True
+        self._refresh_auth_source_status()
+
+    @on(Input.Changed, "#api-key-header-input")
+    def _handle_api_key_header_changed(self) -> None:
+        if not self._is_syncing_auth_panel:
+            self._manual_auth_override = True
+        self._refresh_auth_source_status()
+
+    @on(Input.Changed, "#bearer-token-input")
+    def _handle_bearer_token_changed(self) -> None:
+        if not self._is_syncing_auth_panel:
+            self._manual_auth_override = True
+        self._refresh_auth_source_status()
+
     @on(Button.Pressed, "#connect-btn")
     async def handle_connect_button(self) -> None:
         contact_panel = self.query_one("#contact-container", ContactPanel)
@@ -167,7 +377,24 @@ class HandlerTUI(App[Any]):
         messages_panel.add_system_message(f"Connecting to {agent_url}...")
 
         try:
-            credentials = messages_panel.get_auth_credentials()
+            selected_profile_name = contact_panel.get_selected_profile_name()
+            manual_credentials = (
+                messages_panel.get_auth_credentials()
+                if self._manual_auth_override
+                else None
+            )
+            credentials, source_description, warning = (
+                self._resolve_connection_credentials(
+                    agent_url=agent_url,
+                    selected_profile_name=selected_profile_name,
+                    manual_credentials=manual_credentials,
+                    manual_override=self._manual_auth_override,
+                )
+            )
+            contact_panel.set_auth_source_status(source_description)
+            if warning:
+                messages_panel.add_system_message(warning)
+
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
             self.current_agent_card = agent_card
@@ -224,7 +451,21 @@ class HandlerTUI(App[Any]):
         try:
             logger.info("Sending message: %s", message_text[:50])
 
-            credentials = messages_panel.get_auth_credentials()
+            contact_panel = self.query_one("#contact-container", ContactPanel)
+            selected_profile_name = contact_panel.get_selected_profile_name()
+            manual_credentials = (
+                messages_panel.get_auth_credentials()
+                if self._manual_auth_override
+                else None
+            )
+            credentials, source_description, _ = self._resolve_connection_credentials(
+                agent_url=self.current_agent_url,
+                selected_profile_name=selected_profile_name,
+                manual_credentials=manual_credentials,
+                manual_override=self._manual_auth_override,
+            )
+            contact_panel.set_auth_source_status(source_description)
+
             if credentials:
                 self._agent_service.set_credentials(credentials)
             else:

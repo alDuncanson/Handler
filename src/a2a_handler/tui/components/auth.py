@@ -22,6 +22,48 @@ class AuthPanel(Vertical):
 
     can_focus = False
 
+    def _set_none_selected(self) -> None:
+        """Set no-auth selection and hide auth-specific fields."""
+        none_button = self.query_one("#auth-none", RadioButton)
+        api_key_button = self.query_one("#auth-api-key", RadioButton)
+        bearer_button = self.query_one("#auth-bearer", RadioButton)
+
+        with self.prevent(RadioButton.Changed, RadioSet.Changed):
+            none_button.value = True
+            api_key_button.value = False
+            bearer_button.value = False
+
+        self.query_one("#api-key-fields", Vertical).add_class("hidden")
+        self.query_one("#bearer-fields", Vertical).add_class("hidden")
+
+    def _set_api_key_selected(self) -> None:
+        """Set API key selection and show API key fields."""
+        none_button = self.query_one("#auth-none", RadioButton)
+        api_key_button = self.query_one("#auth-api-key", RadioButton)
+        bearer_button = self.query_one("#auth-bearer", RadioButton)
+
+        with self.prevent(RadioButton.Changed, RadioSet.Changed):
+            none_button.value = False
+            api_key_button.value = True
+            bearer_button.value = False
+
+        self.query_one("#api-key-fields", Vertical).remove_class("hidden")
+        self.query_one("#bearer-fields", Vertical).add_class("hidden")
+
+    def _set_bearer_selected(self) -> None:
+        """Set bearer selection and show bearer fields."""
+        none_button = self.query_one("#auth-none", RadioButton)
+        api_key_button = self.query_one("#auth-api-key", RadioButton)
+        bearer_button = self.query_one("#auth-bearer", RadioButton)
+
+        with self.prevent(RadioButton.Changed, RadioSet.Changed):
+            none_button.value = False
+            api_key_button.value = False
+            bearer_button.value = True
+
+        self.query_one("#api-key-fields", Vertical).add_class("hidden")
+        self.query_one("#bearer-fields", Vertical).remove_class("hidden")
+
     def compose(self) -> ComposeResult:
         yield Label("Authentication Type")
         with RadioSet(id="auth-type-selector"):
@@ -43,19 +85,14 @@ class AuthPanel(Vertical):
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Handle auth type selection changes."""
-        api_key_fields = self.query_one("#api-key-fields", Vertical)
-        bearer_fields = self.query_one("#bearer-fields", Vertical)
-
-        api_key_fields.add_class("hidden")
-        bearer_fields.add_class("hidden")
-
         if event.pressed.id == "auth-api-key":
-            api_key_fields.remove_class("hidden")
+            self._set_api_key_selected()
             logger.debug("Auth type changed to API Key")
         elif event.pressed.id == "auth-bearer":
-            bearer_fields.remove_class("hidden")
+            self._set_bearer_selected()
             logger.debug("Auth type changed to Bearer Token")
         else:
+            self._set_none_selected()
             logger.debug("Auth type changed to None")
 
     def get_credentials(self) -> AuthCredentials | None:
@@ -64,13 +101,7 @@ class AuthPanel(Vertical):
         Returns:
             AuthCredentials if auth is configured, None otherwise.
         """
-        radio_set = self.query_one("#auth-type-selector", RadioSet)
-        pressed = radio_set.pressed_button
-
-        if pressed is None or pressed.id == "auth-none":
-            return None
-
-        if pressed.id == "auth-api-key":
+        if self.query_one("#auth-api-key", RadioButton).value:
             api_key = self.query_one("#api-key-input", Input).value
             header_name = (
                 self.query_one("#api-key-header-input", Input).value or "X-API-Key"
@@ -78,7 +109,7 @@ class AuthPanel(Vertical):
             if api_key:
                 return create_api_key_auth(api_key, header_name=header_name)
 
-        elif pressed.id == "auth-bearer":
+        if self.query_one("#auth-bearer", RadioButton).value:
             token = self.query_one("#bearer-token-input", Input).value
             if token:
                 return create_bearer_auth(token)
@@ -87,23 +118,28 @@ class AuthPanel(Vertical):
 
     def get_auth_type(self) -> AuthType | None:
         """Get the currently selected auth type."""
-        radio_set = self.query_one("#auth-type-selector", RadioSet)
-        pressed = radio_set.pressed_button
-
-        if pressed is None or pressed.id == "auth-none":
-            return None
-        elif pressed.id == "auth-api-key":
+        if self.query_one("#auth-api-key", RadioButton).value:
             return AuthType.API_KEY
-        elif pressed.id == "auth-bearer":
+        if self.query_one("#auth-bearer", RadioButton).value:
             return AuthType.BEARER
         return None
 
     def set_bearer_token(self, token: str) -> None:
         """Preconfigure bearer token authentication."""
+        self._set_bearer_selected()
         self.query_one("#bearer-token-input", Input).value = token
-        self.query_one("#auth-bearer", RadioButton).value = True
-
-        # Ensure fields are visible even if no RadioSet event is emitted.
-        self.query_one("#api-key-fields", Vertical).add_class("hidden")
-        self.query_one("#bearer-fields", Vertical).remove_class("hidden")
         logger.debug("Preconfigured bearer token authentication")
+
+    def set_api_key(self, api_key: str, header_name: str = "X-API-Key") -> None:
+        """Preconfigure API key authentication."""
+        self._set_api_key_selected()
+        self.query_one("#api-key-input", Input).value = api_key
+        self.query_one("#api-key-header-input", Input).value = header_name
+        logger.debug("Preconfigured api key authentication")
+
+    def clear(self) -> None:
+        """Reset auth fields to no authentication selected."""
+        self.query_one("#api-key-input", Input).value = ""
+        self.query_one("#api-key-header-input", Input).value = ""
+        self.query_one("#bearer-token-input", Input).value = ""
+        self._set_none_selected()

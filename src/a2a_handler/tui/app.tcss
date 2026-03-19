@@ -69,6 +69,10 @@ Screen {
     height: auto;
 }
 
+#server-content > Select {
+    margin-bottom: 1;
+}
+
 #help-content {
     height: auto;
 }
@@ -105,12 +109,27 @@ Screen {
     align: left middle;
 }
 
+#connection-target {
+    width: 1fr;
+    min-width: 0;
+    height: 3;
+    border: none;
+    background: transparent;
+}
+
 #agent-url {
     background: transparent;
     border: none;
     height: 3;
     padding: 1 1;
     width: 1fr;
+    min-width: 20;
+}
+
+#auth-source-status {
+    height: auto;
+    color: $text-muted;
+    margin-top: 1;
 }
 
 /* Buttons - Flat & Thinner */
@@ -165,6 +184,10 @@ Button:hover {
     height: 3;
     background: $primary;
     color: $background;
+}
+
+#connect-btn {
+    margin-left: 1;
 }
 
 /* Messages Tabs */

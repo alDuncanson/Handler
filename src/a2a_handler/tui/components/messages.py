@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Static, TabbedContent, TabPane, Tabs
 
+from a2a_handler.auth import AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
@@ -255,6 +256,21 @@ class TabbedMessagesPanel(Container):
         """Preconfigure bearer token authentication in the auth panel."""
         auth_panel = self._get_auth_panel()
         auth_panel.set_bearer_token(token)
+
+    def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
+        """Preconfigure auth panel fields from resolved credentials."""
+        auth_panel = self._get_auth_panel()
+        if credentials is None:
+            auth_panel.clear()
+            return
+
+        if credentials.auth_type == AuthType.BEARER:
+            auth_panel.set_bearer_token(credentials.value)
+        elif credentials.auth_type == AuthType.API_KEY:
+            auth_panel.set_api_key(
+                credentials.value,
+                credentials.header_name or "X-API-Key",
+            )
 
     def add_task(self, task: "Task") -> None:
         """Add a task to the tasks panel."""

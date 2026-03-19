@@ -78,6 +78,43 @@ This provides Python, uv, and just with all commands ready to use.
 For usage documentation, see the
 [Handler docs](https://alduncanson.github.io/Handler/).
 
+## Connection Profiles (TOML)
+
+Handler supports optional named connection profiles in
+`~/.handler/profiles.toml`.
+
+The TUI shows these profiles in a selector alongside URLs you've previously
+connected to. Auth resolution order is:
+
+1. Auth entered in the TUI Auth tab.
+2. Auth from the selected profile.
+3. Saved credentials for the current URL from `handler auth set`.
+
+Example:
+
+```toml
+version = 1
+
+[profiles.local]
+url = "http://localhost:8000"
+use_session = true
+
+[profiles.local.auth]
+type = "bearer"
+env = "HANDLER_LOCAL_TOKEN"
+
+[profiles.staging]
+url = "https://staging.example.com"
+
+[profiles.staging.auth]
+type = "api_key"
+env = "HANDLER_STAGING_API_KEY"
+header = "X-API-Key"
+```
+
+For profile auth, use environment variables where possible. Literal `value`
+fallbacks are supported for local development.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
