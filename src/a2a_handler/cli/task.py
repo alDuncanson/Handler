@@ -105,7 +105,7 @@ def task_get(
 
     async def do_get() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
                 result = await service.get_task(task_id, history_length)
                 _format_task_result(result, output)
@@ -152,7 +152,7 @@ def task_cancel(
 
     async def do_cancel() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
 
                 output.dim(f"Canceling task {task_id}...")
@@ -205,7 +205,7 @@ def task_resubscribe(
 
     async def do_resubscribe() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
 
                 output.dim(f"Resubscribing to task {task_id}...")
@@ -288,7 +288,7 @@ def notification_set(
 
     async def do_set() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
 
                 output.dim(f"Setting notification config for task {task_id}...")
@@ -352,7 +352,7 @@ def notification_get(
 
     async def do_get() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
 
                 config = await service.get_push_config(task_id, config_id)

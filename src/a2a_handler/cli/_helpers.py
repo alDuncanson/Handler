@@ -8,6 +8,7 @@ from a2a.client.errors import (
     A2AClientTimeoutError,
 )
 
+from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError
 
@@ -15,8 +16,16 @@ TIMEOUT = 120
 log = get_logger(__name__)
 
 
-def build_http_client(timeout: int = TIMEOUT) -> httpx.AsyncClient:
+def build_http_client(
+    timeout: int = TIMEOUT,
+    credentials: AuthCredentials | None = None,
+) -> httpx.AsyncClient:
     """Build an HTTP client with the specified timeout."""
+    if credentials and credentials.auth_type == AuthType.MTLS:
+        return httpx.AsyncClient(
+            timeout=timeout,
+            verify=credentials.build_ssl_context(),
+        )
     return httpx.AsyncClient(timeout=timeout)
 
 

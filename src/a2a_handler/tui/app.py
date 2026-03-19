@@ -19,9 +19,10 @@ from textual.logging import TextualHandler
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input
 
-from a2a_handler.auth import AuthCredentials
+from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.service import A2AService
+from a2a_handler.session import get_credentials
 from a2a_handler.tui.components import (
     AgentCardPanel,
     ContactPanel,
@@ -42,8 +43,14 @@ DEFAULT_HTTP_TIMEOUT_SECONDS = 120
 
 def build_http_client(
     timeout_seconds: int = DEFAULT_HTTP_TIMEOUT_SECONDS,
+    credentials: AuthCredentials | None = None,
 ) -> httpx.AsyncClient:
     """Build an HTTP client with the specified timeout."""
+    if credentials and credentials.auth_type == AuthType.MTLS:
+        return httpx.AsyncClient(
+            timeout=timeout_seconds,
+            verify=credentials.build_ssl_context(),
+        )
     return httpx.AsyncClient(timeout=timeout_seconds)
 
 
@@ -134,8 +141,9 @@ class HandlerTUI(App[Any]):
         agent_url: str,
         credentials: AuthCredentials | None = None,
     ) -> AgentCard:
-        if not self.http_client:
-            raise RuntimeError("HTTP client not initialized")
+        if self.http_client:
+            await self.http_client.aclose()
+        self.http_client = build_http_client(credentials=credentials)
 
         logger.info("Connecting to agent at %s", agent_url)
         self._agent_service = A2AService(
@@ -152,6 +160,12 @@ class HandlerTUI(App[Any]):
         messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
         messages_panel.update_message_count()
 
+    @on(AgentCardPanel.AgentSelected)
+    async def handle_agent_selected(self, event: AgentCardPanel.AgentSelected) -> None:
+        contact_panel = self.query_one("#contact-container", ContactPanel)
+        contact_panel.set_url(event.agent_url)
+        await self._do_connect(event.agent_url, get_credentials(event.agent_url))
+
     @on(Button.Pressed, "#connect-btn")
     async def handle_connect_button(self) -> None:
         contact_panel = self.query_one("#contact-container", ContactPanel)
@@ -164,10 +178,21 @@ class HandlerTUI(App[Any]):
             return
 
         messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
+        credentials = messages_panel.get_auth_credentials()
+        if credentials is None:
+            credentials = get_credentials(agent_url)
+
+        await self._do_connect(agent_url, credentials)
+
+    async def _do_connect(
+        self,
+        agent_url: str,
+        credentials: AuthCredentials | None = None,
+    ) -> None:
+        messages_panel = self.query_one("#messages-container", TabbedMessagesPanel)
         messages_panel.add_system_message(f"Connecting to {agent_url}...")
 
         try:
-            credentials = messages_panel.get_auth_credentials()
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
             self.current_agent_card = agent_card
@@ -227,8 +252,6 @@ class HandlerTUI(App[Any]):
             credentials = messages_panel.get_auth_credentials()
             if credentials:
                 self._agent_service.set_credentials(credentials)
-            else:
-                self._agent_service.clear_credentials()
 
             send_result = await self._agent_service.send(
                 message_text,

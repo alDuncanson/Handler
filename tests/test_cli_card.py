@@ -90,8 +90,8 @@ class TestCardGet:
 
             assert result.exit_code == 1
 
-    def test_card_get_authenticated_uses_saved_credentials(self, runner):
-        """Test authenticated card get passes stored credentials to service."""
+    def test_card_get_uses_saved_credentials(self, runner):
+        """Test card get passes stored credentials to service."""
         mock_card = _make_agent_card()
         credentials = create_bearer_auth("test-token")
 
@@ -110,7 +110,7 @@ class TestCardGet:
             mock_service.get_card.return_value = mock_card
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(card, ["get", "http://localhost:8000", "-a"])
+            result = runner.invoke(card, ["get", "http://localhost:8000"])
 
             assert result.exit_code == 0
             mock_get_credentials.assert_called_once_with("http://localhost:8000")

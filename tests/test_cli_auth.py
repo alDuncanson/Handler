@@ -8,7 +8,12 @@ import pytest
 from click.testing import CliRunner
 
 from a2a_handler.cli.auth import auth
-from a2a_handler.auth import AuthType, create_bearer_auth, create_api_key_auth
+from a2a_handler.auth import (
+    AuthCredentials,
+    AuthType,
+    create_bearer_auth,
+    create_api_key_auth,
+)
 from a2a_handler.session import SessionStore
 
 
@@ -95,7 +100,7 @@ class TestAuthSet:
         )
 
         assert result.exit_code == 1
-        assert "not both" in result.output.lower() or "either" in result.output.lower()
+        assert "only one auth method" in result.output.lower()
 
     def test_set_neither_bearer_nor_api_key_fails(self, runner):
         """Test that providing neither bearer nor API key fails."""
@@ -184,3 +189,222 @@ class TestAuthClear:
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output
+
+
+class TestAuthSetMTLS:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_set_mtls_credentials(self, runner):
+        with (
+            tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
+            tempfile.NamedTemporaryFile(suffix=".pem") as key_file,
+        ):
+            with patch("a2a_handler.cli.auth.set_credentials") as mock_set:
+                result = runner.invoke(
+                    auth,
+                    [
+                        "set",
+                        "http://localhost:8000",
+                        "--cert",
+                        cert_file.name,
+                        "--key",
+                        key_file.name,
+                    ],
+                )
+
+                assert result.exit_code == 0
+                assert "mTLS" in result.output
+                mock_set.assert_called_once()
+                call_args = mock_set.call_args
+                assert call_args[0][1].auth_type == AuthType.MTLS
+                assert call_args[0][1].cert_path == cert_file.name
+                assert call_args[0][1].key_path == key_file.name
+
+    def test_set_mtls_with_ca_cert(self, runner):
+        with (
+            tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
+            tempfile.NamedTemporaryFile(suffix=".pem") as key_file,
+            tempfile.NamedTemporaryFile(suffix=".pem") as ca_file,
+        ):
+            with patch("a2a_handler.cli.auth.set_credentials") as mock_set:
+                result = runner.invoke(
+                    auth,
+                    [
+                        "set",
+                        "http://localhost:8000",
+                        "--cert",
+                        cert_file.name,
+                        "--key",
+                        key_file.name,
+                        "--ca-cert",
+                        ca_file.name,
+                    ],
+                )
+
+                assert result.exit_code == 0
+                call_args = mock_set.call_args
+                assert call_args[0][1].ca_cert_path == ca_file.name
+
+    def test_set_mtls_missing_key_fails(self, runner):
+        with tempfile.NamedTemporaryFile(suffix=".pem") as cert_file:
+            result = runner.invoke(
+                auth,
+                ["set", "http://localhost:8000", "--cert", cert_file.name],
+            )
+            assert result.exit_code == 1
+
+    def test_set_mtls_missing_cert_fails(self, runner):
+        with tempfile.NamedTemporaryFile(suffix=".pem") as key_file:
+            result = runner.invoke(
+                auth,
+                ["set", "http://localhost:8000", "--key", key_file.name],
+            )
+            assert result.exit_code == 1
+
+    def test_set_mtls_and_bearer_fails(self, runner):
+        with (
+            tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
+            tempfile.NamedTemporaryFile(suffix=".pem") as key_file,
+        ):
+            result = runner.invoke(
+                auth,
+                [
+                    "set",
+                    "http://localhost:8000",
+                    "--cert",
+                    cert_file.name,
+                    "--key",
+                    key_file.name,
+                    "--bearer",
+                    "token",
+                ],
+            )
+            assert result.exit_code == 1
+
+    def test_set_mtls_nonexistent_cert_fails(self, runner):
+        with tempfile.NamedTemporaryFile(suffix=".pem") as key_file:
+            result = runner.invoke(
+                auth,
+                [
+                    "set",
+                    "http://localhost:8000",
+                    "--cert",
+                    "/nonexistent/cert.pem",
+                    "--key",
+                    key_file.name,
+                ],
+            )
+            assert result.exit_code == 1
+
+    def test_show_mtls_credentials(self, runner):
+        mock_creds = AuthCredentials(
+            auth_type=AuthType.MTLS,
+            cert_path="/path/to/cert.pem",
+            key_path="/path/to/key.pem",
+            ca_cert_path="/path/to/ca.pem",
+        )
+
+        with patch("a2a_handler.cli.auth.get_credentials", return_value=mock_creds):
+            result = runner.invoke(auth, ["show", "http://localhost:8000"])
+
+            assert result.exit_code == 0
+            assert "mtls" in result.output.lower()
+            assert "/path/to/cert.pem" in result.output
+            assert "/path/to/key.pem" in result.output
+            assert "/path/to/ca.pem" in result.output
+
+
+class TestAuthSetCustomHeaders:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_set_bearer_with_custom_headers(self, runner):
+        with patch("a2a_handler.cli.auth.set_credentials") as mock_set:
+            result = runner.invoke(
+                auth,
+                [
+                    "set",
+                    "http://localhost:8000",
+                    "--bearer",
+                    "my-token",
+                    "--header",
+                    "x-user-id: me@example.com",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "x-user-id" in result.output
+            call_args = mock_set.call_args
+            creds = call_args[0][1]
+            assert creds.auth_type == AuthType.BEARER
+            assert creds.custom_headers == {"x-user-id": "me@example.com"}
+
+    def test_set_multiple_custom_headers(self, runner):
+        with patch("a2a_handler.cli.auth.set_credentials") as mock_set:
+            result = runner.invoke(
+                auth,
+                [
+                    "set",
+                    "http://localhost:8000",
+                    "--bearer",
+                    "my-token",
+                    "-H",
+                    "x-user-id: me@example.com",
+                    "-H",
+                    "x-org: acme",
+                ],
+            )
+
+            assert result.exit_code == 0
+            creds = mock_set.call_args[0][1]
+            assert creds.custom_headers == {
+                "x-user-id": "me@example.com",
+                "x-org": "acme",
+            }
+
+    def test_set_headers_only(self, runner):
+        with patch("a2a_handler.cli.auth.set_credentials") as mock_set:
+            result = runner.invoke(
+                auth,
+                [
+                    "set",
+                    "http://localhost:8000",
+                    "--header",
+                    "x-user-id: me@example.com",
+                ],
+            )
+
+            assert result.exit_code == 0
+            creds = mock_set.call_args[0][1]
+            assert creds.custom_headers == {"x-user-id": "me@example.com"}
+
+    def test_set_invalid_header_format_fails(self, runner):
+        result = runner.invoke(
+            auth,
+            [
+                "set",
+                "http://localhost:8000",
+                "--bearer",
+                "token",
+                "--header",
+                "no-colon-here",
+            ],
+        )
+        assert result.exit_code == 1
+
+    def test_show_custom_headers(self, runner):
+        mock_creds = AuthCredentials(
+            auth_type=AuthType.BEARER,
+            value="my-token-value-here",
+            custom_headers={"x-user-id": "me@example.com"},
+        )
+
+        with patch("a2a_handler.cli.auth.get_credentials", return_value=mock_creds):
+            result = runner.invoke(auth, ["show", "http://localhost:8000"])
+
+            assert result.exit_code == 0
+            assert "x-user-id" in result.output
+            assert "me@example.com" in result.output

@@ -166,3 +166,8 @@ class ContactPanel(Container):
         """Get the current agent URL from the input field."""
         url_input = self.query_one("#agent-url", Input)
         return url_input.value.strip()
+
+    def set_url(self, url: str) -> None:
+        """Set the agent URL input field."""
+        url_input = self.query_one("#agent-url", Input)
+        url_input.value = url
