@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.session import AgentSession, SessionStore
 
 
@@ -183,3 +184,44 @@ class TestSessionStore:
             store.load()
 
             assert len(store.sessions) == 0
+
+    def test_save_and_load_mtls_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            mtls_creds = AuthCredentials(
+                auth_type=AuthType.MTLS,
+                cert_path="/path/to/cert.pem",
+                key_path="/path/to/key.pem",
+                ca_cert_path="/path/to/ca.pem",
+            )
+            store.set_credentials("http://localhost:8000", mtls_creds)
+
+            new_store = SessionStore(session_directory=Path(temp_directory))
+            new_store.load()
+
+            loaded_creds = new_store.get_credentials("http://localhost:8000")
+            assert loaded_creds is not None
+            assert loaded_creds.auth_type == AuthType.MTLS
+            assert loaded_creds.cert_path == "/path/to/cert.pem"
+            assert loaded_creds.key_path == "/path/to/key.pem"
+            assert loaded_creds.ca_cert_path == "/path/to/ca.pem"
+
+    def test_save_and_load_custom_headers(self):
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            creds = AuthCredentials(
+                auth_type=AuthType.BEARER,
+                value="token",
+                custom_headers={"x-user-id": "me@example.com", "x-org": "acme"},
+            )
+            store.set_credentials("http://localhost:8000", creds)
+
+            new_store = SessionStore(session_directory=Path(temp_directory))
+            new_store.load()
+
+            loaded_creds = new_store.get_credentials("http://localhost:8000")
+            assert loaded_creds is not None
+            assert loaded_creds.custom_headers == {
+                "x-user-id": "me@example.com",
+                "x-org": "acme",
+            }

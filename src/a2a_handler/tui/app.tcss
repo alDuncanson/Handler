@@ -153,8 +153,25 @@ Button:hover {
     height: 1fr;
     width: 1fr;
     hatch: cross $secondary 30%;
-    content-align: center middle;
-    color: $text-muted;
+    align: center middle;
+    padding: 1 2;
+}
+
+.saved-agents-title {
+    color: $text;
+    text-style: bold;
+    padding: 0 0 1 0;
+    width: 100%;
+    text-align: center;
+}
+
+.saved-agent-btn {
+    width: 100%;
+    margin: 0 0 1 0;
+}
+
+.saved-agent-url {
+    display: none;
 }
 
 #raw-scroll {

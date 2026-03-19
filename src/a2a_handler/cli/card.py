@@ -33,10 +33,7 @@ def card() -> None:
 
 @card.command("get")
 @click.argument("agent_url")
-@click.option(
-    "--authenticated", "-a", is_flag=True, help="Request authenticated extended card"
-)
-def card_get(agent_url: str, authenticated: bool) -> None:
+def card_get(agent_url: str) -> None:
     """Retrieve an agent's card."""
     output = Output()
     try:
@@ -46,13 +43,11 @@ def card_get(agent_url: str, authenticated: bool) -> None:
         raise click.Abort() from error
 
     log.info("Fetching agent card from %s", agent_url)
-    credentials = get_credentials(agent_url) if authenticated else None
-    if authenticated and credentials is None:
-        log.warning("No saved credentials found for %s", agent_url)
+    credentials = get_credentials(agent_url)
 
     async def do_get() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, agent_url, credentials=credentials)
                 card_data = await service.get_card()
                 log.info("Retrieved card for agent: %s", card_data.name)
@@ -92,9 +87,11 @@ def card_validate(source: str) -> None:
             handle_validation_error(error, output)
             raise click.Abort() from error
 
+    credentials = get_credentials(source) if is_url else None
+
     async def do_validate() -> None:
         if is_url:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 result = await validate_agent_card_from_url(source, http_client)
         else:
             result = validate_agent_card_from_file(source)

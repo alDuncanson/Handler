@@ -1,12 +1,19 @@
 """Message commands for sending messages to A2A agents."""
 
 import asyncio
+from dataclasses import replace
 from typing import Any
 from typing import Optional
 
 import rich_click as click
 
-from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
+from a2a_handler.auth import (
+    AuthCredentials,
+    AuthType,
+    create_api_key_auth,
+    create_bearer_auth,
+    parse_header_string,
+)
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
@@ -49,6 +56,13 @@ def message() -> None:
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--header",
+    "-H",
+    "headers",
+    multiple=True,
+    help="Custom header (repeatable, format: 'Name: Value')",
+)
 def message_send(
     agent_url: str,
     text: Optional[str],
@@ -61,6 +75,7 @@ def message_send(
     push_token: Optional[str],
     bearer_token: Optional[str],
     api_key: Optional[str],
+    headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message to an agent and receive a response."""
     output = Output()
@@ -153,6 +168,19 @@ def message_send(
             context_id = session.context_id
             log.info("Using saved context: %s", context_id)
 
+    custom_headers: dict[str, str] | None = None
+    if headers:
+        custom_headers = {}
+        for h in headers:
+            try:
+                name, value = parse_header_string(h)
+                reject_control_chars(name, "header name")
+                reject_control_chars(value, "header value")
+                custom_headers[name] = value
+            except (ValueError, InputValidationError) as e:
+                output.error(str(e))
+                raise click.Abort() from e
+
     credentials: AuthCredentials | None = None
     if bearer_token:
         credentials = create_bearer_auth(bearer_token)
@@ -161,9 +189,21 @@ def message_send(
     else:
         credentials = get_credentials(agent_url)
 
+    if custom_headers:
+        if credentials is None:
+            credentials = AuthCredentials(
+                auth_type=AuthType.BEARER,
+                custom_headers=custom_headers,
+            )
+        else:
+            credentials = replace(credentials)
+            merged = dict(credentials.custom_headers or {})
+            merged.update(custom_headers)
+            credentials.custom_headers = merged
+
     async def do_send() -> None:
         try:
-            async with build_http_client() as http_client:
+            async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(
                     http_client,
                     agent_url,
@@ -203,6 +243,13 @@ def message_send(
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--header",
+    "-H",
+    "headers",
+    multiple=True,
+    help="Custom header (repeatable, format: 'Name: Value')",
+)
 @click.pass_context
 def message_stream(
     ctx: click.Context,
@@ -215,6 +262,7 @@ def message_stream(
     push_token: Optional[str],
     bearer_token: Optional[str],
     api_key: Optional[str],
+    headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message and stream the response in real-time."""
     ctx.invoke(
@@ -229,6 +277,7 @@ def message_stream(
         push_token=push_token,
         bearer_token=bearer_token,
         api_key=api_key,
+        headers=headers,
     )
 
 
