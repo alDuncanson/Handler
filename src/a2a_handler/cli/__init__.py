@@ -7,6 +7,7 @@ Provides commands for interacting with A2A agents:
 - card get/validate: Agent card operations
 - server agent/push: Run local servers
 - session list/show/clear: Manage saved sessions
+- profile list/show/validate/path: Manage connection profiles
 """
 
 import truststore
@@ -29,6 +30,7 @@ from .auth import auth
 from .card import card
 from .mcp import mcp
 from .message import message
+from .profile import profile
 from .schema import describe, schema
 from .server import server
 from .session import session
@@ -82,6 +84,7 @@ cli.add_command(server)
 cli.add_command(session)
 cli.add_command(auth)
 cli.add_command(mcp)
+cli.add_command(profile)
 cli.add_command(schema)
 cli.add_command(describe)
 
