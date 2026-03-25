@@ -6,7 +6,12 @@ import pytest
 from a2a.types import AgentCard
 from textual.widgets import Select
 
-from a2a_handler.auth import AuthType, create_api_key_auth, create_bearer_auth
+from a2a_handler.auth import (
+    AuthType,
+    create_api_key_auth,
+    create_bearer_auth,
+    create_mtls_auth,
+)
 from a2a_handler.profiles import ConnectionProfile, ProfileAuthConfig
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
@@ -38,11 +43,18 @@ async def test_app_startup_with_initial_bearer_token():
 async def test_connect_to_agent_uses_credentials_for_card_request():
     """Test connect flow applies auth credentials before fetching card."""
     app = HandlerTUI()
-    app.http_client = AsyncMock()
+    old_http_client = AsyncMock()
+    new_http_client = AsyncMock()
+    app.http_client = old_http_client
     credentials = create_bearer_auth("test-token")
     mock_card = AsyncMock(spec=AgentCard)
 
-    with patch("a2a_handler.tui.app.A2AService") as mock_service_cls:
+    with (
+        patch(
+            "a2a_handler.tui.app.build_http_client", return_value=new_http_client
+        ) as mock_build_http_client,
+        patch("a2a_handler.tui.app.A2AService") as mock_service_cls,
+    ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
         mock_service_cls.return_value = mock_service
@@ -50,8 +62,11 @@ async def test_connect_to_agent_uses_credentials_for_card_request():
         card = await app._connect_to_agent("https://agent.example.com", credentials)
 
         assert card is mock_card
+        old_http_client.aclose.assert_awaited_once()
+        mock_build_http_client.assert_called_once_with(credentials=credentials)
+        assert app.http_client is new_http_client
         mock_service_cls.assert_called_once_with(
-            app.http_client,
+            new_http_client,
             "https://agent.example.com",
             credentials=credentials,
         )
@@ -183,6 +198,10 @@ async def test_profile_selection_syncs_api_key_into_auth_tab() -> None:
     app._profile_warnings = {}
 
     resolved_credentials = create_api_key_auth("saved-key", header_name="X-Test-Key")
+    resolved_credentials.custom_headers = {
+        "x-org": "acme",
+        "x-user-id": "me@example.com",
+    }
 
     with patch(
         "a2a_handler.tui.app.get_credentials", return_value=resolved_credentials
@@ -204,6 +223,50 @@ async def test_profile_selection_syncs_api_key_into_auth_tab() -> None:
             assert credentials.auth_type == AuthType.API_KEY
             assert credentials.value == "saved-key"
             assert credentials.header_name == "X-Test-Key"
+            assert credentials.custom_headers == resolved_credentials.custom_headers
+
+
+@pytest.mark.asyncio
+async def test_profile_selection_syncs_mtls_into_auth_tab(tmp_path) -> None:
+    """Selecting a saved/profile URL syncs mTLS cert paths into the Auth tab."""
+    app = HandlerTUI()
+
+    cert_path = tmp_path / "client.crt"
+    key_path = tmp_path / "client.key"
+    ca_cert_path = tmp_path / "ca.crt"
+    cert_path.write_text("cert")
+    key_path.write_text("key")
+    ca_cert_path.write_text("ca")
+
+    resolved_credentials = create_mtls_auth(
+        str(cert_path),
+        str(key_path),
+        str(ca_cert_path),
+    )
+    resolved_credentials.custom_headers = {"x-org": "acme"}
+
+    with patch(
+        "a2a_handler.tui.app.get_credentials", return_value=resolved_credentials
+    ):
+        async with app.run_test() as _:
+            contact_panel = app.query_one("#contact-container", ContactPanel)
+            contact_panel.set_connection_targets(
+                profile_urls={},
+                saved_urls=["https://mtls.example.com"],
+            )
+
+            selector = app.query_one("#connection-target", Select)
+            selector.value = "saved:https://mtls.example.com"
+
+            messages_panel = app.query_one("#messages-container", TabbedMessagesPanel)
+            credentials = messages_panel.get_auth_credentials()
+
+            assert credentials is not None
+            assert credentials.auth_type == AuthType.MTLS
+            assert credentials.cert_path == str(cert_path)
+            assert credentials.key_path == str(key_path)
+            assert credentials.ca_cert_path == str(ca_cert_path)
+            assert credentials.custom_headers == {"x-org": "acme"}
 
 
 @pytest.mark.asyncio

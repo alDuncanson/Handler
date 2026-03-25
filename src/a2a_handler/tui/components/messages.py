@@ -260,17 +260,29 @@ class TabbedMessagesPanel(Container):
     def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
         """Preconfigure auth panel fields from resolved credentials."""
         auth_panel = self._get_auth_panel()
+        auth_panel.clear()
         if credentials is None:
-            auth_panel.clear()
             return
 
-        if credentials.auth_type == AuthType.BEARER:
+        if credentials.auth_type == AuthType.BEARER and credentials.value:
             auth_panel.set_bearer_token(credentials.value)
         elif credentials.auth_type == AuthType.API_KEY:
             auth_panel.set_api_key(
                 credentials.value,
                 credentials.header_name or "X-API-Key",
             )
+        elif (
+            credentials.auth_type == AuthType.MTLS
+            and credentials.cert_path
+            and credentials.key_path
+        ):
+            auth_panel.set_mtls(
+                credentials.cert_path,
+                credentials.key_path,
+                credentials.ca_cert_path,
+            )
+
+        auth_panel.set_custom_headers(credentials.custom_headers)
 
     def add_task(self, task: "Task") -> None:
         """Add a task to the tasks panel."""

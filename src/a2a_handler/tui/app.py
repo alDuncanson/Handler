@@ -20,7 +20,7 @@ from textual.logging import TextualHandler
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, RadioSet, Select
 
-from a2a_handler.auth import AuthCredentials
+from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.profiles import (
     ConnectionProfile,
@@ -49,8 +49,14 @@ DEFAULT_HTTP_TIMEOUT_SECONDS = 120
 
 def build_http_client(
     timeout_seconds: int = DEFAULT_HTTP_TIMEOUT_SECONDS,
+    credentials: AuthCredentials | None = None,
 ) -> httpx.AsyncClient:
     """Build an HTTP client with the specified timeout."""
+    if credentials and credentials.auth_type == AuthType.MTLS:
+        return httpx.AsyncClient(
+            timeout=timeout_seconds,
+            verify=credentials.build_ssl_context(),
+        )
     return httpx.AsyncClient(timeout=timeout_seconds)
 
 
@@ -312,8 +318,10 @@ class HandlerTUI(App[Any]):
         agent_url: str,
         credentials: AuthCredentials | None = None,
     ) -> AgentCard:
-        if not self.http_client:
-            raise RuntimeError("HTTP client not initialized")
+        if self.http_client:
+            await self.http_client.aclose()
+
+        self.http_client = build_http_client(credentials=credentials)
 
         logger.info("Connecting to agent at %s", agent_url)
         self._agent_service = A2AService(
