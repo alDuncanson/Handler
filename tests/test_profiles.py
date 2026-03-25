@@ -4,6 +4,10 @@ from pathlib import Path
 
 from a2a_handler.auth import AuthType
 from a2a_handler.profiles import (
+    ConnectionProfile,
+    ProfileAuthConfig,
+    find_git_root,
+    load_all_profiles,
     load_profiles,
     profile_file_path,
     resolve_profile_credentials,
@@ -29,7 +33,6 @@ version = 1
 
 [profiles.local]
 url = "http://localhost:8000"
-use_session = false
 
 [profiles.local.auth]
 type = "bearer"
@@ -49,7 +52,6 @@ header = "X-Custom-Key"
 
     assert set(profiles) == {"local", "staging"}
     assert profiles["local"].agent_url == "http://localhost:8000"
-    assert profiles["local"].use_session is False
     assert profiles["local"].auth is not None
     assert profiles["local"].auth.auth_type == AuthType.BEARER
     assert profiles["local"].auth.env_var == "LOCAL_TOKEN"
@@ -174,3 +176,202 @@ env = "ENV_ONLY_TOKEN"
     assert credentials is None
     assert warning is not None
     assert "ENV_ONLY_TOKEN" in warning
+
+
+def test_load_profiles_parses_mtls_entry(tmp_path: Path) -> None:
+    """mTLS profile tables are loaded with cert paths."""
+    profile_path = tmp_path / "profiles.toml"
+    profile_path.write_text(
+        """
+version = 1
+
+[profiles.secure]
+url = "https://secure.example.com"
+
+[profiles.secure.auth]
+type = "mtls"
+cert = "/path/to/client.crt"
+key = "/path/to/client.key"
+ca_cert = "/path/to/ca.crt"
+""".strip()
+    )
+    profiles = load_profiles(tmp_path)
+    assert "secure" in profiles
+    assert profiles["secure"].auth is not None
+    assert profiles["secure"].auth.auth_type == AuthType.MTLS
+    assert profiles["secure"].auth.cert_path == "/path/to/client.crt"
+    assert profiles["secure"].auth.key_path == "/path/to/client.key"
+    assert profiles["secure"].auth.ca_cert_path == "/path/to/ca.crt"
+
+
+def test_load_profiles_mtls_without_ca_cert(tmp_path: Path) -> None:
+    """mTLS profile without ca_cert is valid."""
+    profile_path = tmp_path / "profiles.toml"
+    profile_path.write_text(
+        """
+version = 1
+
+[profiles.nocacert]
+url = "https://nocacert.example.com"
+
+[profiles.nocacert.auth]
+type = "mtls"
+cert = "/path/to/client.crt"
+key = "/path/to/client.key"
+""".strip()
+    )
+    profiles = load_profiles(tmp_path)
+    assert profiles["nocacert"].auth is not None
+    assert profiles["nocacert"].auth.ca_cert_path is None
+
+
+def test_load_profiles_mtls_missing_key_is_invalid(tmp_path: Path) -> None:
+    """mTLS profile missing key path is skipped."""
+    profile_path = tmp_path / "profiles.toml"
+    profile_path.write_text(
+        """
+version = 1
+
+[profiles.badmtls]
+url = "https://bad.example.com"
+
+[profiles.badmtls.auth]
+type = "mtls"
+cert = "/path/to/client.crt"
+""".strip()
+    )
+    profiles = load_profiles(tmp_path)
+    assert "badmtls" not in profiles
+
+
+def test_load_profiles_mtls_rejects_env(tmp_path: Path) -> None:
+    """mTLS profiles must not use env field."""
+    profile_path = tmp_path / "profiles.toml"
+    profile_path.write_text(
+        """
+version = 1
+
+[profiles.badmtls]
+url = "https://bad.example.com"
+
+[profiles.badmtls.auth]
+type = "mtls"
+cert = "/path/to/client.crt"
+key = "/path/to/client.key"
+env = "SOME_VAR"
+""".strip()
+    )
+    profiles = load_profiles(tmp_path)
+    assert "badmtls" not in profiles
+
+
+def test_resolve_mtls_profile_credentials(tmp_path: Path) -> None:
+    """mTLS profile credentials resolve to create_mtls_auth when files exist."""
+    import tempfile
+
+    with (
+        tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
+        tempfile.NamedTemporaryFile(suffix=".pem") as key_file,
+    ):
+        profile = ConnectionProfile(
+            name="mtls-test",
+            agent_url="https://secure.example.com",
+            auth=ProfileAuthConfig(
+                auth_type=AuthType.MTLS,
+                cert_path=cert_file.name,
+                key_path=key_file.name,
+            ),
+        )
+        credentials, warning = resolve_profile_credentials(profile)
+        assert warning is None
+        assert credentials is not None
+        assert credentials.auth_type == AuthType.MTLS
+        assert credentials.cert_path == cert_file.name
+        assert credentials.key_path == key_file.name
+
+
+def test_resolve_mtls_profile_warns_on_missing_cert() -> None:
+    """mTLS profile returns warning when cert file doesn't exist."""
+    profile = ConnectionProfile(
+        name="mtls-bad",
+        agent_url="https://secure.example.com",
+        auth=ProfileAuthConfig(
+            auth_type=AuthType.MTLS,
+            cert_path="/nonexistent/cert.pem",
+            key_path="/nonexistent/key.pem",
+        ),
+    )
+    credentials, warning = resolve_profile_credentials(profile)
+    assert credentials is None
+    assert warning is not None
+    assert "mtls-bad" in warning
+
+
+def test_find_git_root_returns_repo_root(tmp_path: Path, monkeypatch) -> None:
+    """find_git_root returns the directory containing .git."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    subdir = tmp_path / "src" / "pkg"
+    subdir.mkdir(parents=True)
+    monkeypatch.chdir(subdir)
+
+    assert find_git_root() == tmp_path
+
+
+def test_find_git_root_returns_none_without_git(tmp_path: Path, monkeypatch) -> None:
+    """find_git_root returns None outside a git repo."""
+    monkeypatch.chdir(tmp_path)
+
+    assert find_git_root() is None
+
+
+def test_load_all_profiles_merges_local_over_global(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Local git-repo profiles override global profiles with the same name."""
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    (global_dir / "profiles.toml").write_text(
+        """
+version = 1
+
+[profiles.shared]
+url = "http://global:8000"
+
+[profiles.shared.auth]
+type = "bearer"
+value = "global-token"
+
+[profiles.global-only]
+url = "http://global-only:8000"
+""".strip()
+    )
+
+    repo_root = tmp_path / "repo"
+    (repo_root / ".git").mkdir(parents=True)
+    local_handler = repo_root / ".handler"
+    local_handler.mkdir()
+    (local_handler / "profiles.toml").write_text(
+        """
+version = 1
+
+[profiles.shared]
+url = "http://local:9000"
+
+[profiles.shared.auth]
+type = "bearer"
+value = "local-token"
+
+[profiles.local-only]
+url = "http://local-only:9000"
+""".strip()
+    )
+
+    monkeypatch.chdir(repo_root)
+
+    profiles = load_all_profiles(profile_directory=global_dir)
+
+    assert set(profiles) == {"shared", "global-only", "local-only"}
+    assert profiles["shared"].agent_url == "http://local:9000"
+    assert profiles["global-only"].agent_url == "http://global-only:8000"
+    assert profiles["local-only"].agent_url == "http://local-only:9000"

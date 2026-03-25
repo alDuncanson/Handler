@@ -97,7 +97,6 @@ version = 1
 
 [profiles.local]
 url = "http://localhost:8000"
-use_session = true
 
 [profiles.local.auth]
 type = "bearer"
@@ -110,10 +109,20 @@ url = "https://staging.example.com"
 type = "api_key"
 env = "HANDLER_STAGING_API_KEY"
 header = "X-API-Key"
+
+[profiles.secure]
+url = "https://secure.example.com"
+
+[profiles.secure.auth]
+type = "mtls"
+cert = "/path/to/client.crt"
+key = "/path/to/client.key"
+ca_cert = "/path/to/ca.crt"  # optional
 ```
 
 For profile auth, use environment variables where possible. Literal `value`
-fallbacks are supported for local development.
+fallbacks are supported for local development. mTLS profiles use file paths
+for client certificates instead of environment variables.
 
 ## Contributing
 

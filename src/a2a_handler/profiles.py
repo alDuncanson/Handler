@@ -18,6 +18,7 @@ from a2a_handler.auth import (
     AuthType,
     create_api_key_auth,
     create_bearer_auth,
+    create_mtls_auth,
 )
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
@@ -42,6 +43,9 @@ class ProfileAuthConfig:
     env_var: str | None = None
     value: str | None = None
     header_name: str = "X-API-Key"
+    cert_path: str | None = None
+    key_path: str | None = None
+    ca_cert_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +54,6 @@ class ConnectionProfile:
 
     name: str
     agent_url: str
-    use_session: bool = True
     auth: ProfileAuthConfig | None = None
 
 
@@ -141,6 +144,20 @@ def resolve_profile_credentials(
         return None, None
 
     auth = profile.auth
+
+    if auth.auth_type == AuthType.MTLS:
+        if not auth.cert_path or not auth.key_path:
+            return (
+                None,
+                f"Profile '{profile.name}' mTLS auth requires cert and key paths",
+            )
+        try:
+            return create_mtls_auth(
+                auth.cert_path, auth.key_path, auth.ca_cert_path
+            ), None
+        except FileNotFoundError as error:
+            return None, f"Profile '{profile.name}': {error}"
+
     value: str | None = None
 
     if auth.env_var:
@@ -179,6 +196,50 @@ def resolve_profile_credentials(
     return create_api_key_auth(value, header_name=auth.header_name), None
 
 
+def find_git_root() -> Path | None:
+    """Find the root of the current git repository, if any."""
+    try:
+        current = Path.cwd().resolve()
+    except OSError:
+        return None
+    for directory in [current, *current.parents]:
+        if (directory / ".git").exists():
+            return directory
+    return None
+
+
+def load_all_profiles(
+    profile_directory: Path | None = None,
+) -> dict[str, ConnectionProfile]:
+    """Load profiles from global config and local git repository.
+
+    Local profiles (from ``.handler/profiles.toml`` at the git repo root)
+    override global profiles with the same name.
+    """
+    global_profiles = load_profiles(profile_directory)
+
+    git_root = find_git_root()
+    if git_root is None:
+        return global_profiles
+
+    local_profile_dir = git_root / ".handler"
+    if local_profile_dir == (profile_directory or DEFAULT_PROFILE_DIRECTORY):
+        return global_profiles
+
+    local_profiles = load_profiles(local_profile_dir)
+    if not local_profiles:
+        return global_profiles
+
+    merged = dict(global_profiles)
+    merged.update(local_profiles)
+
+    overridden = set(global_profiles) & set(local_profiles)
+    if overridden:
+        logger.info("Local profiles override global: %s", ", ".join(sorted(overridden)))
+
+    return merged
+
+
 def _parse_profile(name: object, profile_data: object) -> ConnectionProfile:
     if not isinstance(name, str) or not name:
         raise ProfileConfigError("profile names must be non-empty strings")
@@ -197,10 +258,6 @@ def _parse_profile(name: object, profile_data: object) -> ConnectionProfile:
     except InputValidationError as error:
         raise ProfileConfigError(error.message) from error
 
-    raw_use_session = profile_table.get("use_session", True)
-    if not isinstance(raw_use_session, bool):
-        raise ProfileConfigError("use_session must be a boolean")
-
     auth: ProfileAuthConfig | None = None
     if "auth" in profile_table:
         auth = _parse_profile_auth(profile_table.get("auth"))
@@ -208,7 +265,6 @@ def _parse_profile(name: object, profile_data: object) -> ConnectionProfile:
     return ConnectionProfile(
         name=name,
         agent_url=raw_url,
-        use_session=raw_use_session,
         auth=auth,
     )
 
@@ -224,7 +280,35 @@ def _parse_profile_auth(auth_data: object) -> ProfileAuthConfig:
     try:
         auth_type = AuthType(normalized_auth_type)
     except ValueError as error:
-        raise ProfileConfigError("auth.type must be one of: bearer, api_key") from error
+        raise ProfileConfigError(
+            "auth.type must be one of: bearer, api_key, mtls"
+        ) from error
+
+    if auth_type == AuthType.MTLS:
+        for forbidden in ("env", "value", "header"):
+            if forbidden in auth_table:
+                raise ProfileConfigError(f"auth.{forbidden} is not valid for mtls auth")
+        cert = _parse_optional_str(auth_table, "cert")
+        key = _parse_optional_str(auth_table, "key")
+        if cert is None or key is None:
+            raise ProfileConfigError("mtls auth requires cert and key fields")
+        try:
+            reject_control_chars(cert, "auth.cert")
+            reject_control_chars(key, "auth.key")
+        except InputValidationError as error:
+            raise ProfileConfigError(error.message) from error
+        ca_cert = _parse_optional_str(auth_table, "ca_cert")
+        if ca_cert is not None:
+            try:
+                reject_control_chars(ca_cert, "auth.ca_cert")
+            except InputValidationError as error:
+                raise ProfileConfigError(error.message) from error
+        return ProfileAuthConfig(
+            auth_type=auth_type,
+            cert_path=cert,
+            key_path=key,
+            ca_cert_path=ca_cert,
+        )
 
     env_var = _parse_optional_str(auth_table, "env")
     literal_value = _parse_optional_str(auth_table, "value")
