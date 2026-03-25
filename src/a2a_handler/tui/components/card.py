@@ -8,12 +8,9 @@ from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, VerticalScroll
-from textual.message import Message
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
-from a2a_handler.auth import AuthType
 from a2a_handler.common import get_logger
-from a2a_handler.session import get_session_store
 
 logger = get_logger(__name__)
 
@@ -25,20 +22,9 @@ TEXTUAL_TO_SYNTAX_THEME_MAP: dict[str, str] = {
     "dracula": "dracula",
 }
 
-AUTH_TYPE_LABELS: dict[AuthType, str] = {
-    AuthType.BEARER: "Bearer",
-    AuthType.API_KEY: "API Key",
-    AuthType.MTLS: "mTLS",
-}
-
 
 class AgentCardPanel(Container):
     """Panel displaying agent card information with tabs."""
-
-    class AgentSelected(Message):
-        def __init__(self, agent_url: str) -> None:
-            super().__init__()
-            self.agent_url = agent_url
 
     BINDINGS = [
         Binding("j", "scroll_down", "\u2193 Scroll", show=True, key_display="j/\u2193"),
@@ -60,10 +46,12 @@ class AgentCardPanel(Container):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._current_agent_card: AgentCard | None = None
-        self._button_url_map: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
-        yield Vertical(id="placeholder")
+        yield Vertical(
+            Static("Connect to an A2A server"),
+            id="placeholder",
+        )
         yield VerticalScroll(
             Static("", id="agent-raw"),
             id="raw-scroll",
@@ -72,49 +60,8 @@ class AgentCardPanel(Container):
     def on_mount(self) -> None:
         for widget in self.query("VerticalScroll"):
             widget.can_focus = False
-        self._populate_saved_agents()
         self._show_placeholder()
         logger.debug("Agent card panel mounted")
-
-    def _populate_saved_agents(self) -> None:
-        placeholder = self.query_one("#placeholder", Vertical)
-        placeholder.remove_children()
-        self._button_url_map.clear()
-
-        store = get_session_store()
-        sessions = store.list_all()
-        agents_with_creds = [s for s in sessions if s.credentials is not None]
-
-        if not agents_with_creds:
-            placeholder.mount(Static("Connect to an A2A server"))
-            return
-
-        placeholder.mount(Static("Saved Agents", classes="saved-agents-title"))
-        for idx, session in enumerate(agents_with_creds):
-            auth_label = ""
-            if session.credentials:
-                auth_label = AUTH_TYPE_LABELS.get(session.credentials.auth_type, "")
-                if session.credentials.custom_headers:
-                    header_names = ", ".join(session.credentials.custom_headers.keys())
-                    if auth_label:
-                        auth_label = f"{auth_label} + {header_names}"
-                    else:
-                        auth_label = header_names
-
-            label = session.agent_url
-            if auth_label:
-                label = f"{session.agent_url}  [{auth_label}]"
-
-            button_id = f"saved-agent-{idx}"
-            self._button_url_map[button_id] = session.agent_url
-            placeholder.mount(Button(label, id=button_id, classes="saved-agent-btn"))
-
-    def _on_button_pressed(self, event: Button.Pressed) -> None:
-        if "saved-agent-btn" not in event.button.classes:
-            return
-        agent_url = self._button_url_map.get(event.button.id or "")
-        if agent_url:
-            self.post_message(self.AgentSelected(agent_url))
 
     def _show_placeholder(self) -> None:
         """Show the hatch placeholder, hide the raw scroll content."""
@@ -145,7 +92,6 @@ class AgentCardPanel(Container):
         if agent_card is None:
             logger.debug("Clearing agent card display")
             raw_view_widget.update("")
-            self._populate_saved_agents()
             self._show_placeholder()
         else:
             logger.info("Displaying agent card for: %s", agent_card.name)
