@@ -3,9 +3,10 @@
 Provides the Textual-based terminal interface for agent interaction.
 """
 
+import contextlib
 import logging
 import uuid
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from importlib.metadata import version
 from typing import Any
 
@@ -23,7 +24,7 @@ from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.profiles import (
     ConnectionProfile,
-    load_profiles,
+    load_all_profiles,
     resolve_profile_credentials,
 )
 from a2a_handler.service import A2AService
@@ -92,7 +93,7 @@ class HandlerTUI(App[Any]):
         self._profile_credentials: dict[str, AuthCredentials] = {}
         self._profile_warnings: dict[str, str] = {}
         self._manual_auth_override: bool = False
-        self._is_syncing_auth_panel: bool = False
+        self._syncing_auth_depth: int = 0
         self._suspend_target_change_events: bool = False
 
     def compose(self) -> ComposeResult:
@@ -105,6 +106,20 @@ class HandlerTUI(App[Any]):
                 yield TabbedMessagesPanel(id="messages-container", classes="panel")
                 yield InputPanel(id="input-container", classes="panel")
         yield Footer(show_command_palette=False)
+
+    @contextlib.contextmanager
+    def _suppressing_auth_events(self) -> Generator[None, None, None]:
+        """Suppress auth-field change events during programmatic updates."""
+        self._syncing_auth_depth += 1
+        try:
+            yield
+        finally:
+            self._syncing_auth_depth -= 1
+
+    @property
+    def _is_syncing_auth_panel(self) -> bool:
+        """True when auth panel fields are being set programmatically."""
+        return self._syncing_auth_depth > 0
 
     async def on_mount(self) -> None:
         logger.info("TUI application starting")
@@ -124,11 +139,8 @@ class HandlerTUI(App[Any]):
         self._sync_auth_panel_with_resolved_credentials()
 
         if self._initial_bearer_token:
-            self._is_syncing_auth_panel = True
-            try:
+            with self._suppressing_auth_events():
                 messages_panel.set_bearer_token(self._initial_bearer_token)
-            finally:
-                self._is_syncing_auth_panel = False
             self._manual_auth_override = True
 
         self._refresh_auth_source_status()
@@ -140,7 +152,7 @@ class HandlerTUI(App[Any]):
 
     def _load_connection_targets(self) -> None:
         """Load profile and saved URL targets into the contact panel."""
-        self._profiles = load_profiles()
+        self._profiles = load_all_profiles()
         self._profile_credentials = {}
         self._profile_warnings = {}
 
@@ -266,11 +278,8 @@ class HandlerTUI(App[Any]):
             selected_profile_name=selected_profile_name,
             manual_credentials=None,
         )
-        self._is_syncing_auth_panel = True
-        try:
+        with self._suppressing_auth_events():
             messages_panel.set_auth_credentials(resolved_credentials)
-        finally:
-            self._is_syncing_auth_panel = False
 
     def _handle_connection_target_transition(self) -> None:
         """Apply profile/saved auth when a non-custom target is selected."""
@@ -339,25 +348,13 @@ class HandlerTUI(App[Any]):
         self._refresh_auth_source_status()
 
     @on(RadioSet.Changed, "#auth-type-selector")
-    def _handle_auth_type_changed(self) -> None:
-        if not self._is_syncing_auth_panel:
-            self._manual_auth_override = True
-        self._refresh_auth_source_status()
-
-    @on(Input.Changed, "#api-key-input")
-    def _handle_api_key_changed(self) -> None:
-        if not self._is_syncing_auth_panel:
-            self._manual_auth_override = True
-        self._refresh_auth_source_status()
-
-    @on(Input.Changed, "#api-key-header-input")
-    def _handle_api_key_header_changed(self) -> None:
-        if not self._is_syncing_auth_panel:
-            self._manual_auth_override = True
-        self._refresh_auth_source_status()
-
-    @on(Input.Changed, "#bearer-token-input")
-    def _handle_bearer_token_changed(self) -> None:
+    @on(
+        Input.Changed,
+        "#api-key-input, #api-key-header-input, #bearer-token-input, "
+        "#custom-headers-input, #mtls-cert-input, #mtls-key-input, #mtls-ca-input",
+    )
+    def _handle_auth_field_changed(self) -> None:
+        """Track manual edits to any auth panel field."""
         if not self._is_syncing_auth_panel:
             self._manual_auth_override = True
         self._refresh_auth_source_status()
