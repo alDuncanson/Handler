@@ -1,5 +1,7 @@
 """Tests for the session state management module."""
 
+import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -225,3 +227,53 @@ class TestSessionStore:
                 "x-user-id": "me@example.com",
                 "x-org": "acme",
             }
+
+    def test_save_sets_owner_only_permissions(self):
+        """Session file is created with 0o600 permissions."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="ctx-1",
+            )
+            store.save()
+
+            file_stat = os.stat(store.session_file_path)
+            file_mode = stat.S_IMODE(file_stat.st_mode)
+            assert file_mode == 0o600
+
+    def test_save_is_atomic_no_temp_files_left(self):
+        """Atomic save leaves no temporary files after completion."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+            )
+            store.save()
+
+            dir_contents = os.listdir(temp_directory)
+            assert dir_contents == ["sessions.json"]
+
+    def test_save_preserves_data_on_reload(self):
+        """Atomic save produces valid JSON that reloads correctly."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            creds = AuthCredentials(
+                auth_type=AuthType.BEARER,
+                value="secret-token",
+            )
+            store.set_credentials("http://localhost:8000", creds)
+            store.update(
+                "http://localhost:8000",
+                context_id="ctx-atomic",
+                task_id="task-atomic",
+            )
+
+            new_store = SessionStore(session_directory=Path(temp_directory))
+            new_store.load()
+
+            loaded = new_store.get("http://localhost:8000")
+            assert loaded.context_id == "ctx-atomic"
+            assert loaded.task_id == "task-atomic"
+            assert loaded.credentials is not None
+            assert loaded.credentials.value == "secret-token"

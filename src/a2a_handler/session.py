@@ -4,7 +4,11 @@ Persists context_id, task_id, and authentication credentials
 across CLI invocations for conversation continuity.
 """
 
+import contextlib
 import json
+import os
+import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +20,18 @@ logger = get_logger(__name__)
 
 DEFAULT_SESSION_DIRECTORY = Path.home() / ".handler"
 SESSION_FILENAME = "sessions.json"
+_OWNER_RW = stat.S_IRUSR | stat.S_IWUSR  # 0o600
+
+
+def _set_owner_only_permissions(path: Path) -> None:
+    """Restrict file permissions to owner read/write (0o600).
+
+    Silently ignored on platforms where chmod is not effective (e.g. Windows).
+    """
+    try:
+        path.chmod(_OWNER_RW)
+    except OSError:
+        pass
 
 
 @dataclass
@@ -96,7 +112,13 @@ class SessionStore:
             logger.warning("Failed to read session file: %s", error)
 
     def save(self) -> None:
-        """Save sessions to disk."""
+        """Save sessions to disk atomically.
+
+        Writes to a temporary file in the same directory then replaces the
+        target path with ``os.replace``, preventing corruption from
+        concurrent writes or interrupted processes.  The file is set to
+        owner-only permissions (``0o600``) to reduce credential exposure.
+        """
         self._ensure_directory_exists()
 
         session_data: dict[str, Any] = {}
@@ -110,8 +132,22 @@ class SessionStore:
             session_data[agent_url] = data
 
         try:
-            with open(self.session_file_path, "w") as session_file:
-                json.dump(session_data, session_file, indent=2)
+            fd, tmp_path = tempfile.mkstemp(
+                dir=self.session_directory,
+                prefix=".sessions-",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w") as tmp_file:
+                    json.dump(session_data, tmp_file, indent=2)
+                os.replace(tmp_path, self.session_file_path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_path)
+                raise
+
+            _set_owner_only_permissions(self.session_file_path)
+
             logger.debug(
                 "Saved %d sessions to %s",
                 len(self.sessions),
