@@ -1,4 +1,1 @@
 - Use conventional commit syntax for commit messages.
-- Run the most relevant targeted tests before broader validation when changing behavior.
-- Do not revert or overwrite unrelated user changes in the working tree.
-- Keep machine-readable CLI and MCP outputs stable when changing user-facing behavior.
