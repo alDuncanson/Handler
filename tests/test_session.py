@@ -104,6 +104,28 @@ class TestSessionStore:
             assert session.context_id == "new-ctx"
             assert session.task_id == "new-task"
 
+    def test_set_conversation_replaces_saved_ids_and_preserves_credentials(self):
+        """Test explicit conversation replacement can clear stale task IDs."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            credentials = AuthCredentials(auth_type=AuthType.BEARER, value="token")
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="old-ctx",
+                task_id="old-task",
+                credentials=credentials,
+            )
+
+            session = store.set_conversation(
+                "http://localhost:8000",
+                context_id="new-ctx",
+                task_id=None,
+            )
+
+            assert session.context_id == "new-ctx"
+            assert session.task_id is None
+            assert session.credentials == credentials
+
     def test_clear_specific_session(self):
         """Test clearing a specific session."""
         store = SessionStore()

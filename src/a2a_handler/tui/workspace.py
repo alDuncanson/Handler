@@ -6,10 +6,11 @@ import contextlib
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 import httpx
-from a2a.types import AgentCard
+from a2a.types import AgentCard, Message as A2AMessage, Role, Task
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -18,6 +19,7 @@ from textual.widgets import (
     Button,
     ContentSwitcher,
     Input,
+    RadioButton,
     RadioSet,
     Select,
     Static,
@@ -27,13 +29,21 @@ from textual.widgets import (
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
-from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    validate_agent_url,
+    validate_resource_id,
+)
 from a2a_handler.profiles import (
     ConnectionProfile,
     load_all_profiles,
     resolve_profile_credentials,
 )
-from a2a_handler.service import A2AService
+from a2a_handler.service import (
+    A2AService,
+    SendResult,
+    extract_text_from_message_parts,
+)
 from a2a_handler.session import get_credentials, get_session_store
 from a2a_handler.tui.components import (
     AgentCardPanel,
@@ -46,6 +56,52 @@ logger = get_logger(__name__)
 
 CUSTOM_TARGET_ID = "custom"
 DEFAULT_HTTP_TIMEOUT_SECONDS = 120
+SHORT_ID_LENGTH = 12
+RESUME_HISTORY_LENGTH = 100
+
+
+class WorkspaceConnectionMode(str, Enum):
+    """High-level lifecycle mode for a remote workspace."""
+
+    DISCONNECTED = "disconnected"
+    CONNECTED = "connected"
+
+
+class WorkspaceLaunchMode(str, Enum):
+    """How a workspace should initialize its conversation state."""
+
+    START_FRESH = "start_fresh"
+    RESUME_SESSION = "resume_session"
+
+
+@dataclass(frozen=True, slots=True)
+class SavedConversation:
+    """Resume metadata loaded from a saved agent session."""
+
+    context_id: str
+    task_id: str | None = None
+
+
+@dataclass(slots=True)
+class WorkspaceState:
+    """Explicit per-workspace runtime state."""
+
+    mode: WorkspaceConnectionMode = WorkspaceConnectionMode.DISCONNECTED
+    agent_card: AgentCard | None = None
+    agent_url: str | None = None
+    current_context_id: str | None = None
+    current_task_id: str | None = None
+    connected_credentials: AuthCredentials | None = None
+    auth_source: str = "none"
+    launch_mode: WorkspaceLaunchMode = WorkspaceLaunchMode.START_FRESH
+    saved_conversation: SavedConversation | None = None
+
+
+def summarize_identifier(value: str) -> str:
+    """Shorten long IDs for compact UI summaries."""
+    if len(value) <= SHORT_ID_LENGTH:
+        return value
+    return f"{value[:SHORT_ID_LENGTH]}..."
 
 
 def build_http_client(
@@ -103,6 +159,28 @@ class RemoteConnectView(Container):
                                 value="http://localhost:8000",
                                 id="agent-url",
                             )
+                            yield Static(
+                                "Conversation: start fresh",
+                                id="conversation-status",
+                            )
+                            with Vertical(
+                                id="launch-mode-container",
+                                classes="launch-mode hidden",
+                            ):
+                                yield Static(
+                                    "Choose how this workspace should open the conversation.",
+                                    id="launch-mode-subtitle",
+                                )
+                                with RadioSet(id="launch-mode-selector"):
+                                    yield RadioButton(
+                                        "Resume saved session",
+                                        id="launch-mode-resume",
+                                    )
+                                    yield RadioButton(
+                                        "Start fresh",
+                                        id="launch-mode-fresh",
+                                        value=True,
+                                    )
                             yield Static("Auth source: none", id="auth-source-status")
                             yield AuthPanel(id="auth-panel")
                             with Horizontal(id="connect-actions"):
@@ -199,6 +277,65 @@ class RemoteConnectView(Container):
         status = self.query_one("#auth-source-status", Static)
         status.update(f"Auth source: {source_description}")
 
+    def _set_launch_mode_start_fresh_selected(self) -> None:
+        resume_button = self.query_one("#launch-mode-resume", RadioButton)
+        fresh_button = self.query_one("#launch-mode-fresh", RadioButton)
+        with self.prevent(RadioButton.Changed, RadioSet.Changed):
+            resume_button.value = False
+            fresh_button.value = True
+
+    def _set_launch_mode_resume_selected(self) -> None:
+        resume_button = self.query_one("#launch-mode-resume", RadioButton)
+        fresh_button = self.query_one("#launch-mode-fresh", RadioButton)
+        with self.prevent(RadioButton.Changed, RadioSet.Changed):
+            resume_button.value = True
+            fresh_button.value = False
+
+    def get_launch_mode(self) -> WorkspaceLaunchMode:
+        if self.query_one("#launch-mode-resume", RadioButton).value:
+            return WorkspaceLaunchMode.RESUME_SESSION
+        return WorkspaceLaunchMode.START_FRESH
+
+    def set_launch_mode(self, launch_mode: WorkspaceLaunchMode) -> None:
+        if launch_mode == WorkspaceLaunchMode.RESUME_SESSION:
+            self._set_launch_mode_resume_selected()
+            return
+        self._set_launch_mode_start_fresh_selected()
+
+    def set_saved_conversation(
+        self,
+        conversation: SavedConversation | None,
+        warning: str | None = None,
+    ) -> None:
+        status = self.query_one("#conversation-status", Static)
+        container = self.query_one("#launch-mode-container", Vertical)
+        status.remove_class("status-warning")
+
+        if warning:
+            container.add_class("hidden")
+            self.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
+            status.update(f"Conversation: {warning}")
+            status.add_class("status-warning")
+            return
+
+        if conversation is None:
+            container.add_class("hidden")
+            self.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
+            status.update("Conversation: start fresh")
+            return
+
+        was_hidden = container.has_class("hidden")
+        container.remove_class("hidden")
+        task_suffix = ""
+        if conversation.task_id:
+            task_suffix = f" · last task {summarize_identifier(conversation.task_id)}"
+        status.update(
+            "Conversation: saved context "
+            f"{summarize_identifier(conversation.context_id)}{task_suffix}"
+        )
+        if was_hidden:
+            self.set_launch_mode(WorkspaceLaunchMode.RESUME_SESSION)
+
     def set_status(self, message: str, tone: str = "muted") -> None:
         status = self.query_one("#connect-status", Static)
         status.update(message)
@@ -267,10 +404,15 @@ class RemoteLiveView(Container):
         agent_name: str,
         agent_url: str,
         auth_source: str,
+        context_id: str | None = None,
+        conversation_summary: str | None = None,
     ) -> None:
-        self.query_one("#workspace-summary", Static).update(
-            f"Agent: {agent_name}\nURL: {agent_url}\nAuth: {auth_source}"
-        )
+        lines = [f"Agent: {agent_name}", f"URL: {agent_url}", f"Auth: {auth_source}"]
+        if context_id:
+            lines.append(f"Context: {summarize_identifier(context_id)}")
+        if conversation_summary:
+            lines.append(f"Conversation: {conversation_summary}")
+        self.query_one("#workspace-summary", Static).update("\n".join(lines))
 
     def agent_card_panel(self) -> AgentCardPanel:
         return self.query_one("#agent-card-container", AgentCardPanel)
@@ -303,13 +445,9 @@ class RemoteWorkspace(Container):
         super().__init__(id=workspace_id, **kwargs)
         self.workspace_id = workspace_id
         self.title = title
-        self.current_agent_card: AgentCard | None = None
-        self.current_agent_url: str | None = None
-        self.current_context_id: str | None = None
+        self.state = WorkspaceState()
         self.http_client: httpx.AsyncClient | None = None
         self._agent_service: A2AService | None = None
-        self._connected_credentials: AuthCredentials | None = None
-        self._connected_auth_source = "none"
         self._profiles: dict[str, ConnectionProfile] = {}
         self._profile_credentials: dict[str, AuthCredentials] = {}
         self._profile_warnings: dict[str, str] = {}
@@ -317,15 +455,46 @@ class RemoteWorkspace(Container):
         self._manual_auth_override = False
         self._syncing_auth_depth = 0
         self._suspend_target_change_events = False
-        self._is_connected = False
         self._log_lines: list[str] = []
+
+    @property
+    def current_agent_card(self) -> AgentCard | None:
+        return self.state.agent_card
+
+    @current_agent_card.setter
+    def current_agent_card(self, value: AgentCard | None) -> None:
+        self.state.agent_card = value
+
+    @property
+    def current_agent_url(self) -> str | None:
+        return self.state.agent_url
+
+    @current_agent_url.setter
+    def current_agent_url(self, value: str | None) -> None:
+        self.state.agent_url = value
+
+    @property
+    def current_context_id(self) -> str | None:
+        return self.state.current_context_id
+
+    @current_context_id.setter
+    def current_context_id(self, value: str | None) -> None:
+        self.state.current_context_id = value
+
+    @property
+    def current_task_id(self) -> str | None:
+        return self.state.current_task_id
+
+    @current_task_id.setter
+    def current_task_id(self, value: str | None) -> None:
+        self.state.current_task_id = value
 
     def compose(self) -> ComposeResult:
         yield RemoteConnectView(self.title)
 
     @property
     def is_connected(self) -> bool:
-        return self._is_connected
+        return self.state.mode == WorkspaceConnectionMode.CONNECTED
 
     @contextlib.contextmanager
     def _suppressing_auth_events(self) -> Generator[None, None, None]:
@@ -342,6 +511,7 @@ class RemoteWorkspace(Container):
     async def on_mount(self) -> None:
         self._suspend_target_change_events = True
         self._load_connection_targets()
+        self._refresh_connect_saved_conversation()
         self._sync_connect_auth_panel_with_resolved_credentials()
 
         if self._initial_bearer_token:
@@ -501,6 +671,58 @@ class RemoteWorkspace(Container):
         )
         connect_view.set_auth_source_status(source_description)
 
+    def _resolve_saved_conversation(
+        self,
+        agent_url: str,
+    ) -> tuple[SavedConversation | None, str | None]:
+        session = next(
+            (
+                existing_session
+                for existing_session in get_session_store().list_all()
+                if existing_session.agent_url == agent_url
+            ),
+            None,
+        )
+        if session is None or not session.context_id:
+            return None, None
+
+        try:
+            validate_resource_id(session.context_id, "context_id")
+        except InputValidationError as error:
+            logger.warning(
+                "Ignoring saved context for %s: %s", agent_url, error.message
+            )
+            return (
+                None,
+                f"saved session ignored: {self._build_connect_error_message(error)}",
+            )
+
+        task_id = session.task_id
+        if task_id:
+            try:
+                validate_resource_id(task_id, "task_id")
+            except InputValidationError as error:
+                logger.warning(
+                    "Ignoring saved task ID for %s: %s", agent_url, error.message
+                )
+                task_id = None
+
+        return SavedConversation(context_id=session.context_id, task_id=task_id), None
+
+    def _refresh_connect_saved_conversation(self) -> None:
+        connect_view = self._get_connect_view()
+        agent_url = connect_view.get_url()
+        if not agent_url:
+            self.state.saved_conversation = None
+            self.state.launch_mode = WorkspaceLaunchMode.START_FRESH
+            connect_view.set_saved_conversation(None)
+            return
+
+        saved_conversation, warning = self._resolve_saved_conversation(agent_url)
+        self.state.saved_conversation = saved_conversation
+        connect_view.set_saved_conversation(saved_conversation, warning=warning)
+        self.state.launch_mode = connect_view.get_launch_mode()
+
     def _refresh_live_summary(self) -> None:
         live_view = self._try_get_live_view()
         if (
@@ -510,7 +732,7 @@ class RemoteWorkspace(Container):
         ):
             return
 
-        auth_source = self._connected_auth_source
+        auth_source = self.state.auth_source
         if self._manual_auth_override:
             manual_credentials = live_view.messages_panel().get_auth_credentials()
             auth_source = "manual (Auth tab)" if manual_credentials else "manual (none)"
@@ -519,7 +741,101 @@ class RemoteWorkspace(Container):
             agent_name=self.current_agent_card.name,
             agent_url=self.current_agent_url,
             auth_source=auth_source,
+            context_id=self.current_context_id,
+            conversation_summary=self._conversation_summary(),
         )
+
+    def _conversation_summary(self) -> str:
+        if self.state.launch_mode == WorkspaceLaunchMode.RESUME_SESSION:
+            return "resumed saved context"
+        return "fresh workspace context"
+
+    def _persist_session_state(self) -> None:
+        if self.current_agent_url is None:
+            return
+        get_session_store().set_conversation(
+            self.current_agent_url,
+            self.current_context_id,
+            self.current_task_id,
+        )
+
+    def _load_task_into_live_view(self, live_view: RemoteLiveView, task: Task) -> None:
+        messages_panel = live_view.messages_panel()
+        seen_message_ids: set[str] = set()
+
+        if task.history:
+            for message in task.history:
+                if message.message_id in seen_message_ids:
+                    logger.debug(
+                        "Skipping duplicate history message %s in resumed task %s",
+                        message.message_id,
+                        task.id,
+                    )
+                    continue
+                seen_message_ids.add(message.message_id)
+                self._load_history_message(messages_panel, message)
+
+        messages_panel.update_task(task)
+        if task.artifacts:
+            for artifact in task.artifacts:
+                messages_panel.update_artifact(
+                    artifact,
+                    task.id,
+                    task.context_id,
+                )
+
+    def _load_history_message(
+        self,
+        messages_panel: TabbedMessagesPanel,
+        message: A2AMessage,
+    ) -> None:
+        if not message.parts:
+            return
+
+        text = extract_text_from_message_parts(message.parts)
+        if not text:
+            return
+
+        if message.role == Role.agent:
+            messages_panel.add_agent_message(SendResult(message=message, text=text))
+            return
+
+        if message.role == Role.user:
+            messages_panel.add_message("user", text)
+            return
+
+        messages_panel.add_message("system", text)
+
+    async def _hydrate_resumed_history(self, live_view: RemoteLiveView) -> None:
+        if self.state.launch_mode != WorkspaceLaunchMode.RESUME_SESSION:
+            return
+
+        saved_conversation = self.state.saved_conversation
+        if saved_conversation is None or saved_conversation.task_id is None:
+            return
+
+        if self._agent_service is None:
+            return
+
+        try:
+            task_result = await self._agent_service.get_task(
+                saved_conversation.task_id,
+                history_length=RESUME_HISTORY_LENGTH,
+            )
+        except Exception as error:
+            logger.warning(
+                "Failed to load resumed task history for %s (%s): %s",
+                self.workspace_id,
+                saved_conversation.task_id,
+                error,
+                exc_info=True,
+            )
+            live_view.messages_panel().add_system_message(
+                "Resumed saved context, but prior messages could not be loaded."
+            )
+            return
+
+        self._load_task_into_live_view(live_view, task_result.task)
 
     def _handle_connection_target_transition(self) -> None:
         connect_view = self._get_connect_view()
@@ -527,6 +843,7 @@ class RemoteWorkspace(Container):
             return
 
         self._manual_auth_override = False
+        self._refresh_connect_saved_conversation()
         self._sync_connect_auth_panel_with_resolved_credentials()
         self._refresh_connect_auth_source_status()
 
@@ -564,27 +881,36 @@ class RemoteWorkspace(Container):
         live_view.update_connection_summary(
             agent_name=agent_card.name,
             agent_url=self.current_agent_url or "",
-            auth_source=self._connected_auth_source,
+            auth_source=self.state.auth_source,
+            context_id=self.current_context_id,
+            conversation_summary=self._conversation_summary(),
         )
         live_view.messages_panel().load_logs(self._log_lines)
         with self._suppressing_auth_events():
-            live_view.messages_panel().set_auth_credentials(self._connected_credentials)
+            live_view.messages_panel().set_auth_credentials(
+                self.state.connected_credentials
+            )
         self._manual_auth_override = False
+
+        await self._hydrate_resumed_history(live_view)
 
         if warning:
             live_view.messages_panel().add_system_message(warning)
+        live_view.messages_panel().add_system_message(
+            f"Conversation: {self._conversation_summary()}"
+        )
         live_view.messages_panel().add_system_message(f"Connected to {agent_card.name}")
         live_view.input_panel().focus_input()
 
     @on(Select.Changed, "#connection-target")
     def _handle_connection_target_changed(self) -> None:
-        if self._is_connected or self._suspend_target_change_events:
+        if self.is_connected or self._suspend_target_change_events:
             return
         self._handle_connection_target_transition()
 
     @on(Input.Changed, "#agent-url")
     def _handle_agent_url_changed(self) -> None:
-        if self._is_connected:
+        if self.is_connected:
             return
 
         connect_view = self._get_connect_view()
@@ -592,6 +918,7 @@ class RemoteWorkspace(Container):
             self._handle_connection_target_transition()
             return
 
+        self._refresh_connect_saved_conversation()
         self._sync_connect_auth_panel_with_resolved_credentials()
         self._refresh_connect_auth_source_status()
 
@@ -605,14 +932,14 @@ class RemoteWorkspace(Container):
         if self._is_syncing_auth_panel:
             return
         self._manual_auth_override = True
-        if self._is_connected:
+        if self.is_connected:
             self._refresh_live_summary()
         else:
             self._refresh_connect_auth_source_status()
 
     @on(Button.Pressed, "#connect-btn")
     async def handle_connect_button(self) -> None:
-        if self._is_connected:
+        if self.is_connected:
             return
 
         connect_view = self._get_connect_view()
@@ -654,12 +981,29 @@ class RemoteWorkspace(Container):
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
+            saved_conversation = self.state.saved_conversation
+            launch_mode = connect_view.get_launch_mode()
+            context_id = str(uuid.uuid4())
+            if (
+                launch_mode == WorkspaceLaunchMode.RESUME_SESSION
+                and saved_conversation is not None
+            ):
+                context_id = saved_conversation.context_id
+
             self.current_agent_card = agent_card
             self.current_agent_url = agent_url
-            self.current_context_id = str(uuid.uuid4())
-            self._connected_credentials = credentials
-            self._connected_auth_source = source_description
-            self._is_connected = True
+            self.current_context_id = context_id
+            self.current_task_id = (
+                saved_conversation.task_id
+                if launch_mode == WorkspaceLaunchMode.RESUME_SESSION
+                and saved_conversation is not None
+                else None
+            )
+            self.state.connected_credentials = credentials
+            self.state.auth_source = source_description
+            self.state.launch_mode = launch_mode
+            self.state.mode = WorkspaceConnectionMode.CONNECTED
+            self._persist_session_state()
 
             await self._show_live_view(warning)
             self.post_message(self.TitleChanged(self.workspace_id, agent_card.name))
@@ -672,19 +1016,19 @@ class RemoteWorkspace(Container):
 
     @on(Input.Submitted, "#message-input")
     def handle_message_submit(self) -> None:
-        if self._is_connected:
+        if self.is_connected:
             self._send_message()
 
     @on(Button.Pressed, "#send-btn")
     def handle_send_button(self) -> None:
-        if self._is_connected:
+        if self.is_connected:
             self._send_message()
 
     @work(exclusive=True)
     async def _send_message(self) -> None:
         live_view = self._try_get_live_view()
         if (
-            not self._is_connected
+            not self.is_connected
             or self.current_agent_url is None
             or self._agent_service is None
             or live_view is None
@@ -706,8 +1050,8 @@ class RemoteWorkspace(Container):
                     self._agent_service.set_credentials(credentials)
                 else:
                     self._agent_service.clear_credentials()
-            elif self._connected_credentials is not None:
-                self._agent_service.set_credentials(self._connected_credentials)
+            elif self.state.connected_credentials is not None:
+                self._agent_service.set_credentials(self.state.connected_credentials)
             else:
                 self._agent_service.clear_credentials()
 
@@ -720,6 +1064,8 @@ class RemoteWorkspace(Container):
 
             if send_result.context_id:
                 self.current_context_id = send_result.context_id
+            self.current_task_id = send_result.task_id
+            self._persist_session_state()
 
             messages_panel.add_agent_message(send_result)
 

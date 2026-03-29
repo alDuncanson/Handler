@@ -114,6 +114,30 @@ RemoteLiveView {
     margin-bottom: 1;
 }
 
+#conversation-status,
+#launch-mode-subtitle {
+    height: auto;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#conversation-status.status-warning {
+    color: $warning;
+}
+
+#launch-mode-container {
+    height: auto;
+    margin-top: 1;
+}
+
+#launch-mode-container.hidden {
+    display: none;
+}
+
+#launch-mode-selector {
+    height: auto;
+}
+
 #connect-actions {
     height: auto;
     align: left middle;

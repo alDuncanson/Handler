@@ -183,6 +183,30 @@ class SessionStore:
         )
         return agent_session
 
+    def set_conversation(
+        self,
+        agent_url: str,
+        context_id: str | None,
+        task_id: str | None,
+    ) -> AgentSession:
+        """Replace saved conversation IDs for an agent and save.
+
+        Unlike ``update()``, this method treats ``None`` as an explicit value so
+        callers can clear stale task IDs when they intentionally start a fresh
+        conversation or resume only by ``context_id``.
+        """
+        agent_session = self.get(agent_url)
+        agent_session.context_id = context_id
+        agent_session.task_id = task_id
+        self.save()
+        logger.debug(
+            "Set conversation for %s: context_id=%s, task_id=%s",
+            agent_url,
+            context_id,
+            task_id,
+        )
+        return agent_session
+
     def set_credentials(
         self,
         agent_url: str,
