@@ -22,15 +22,14 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import A2AService
-from a2a_handler.session import (
+from a2a_handler.credential_store import (
     clear_credentials as session_clear_credentials,
 )
+from a2a_handler.credential_store import get_credentials, set_credentials
 from a2a_handler.session import (
     clear_session,
-    get_credentials,
     get_session,
     get_session_store,
-    set_credentials,
     update_session,
 )
 from a2a_handler.validation import (
@@ -564,9 +563,9 @@ def create_mcp_server() -> FastMCP:
     async def list_sessions() -> dict:
         """List all saved sessions.
 
-        Sessions store context_id, task_id, and credentials for agents you've
-        interacted with. This allows for conversation continuity across
-        multiple interactions.
+        Sessions store context_id and task_id for agents you've interacted
+        with. This allows for conversation continuity across multiple
+        interactions.
 
         Returns:
             A dictionary containing:
@@ -586,7 +585,7 @@ def create_mcp_server() -> FastMCP:
                     "agent_url": s.agent_url,
                     "context_id": s.context_id,
                     "task_id": s.task_id,
-                    "has_credentials": s.credentials is not None,
+                    "has_credentials": get_credentials(s.agent_url) is not None,
                 }
                 for s in sessions
             ],
@@ -621,7 +620,7 @@ def create_mcp_server() -> FastMCP:
             "agent_url": session.agent_url,
             "context_id": session.context_id,
             "task_id": session.task_id,
-            "has_credentials": session.credentials is not None,
+            "has_credentials": get_credentials(session.agent_url) is not None,
         }
 
     @mcp.tool()

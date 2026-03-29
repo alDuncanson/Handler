@@ -7,10 +7,15 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Select, Static, Tab, Tabs
+from textual.widgets import RadioButton, Static, Tab, Tabs
 
-from a2a_handler.auth import AuthType, create_api_key_auth, create_bearer_auth
-from a2a_handler.profiles import ConnectionProfile, ProfileAuthConfig
+from a2a_handler.auth import AuthType, create_bearer_auth
+from a2a_handler.connections import (
+    ConnectionAuthConfig,
+    ConnectionCatalog,
+    ConnectionDefinition,
+    ConnectionSource,
+)
 from a2a_handler.session import AgentSession
 from a2a_handler.service import TaskResult
 from a2a_handler.tui import HandlerTUI
@@ -19,6 +24,7 @@ from a2a_handler.tui.workspace import (
     RemoteConnectView,
     RemoteLiveView,
     RemoteWorkspace,
+    WorkspaceAuthMode,
     WorkspaceLaunchMode,
     WorkspaceTabs,
 )
@@ -29,18 +35,39 @@ def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
     return [str(getattr(widget, "content", "")) for widget in chat.children]
 
 
+def _make_connection(
+    *,
+    source: ConnectionSource,
+    name: str,
+    agent_url: str,
+    auth: ConnectionAuthConfig | None = None,
+) -> ConnectionDefinition:
+    return ConnectionDefinition(
+        connection_id=f"{source.value}:{name}",
+        source=source,
+        name=name,
+        agent_url=agent_url,
+        auth=auth,
+        origin_label=source.value.capitalize(),
+    )
+
+
 @pytest.fixture(autouse=True)
 def patch_workspace_sources() -> Generator[Mock, None, None]:
-    """Keep TUI tests isolated from user profile and session files."""
+    """Keep TUI tests isolated from user connection and session files."""
     session_store = Mock()
     session_store.list_all.return_value = []
+    session_store.recent_agent_urls.return_value = []
 
     with (
-        patch("a2a_handler.tui.workspace.load_all_profiles", return_value={}),
         patch(
-            "a2a_handler.tui.workspace.get_session_store", return_value=session_store
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(),
         ),
-        patch("a2a_handler.tui.workspace.get_credentials", return_value=None),
+        patch(
+            "a2a_handler.tui.workspace.get_session_store",
+            return_value=session_store,
+        ),
     ):
         yield session_store
 
@@ -74,7 +101,7 @@ def test_workspace_shell_does_not_hijack_tab_navigation() -> None:
 
 @pytest.mark.asyncio
 async def test_initial_bearer_token_seeds_first_workspace_connect_view() -> None:
-    """The first workspace should inherit an initial bearer token override."""
+    """The first workspace should inherit an explicit auth override."""
     app = HandlerTUI(initial_bearer_token="test-token")
 
     async with app.run_test() as pilot:
@@ -83,8 +110,10 @@ async def test_initial_bearer_token_seeds_first_workspace_connect_view() -> None
         workspace = app.query_one(WorkspaceTabs).get_active_workspace()
         assert workspace is not None
 
-        credentials = workspace.query_one(RemoteConnectView).get_auth_credentials()
+        connect_view = workspace.query_one(RemoteConnectView)
+        credentials = connect_view.get_auth_credentials()
 
+        assert connect_view.get_auth_mode() == WorkspaceAuthMode.OVERRIDE
         assert credentials is not None
         assert credentials.auth_type == AuthType.BEARER
         assert credentials.value == "test-token"
@@ -108,14 +137,20 @@ async def test_new_remote_button_adds_workspace_tab() -> None:
 
 
 @pytest.mark.asyncio
-async def test_saved_target_selection_syncs_auth_into_connect_view() -> None:
-    """Selecting a saved target should prefill advanced auth in the connect view."""
+async def test_repository_connection_tab_is_default_and_selects_first_connection() -> (
+    None
+):
+    """Repository connections should be the primary default tab and selection."""
     app = HandlerTUI()
-    resolved_credentials = create_api_key_auth("saved-key", header_name="X-Test-Key")
-    resolved_credentials.custom_headers = {"x-org": "acme"}
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="staging",
+        agent_url="https://staging.example.com",
+    )
 
     with patch(
-        "a2a_handler.tui.workspace.get_credentials", return_value=resolved_credentials
+        "a2a_handler.tui.workspace.load_connection_catalog",
+        return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -124,35 +159,19 @@ async def test_saved_target_selection_syncs_auth_into_connect_view() -> None:
             assert workspace is not None
 
             connect_view = workspace.query_one(RemoteConnectView)
-            connect_view.set_connection_targets(
-                profile_urls={},
-                saved_urls=["https://saved.example.com"],
-            )
 
-            selector = connect_view.query_one("#connection-target", Select)
-            selector.value = "saved:https://saved.example.com"
-            await pilot.pause()
-
-            credentials = connect_view.get_auth_credentials()
-
-            assert credentials is not None
-            assert credentials.auth_type == AuthType.API_KEY
-            assert credentials.value == "saved-key"
-            assert credentials.header_name == "X-Test-Key"
-            assert credentials.custom_headers == {"x-org": "acme"}
+            assert connect_view.get_active_source() == ConnectionSource.REPOSITORY
+            assert connect_view.get_selected_connection() == repo_connection
+            assert connect_view.get_url() == "https://staging.example.com"
 
 
 @pytest.mark.asyncio
-async def test_saved_session_defaults_matching_workspace_to_resume_mode(
+async def test_recent_connections_are_loaded_from_session_recency(
     patch_workspace_sources: Mock,
 ) -> None:
-    """Matching saved contexts should make resume the default launch mode."""
-    patch_workspace_sources.list_all.return_value = [
-        AgentSession(
-            agent_url="https://saved.example.com",
-            context_id="ctx-saved-123456",
-            task_id="task-saved-654321",
-        )
+    """Recent tab should reflect session MRU URLs distinctly from configured connections."""
+    patch_workspace_sources.recent_agent_urls.return_value = [
+        "https://recent.example.com"
     ]
     app = HandlerTUI()
 
@@ -163,13 +182,107 @@ async def test_saved_session_defaults_matching_workspace_to_resume_mode(
         assert workspace is not None
 
         connect_view = workspace.query_one(RemoteConnectView)
-        connect_view.query_one("#agent-url", Input).value = "https://saved.example.com"
-        await pilot.pause()
+        connect_view.activate_source(ConnectionSource.RECENT)
+        workspace._refresh_connect_selection()
 
-        conversation_status = connect_view.query_one("#conversation-status", Static)
+        selected = connect_view.get_selected_connection()
+        assert selected is not None
+        assert selected.source == ConnectionSource.RECENT
+        assert selected.agent_url == "https://recent.example.com"
 
-        assert "saved context" in str(conversation_status.content)
-        assert connect_view.get_launch_mode() == WorkspaceLaunchMode.RESUME_SESSION
+
+@pytest.mark.asyncio
+async def test_saved_session_defaults_matching_repository_connection_to_resume_mode(
+    patch_workspace_sources: Mock,
+) -> None:
+    """Matching saved contexts should make resume the default launch mode."""
+    patch_workspace_sources.list_all.return_value = [
+        AgentSession(
+            agent_url="https://saved.example.com",
+            context_id="ctx-saved-123456",
+            task_id="task-saved-654321",
+        )
+    ]
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="saved",
+        agent_url="https://saved.example.com",
+    )
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.workspace.load_connection_catalog",
+        return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(WorkspaceTabs).get_active_workspace()
+            assert workspace is not None
+
+            connect_view = workspace.query_one(RemoteConnectView)
+            conversation_status = connect_view.query_one("#conversation-status", Static)
+
+            assert "saved context" in str(conversation_status.content)
+            assert connect_view.get_launch_mode() == WorkspaceLaunchMode.RESUME_SESSION
+
+
+@pytest.mark.asyncio
+async def test_connect_view_radio_groups_remain_mutually_exclusive(
+    patch_workspace_sources: Mock,
+) -> None:
+    """Launch, auth-mode, and auth-type radio groups should not leave stale selections on."""
+    patch_workspace_sources.list_all.return_value = [
+        AgentSession(
+            agent_url="https://saved.example.com",
+            context_id="ctx-saved-123456",
+            task_id="task-saved-654321",
+        )
+    ]
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="saved",
+        agent_url="https://saved.example.com",
+    )
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.workspace.load_connection_catalog",
+        return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(WorkspaceTabs).get_active_workspace()
+            assert workspace is not None
+
+            connect_view = workspace.query_one(RemoteConnectView)
+
+            connect_view.query_one("#launch-mode-fresh", RadioButton).toggle()
+            await pilot.pause()
+            connect_view.query_one("#launch-mode-resume", RadioButton).toggle()
+            await pilot.pause()
+
+            assert connect_view.query_one("#launch-mode-resume", RadioButton).value
+            assert not connect_view.query_one("#launch-mode-fresh", RadioButton).value
+
+            connect_view.query_one("#auth-mode-override", RadioButton).toggle()
+            await pilot.pause()
+            connect_view.query_one("#auth-mode-default", RadioButton).toggle()
+            await pilot.pause()
+
+            assert connect_view.query_one("#auth-mode-default", RadioButton).value
+            assert not connect_view.query_one("#auth-mode-override", RadioButton).value
+
+            connect_view.query_one("#auth-mode-override", RadioButton).toggle()
+            await pilot.pause()
+            connect_view.query_one("#auth-bearer", RadioButton).toggle()
+            await pilot.pause()
+            connect_view.query_one("#auth-api-key", RadioButton).toggle()
+            await pilot.pause()
+
+            assert connect_view.query_one("#auth-api-key", RadioButton).value
+            assert not connect_view.query_one("#auth-bearer", RadioButton).value
 
 
 @pytest.mark.asyncio
@@ -184,6 +297,11 @@ async def test_connect_resume_mode_reuses_saved_context(
             task_id="task-saved-654321",
         )
     ]
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="agent",
+        agent_url="https://agent.example.com",
+    )
     app = HandlerTUI()
     new_http_client = AsyncMock()
     mock_card = Mock()
@@ -191,6 +309,10 @@ async def test_connect_resume_mode_reuses_saved_context(
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
 
     with (
+        patch(
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        ),
         patch(
             "a2a_handler.tui.workspace.build_http_client",
             return_value=new_http_client,
@@ -207,11 +329,6 @@ async def test_connect_resume_mode_reuses_saved_context(
             workspace = app.query_one(WorkspaceTabs).get_active_workspace()
             assert workspace is not None
 
-            connect_view = workspace.query_one(RemoteConnectView)
-            connect_view.query_one(
-                "#agent-url", Input
-            ).value = "https://agent.example.com"
-            await pilot.pause()
             await workspace.handle_connect_button()
             await pilot.pause()
 
@@ -235,6 +352,11 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
             task_id="task-saved-654321",
         )
     ]
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="agent",
+        agent_url="https://agent.example.com",
+    )
     app = HandlerTUI()
     new_http_client = AsyncMock()
     mock_card = Mock()
@@ -264,6 +386,10 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
 
     with (
         patch(
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        ),
+        patch(
             "a2a_handler.tui.workspace.build_http_client",
             return_value=new_http_client,
         ),
@@ -280,11 +406,6 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
             workspace = app.query_one(WorkspaceTabs).get_active_workspace()
             assert workspace is not None
 
-            connect_view = workspace.query_one(RemoteConnectView)
-            connect_view.query_one(
-                "#agent-url", Input
-            ).value = "https://agent.example.com"
-            await pilot.pause()
             await workspace.handle_connect_button()
             await pilot.pause()
 
@@ -312,6 +433,11 @@ async def test_connect_start_fresh_ignores_saved_context(
             task_id="task-saved-654321",
         )
     ]
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="agent",
+        agent_url="https://agent.example.com",
+    )
     app = HandlerTUI()
     new_http_client = AsyncMock()
     mock_card = Mock()
@@ -320,6 +446,10 @@ async def test_connect_start_fresh_ignores_saved_context(
     fresh_context = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
     with (
+        patch(
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        ),
         patch(
             "a2a_handler.tui.workspace.build_http_client",
             return_value=new_http_client,
@@ -338,10 +468,6 @@ async def test_connect_start_fresh_ignores_saved_context(
             assert workspace is not None
 
             connect_view = workspace.query_one(RemoteConnectView)
-            connect_view.query_one(
-                "#agent-url", Input
-            ).value = "https://agent.example.com"
-            await pilot.pause()
             connect_view.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
             await workspace.handle_connect_button()
             await pilot.pause()
@@ -355,10 +481,14 @@ async def test_connect_start_fresh_ignores_saved_context(
 
 
 @pytest.mark.asyncio
-async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title() -> (
-    None
-):
-    """Successful connect should morph the same workspace into the live layout."""
+async def test_connect_uses_selected_connection_default_auth() -> None:
+    """Connect should use the selected connection's default auth when requested."""
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="staging",
+        agent_url="https://staging.example.com",
+        auth=ConnectionAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
+    )
     app = HandlerTUI()
     new_http_client = AsyncMock()
     mock_card = Mock()
@@ -366,6 +496,58 @@ async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title(
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
 
     with (
+        patch(
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.workspace.build_http_client",
+            return_value=new_http_client,
+        ) as mock_build_http_client,
+        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(WorkspaceTabs).get_active_workspace()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            credentials = mock_build_http_client.call_args.kwargs["credentials"]
+            assert credentials is not None
+            assert credentials.auth_type == AuthType.BEARER
+            assert credentials.value == "profile-token"
+            assert (
+                workspace.state.auth_source == "repository connection 'staging' default"
+            )
+
+
+@pytest.mark.asyncio
+async def test_connect_manual_override_uses_manual_credentials() -> None:
+    """Explicit auth override should replace any connection default auth."""
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="staging",
+        agent_url="https://staging.example.com",
+        auth=ConnectionAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        ),
         patch(
             "a2a_handler.tui.workspace.build_http_client",
             return_value=new_http_client,
@@ -383,9 +565,55 @@ async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title(
             assert workspace is not None
 
             connect_view = workspace.query_one(RemoteConnectView)
-            connect_view.query_one(
-                "#agent-url", Input
-            ).value = "https://agent.example.com"
+            connect_view.set_auth_mode(WorkspaceAuthMode.OVERRIDE)
+            connect_view.set_auth_credentials(create_bearer_auth("manual-token"))
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            credentials = mock_build_http_client.call_args.kwargs["credentials"]
+            assert credentials is not None
+            assert credentials.auth_type == AuthType.BEARER
+            assert credentials.value == "manual-token"
+            assert workspace.state.auth_source == "manual override"
+
+
+@pytest.mark.asyncio
+async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title() -> (
+    None
+):
+    """Successful connect should morph the same workspace into the live layout."""
+    repo_connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.workspace.load_connection_catalog",
+            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.workspace.build_http_client",
+            return_value=new_http_client,
+        ) as mock_build_http_client,
+        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(WorkspaceTabs).get_active_workspace()
+            assert workspace is not None
+
             await workspace.handle_connect_button()
             await pilot.pause()
 
@@ -413,63 +641,60 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
     """Malformed URLs should be rejected from the connect view."""
     app = HandlerTUI()
 
-    with patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls:
-        async with app.run_test() as pilot:
-            await pilot.pause()
+    async with app.run_test() as pilot:
+        await pilot.pause()
 
-            workspace = app.query_one(WorkspaceTabs).get_active_workspace()
-            assert workspace is not None
+        workspace = app.query_one(WorkspaceTabs).get_active_workspace()
+        assert workspace is not None
 
-            connect_view = workspace.query_one(RemoteConnectView)
-            connect_view.query_one("#agent-url", Input).value = "not-a-url"
-            await workspace.handle_connect_button()
-            await pilot.pause()
+        connect_view = workspace.query_one(RemoteConnectView)
+        connect_view.activate_source(ConnectionSource.MANUAL)
+        connect_view.query_one("#manual-agent-url").value = "not-a-url"
+        workspace._refresh_connect_selection()
+        await workspace.handle_connect_button()
+        await pilot.pause()
 
-            status = connect_view.query_one("#connect-status", Static)
+        status = connect_view.query_one("#connect-status", Static)
 
-            assert "valid http(s) URL" in str(status.content)
-            mock_service_cls.assert_not_called()
+        assert "valid http(s) URL" in str(status.content)
 
 
-def test_resolve_connection_credentials_prefers_manual_auth() -> None:
-    """Manual auth remains the first precedence level in a workspace."""
+def test_resolve_connection_credentials_uses_connection_default_auth() -> None:
+    workspace = RemoteWorkspace(workspace_id="workspace-test", title="Remote Test")
+    connection = _make_connection(
+        source=ConnectionSource.REPOSITORY,
+        name="staging",
+        agent_url="https://staging.example.com",
+        auth=ConnectionAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
+    )
+    workspace._connection_credentials = {
+        connection.connection_id: create_bearer_auth("profile-token")
+    }
+
+    credentials, source, warning = workspace._resolve_connection_credentials(
+        selected_connection=connection,
+        active_source=ConnectionSource.REPOSITORY,
+        auth_mode=WorkspaceAuthMode.USE_CONNECTION_DEFAULT,
+        override_credentials=None,
+    )
+
+    assert credentials is not None
+    assert credentials.value == "profile-token"
+    assert source == "repository connection 'staging' default"
+    assert warning is None
+
+
+def test_resolve_connection_credentials_uses_manual_override() -> None:
     workspace = RemoteWorkspace(workspace_id="workspace-test", title="Remote Test")
     manual = create_bearer_auth("manual-token")
 
-    with patch("a2a_handler.tui.workspace.get_credentials") as mock_get_credentials:
-        credentials, source, warning = workspace._resolve_connection_credentials(
-            agent_url="https://agent.example.com",
-            selected_profile_name=None,
-            manual_credentials=manual,
-        )
+    credentials, source, warning = workspace._resolve_connection_credentials(
+        selected_connection=None,
+        active_source=ConnectionSource.MANUAL,
+        auth_mode=WorkspaceAuthMode.OVERRIDE,
+        override_credentials=manual,
+    )
 
     assert credentials == manual
-    assert source == "manual (Auth tab)"
-    assert warning is None
-    mock_get_credentials.assert_not_called()
-
-
-def test_resolve_connection_credentials_uses_profile_auth() -> None:
-    """Profile auth should win when manual auth is not provided."""
-    workspace = RemoteWorkspace(workspace_id="workspace-test", title="Remote Test")
-    workspace._profiles = {
-        "staging": ConnectionProfile(
-            name="staging",
-            agent_url="https://staging.example.com",
-            auth=ProfileAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
-        )
-    }
-    profile_credentials = create_bearer_auth("profile-token")
-    workspace._profile_credentials = {"staging": profile_credentials}
-    workspace._profile_warnings = {}
-
-    with patch("a2a_handler.tui.workspace.get_credentials", return_value=None):
-        credentials, source, warning = workspace._resolve_connection_credentials(
-            agent_url="https://staging.example.com",
-            selected_profile_name="staging",
-            manual_credentials=None,
-        )
-
-    assert credentials == profile_credentials
-    assert source == "profile 'staging'"
+    assert source == "manual override"
     assert warning is None

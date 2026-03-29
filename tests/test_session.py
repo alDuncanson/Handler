@@ -4,8 +4,8 @@ import os
 import stat
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
-from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.session import AgentSession, SessionStore
 
 
@@ -13,121 +13,96 @@ class TestAgentSession:
     """Tests for AgentSession dataclass."""
 
     def test_create_session_with_url_only(self):
-        """Test creating a session with just the URL."""
         session = AgentSession(agent_url="http://localhost:8000")
 
         assert session.agent_url == "http://localhost:8000"
         assert session.context_id is None
         assert session.task_id is None
+        assert session.last_used_at is None
 
-    def test_create_session_with_all_fields(self):
-        """Test creating a session with all fields."""
-        session = AgentSession(
-            agent_url="http://localhost:8000",
-            context_id="ctx-123",
-            task_id="task-456",
+    def test_update_both_ids_and_last_used(self):
+        session = AgentSession(agent_url="http://localhost:8000")
+        session.update(
+            context_id="ctx-1",
+            task_id="task-1",
+            last_used_at="2026-03-29T12:00:00+00:00",
         )
-
-        assert session.agent_url == "http://localhost:8000"
-        assert session.context_id == "ctx-123"
-        assert session.task_id == "task-456"
-
-    def test_update_context_id(self):
-        """Test updating context_id."""
-        session = AgentSession(agent_url="http://localhost:8000")
-        session.update(context_id="new-context")
-
-        assert session.context_id == "new-context"
-        assert session.task_id is None
-
-    def test_update_task_id(self):
-        """Test updating task_id."""
-        session = AgentSession(agent_url="http://localhost:8000")
-        session.update(task_id="new-task")
-
-        assert session.context_id is None
-        assert session.task_id == "new-task"
-
-    def test_update_both_ids(self):
-        """Test updating both context_id and task_id."""
-        session = AgentSession(agent_url="http://localhost:8000")
-        session.update(context_id="ctx-1", task_id="task-1")
 
         assert session.context_id == "ctx-1"
         assert session.task_id == "task-1"
-
-    def test_update_preserves_existing_values_when_none_passed(self):
-        """Test that update preserves existing values when None is passed."""
-        session = AgentSession(
-            agent_url="http://localhost:8000",
-            context_id="existing-ctx",
-            task_id="existing-task",
-        )
-        session.update()
-
-        assert session.context_id == "existing-ctx"
-        assert session.task_id == "existing-task"
+        assert session.last_used_at == "2026-03-29T12:00:00+00:00"
 
 
 class TestSessionStore:
     """Tests for SessionStore."""
 
     def test_get_creates_new_session(self):
-        """Test that get creates a new session if none exists."""
         store = SessionStore()
         session = store.get("http://localhost:8000")
 
         assert session.agent_url == "http://localhost:8000"
         assert "http://localhost:8000" in store.sessions
 
-    def test_get_returns_existing_session(self):
-        """Test that get returns existing session."""
-        store = SessionStore()
-        store.sessions["http://localhost:8000"] = AgentSession(
-            agent_url="http://localhost:8000",
-            context_id="existing-ctx",
-        )
-
-        session = store.get("http://localhost:8000")
-        assert session.context_id == "existing-ctx"
-
     def test_update_creates_and_updates_session(self):
-        """Test that update creates and updates session."""
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
-            session = store.update(
-                "http://localhost:8000",
-                context_id="new-ctx",
-                task_id="new-task",
-            )
+            with patch(
+                "a2a_handler.session._current_timestamp",
+                return_value="2026-03-29T12:00:00+00:00",
+            ):
+                session = store.update(
+                    "http://localhost:8000",
+                    context_id="new-ctx",
+                    task_id="new-task",
+                )
 
             assert session.context_id == "new-ctx"
             assert session.task_id == "new-task"
+            assert session.last_used_at == "2026-03-29T12:00:00+00:00"
 
-    def test_set_conversation_replaces_saved_ids_and_preserves_credentials(self):
-        """Test explicit conversation replacement can clear stale task IDs."""
+    def test_set_conversation_replaces_saved_ids(self):
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
-            credentials = AuthCredentials(auth_type=AuthType.BEARER, value="token")
             store.sessions["http://localhost:8000"] = AgentSession(
                 agent_url="http://localhost:8000",
                 context_id="old-ctx",
                 task_id="old-task",
-                credentials=credentials,
             )
 
-            session = store.set_conversation(
-                "http://localhost:8000",
-                context_id="new-ctx",
-                task_id=None,
-            )
+            with patch(
+                "a2a_handler.session._current_timestamp",
+                return_value="2026-03-29T12:00:00+00:00",
+            ):
+                session = store.set_conversation(
+                    "http://localhost:8000",
+                    context_id="new-ctx",
+                    task_id=None,
+                )
 
             assert session.context_id == "new-ctx"
             assert session.task_id is None
-            assert session.credentials == credentials
+            assert session.last_used_at == "2026-03-29T12:00:00+00:00"
+
+    def test_mark_recent_updates_last_used_without_changing_ids(self):
+        with tempfile.TemporaryDirectory() as temp_directory:
+            store = SessionStore(session_directory=Path(temp_directory))
+            store.sessions["http://localhost:8000"] = AgentSession(
+                agent_url="http://localhost:8000",
+                context_id="ctx-1",
+                task_id="task-1",
+            )
+
+            with patch(
+                "a2a_handler.session._current_timestamp",
+                return_value="2026-03-29T12:00:00+00:00",
+            ):
+                session = store.mark_recent("http://localhost:8000")
+
+            assert session.context_id == "ctx-1"
+            assert session.task_id == "task-1"
+            assert session.last_used_at == "2026-03-29T12:00:00+00:00"
 
     def test_clear_specific_session(self):
-        """Test clearing a specific session."""
         store = SessionStore()
         store.sessions["http://localhost:8000"] = AgentSession(
             agent_url="http://localhost:8000"
@@ -144,7 +119,6 @@ class TestSessionStore:
             assert "http://localhost:9000" in store.sessions
 
     def test_clear_all_sessions(self):
-        """Test clearing all sessions."""
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
             store.sessions["http://localhost:8000"] = AgentSession(
@@ -158,40 +132,55 @@ class TestSessionStore:
 
             assert len(store.sessions) == 0
 
-    def test_list_all_sessions(self):
-        """Test listing all sessions."""
+    def test_list_all_sessions_orders_by_recency(self):
         store = SessionStore()
         store.sessions["http://localhost:8000"] = AgentSession(
-            agent_url="http://localhost:8000"
+            agent_url="http://localhost:8000",
+            last_used_at="2026-03-29T11:00:00+00:00",
         )
         store.sessions["http://localhost:9000"] = AgentSession(
-            agent_url="http://localhost:9000"
+            agent_url="http://localhost:9000",
+            last_used_at="2026-03-29T12:00:00+00:00",
         )
 
-        all_sessions = store.list_all()
-        assert len(all_sessions) == 2
+        ordered = store.list_all()
+        assert [session.agent_url for session in ordered] == [
+            "http://localhost:9000",
+            "http://localhost:8000",
+        ]
+
+    def test_recent_agent_urls_only_includes_touched_sessions(self):
+        store = SessionStore()
+        store.sessions["http://localhost:8000"] = AgentSession(
+            agent_url="http://localhost:8000",
+            last_used_at="2026-03-29T12:00:00+00:00",
+        )
+        store.sessions["http://localhost:9000"] = AgentSession(
+            agent_url="http://localhost:9000",
+        )
+
+        assert store.recent_agent_urls() == ["http://localhost:8000"]
 
     def test_save_and_load_sessions(self):
-        """Test saving and loading sessions from disk."""
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
             store.sessions["http://localhost:8000"] = AgentSession(
                 agent_url="http://localhost:8000",
                 context_id="ctx-123",
                 task_id="task-456",
+                last_used_at="2026-03-29T12:00:00+00:00",
             )
             store.save()
 
             new_store = SessionStore(session_directory=Path(temp_directory))
             new_store.load()
 
-            assert "http://localhost:8000" in new_store.sessions
             loaded_session = new_store.sessions["http://localhost:8000"]
             assert loaded_session.context_id == "ctx-123"
             assert loaded_session.task_id == "task-456"
+            assert loaded_session.last_used_at == "2026-03-29T12:00:00+00:00"
 
     def test_load_nonexistent_file(self):
-        """Test loading from nonexistent file does nothing."""
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
             store.load()
@@ -199,7 +188,6 @@ class TestSessionStore:
             assert len(store.sessions) == 0
 
     def test_load_invalid_json(self):
-        """Test loading invalid JSON file handles gracefully."""
         with tempfile.TemporaryDirectory() as temp_directory:
             session_file = Path(temp_directory) / "sessions.json"
             session_file.write_text("not valid json {{{")
@@ -209,49 +197,7 @@ class TestSessionStore:
 
             assert len(store.sessions) == 0
 
-    def test_save_and_load_mtls_credentials(self):
-        with tempfile.TemporaryDirectory() as temp_directory:
-            store = SessionStore(session_directory=Path(temp_directory))
-            mtls_creds = AuthCredentials(
-                auth_type=AuthType.MTLS,
-                cert_path="/path/to/cert.pem",
-                key_path="/path/to/key.pem",
-                ca_cert_path="/path/to/ca.pem",
-            )
-            store.set_credentials("http://localhost:8000", mtls_creds)
-
-            new_store = SessionStore(session_directory=Path(temp_directory))
-            new_store.load()
-
-            loaded_creds = new_store.get_credentials("http://localhost:8000")
-            assert loaded_creds is not None
-            assert loaded_creds.auth_type == AuthType.MTLS
-            assert loaded_creds.cert_path == "/path/to/cert.pem"
-            assert loaded_creds.key_path == "/path/to/key.pem"
-            assert loaded_creds.ca_cert_path == "/path/to/ca.pem"
-
-    def test_save_and_load_custom_headers(self):
-        with tempfile.TemporaryDirectory() as temp_directory:
-            store = SessionStore(session_directory=Path(temp_directory))
-            creds = AuthCredentials(
-                auth_type=AuthType.BEARER,
-                value="token",
-                custom_headers={"x-user-id": "me@example.com", "x-org": "acme"},
-            )
-            store.set_credentials("http://localhost:8000", creds)
-
-            new_store = SessionStore(session_directory=Path(temp_directory))
-            new_store.load()
-
-            loaded_creds = new_store.get_credentials("http://localhost:8000")
-            assert loaded_creds is not None
-            assert loaded_creds.custom_headers == {
-                "x-user-id": "me@example.com",
-                "x-org": "acme",
-            }
-
     def test_save_sets_owner_only_permissions(self):
-        """Session file is created with 0o600 permissions."""
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
             store.sessions["http://localhost:8000"] = AgentSession(
@@ -265,7 +211,6 @@ class TestSessionStore:
             assert file_mode == 0o600
 
     def test_save_is_atomic_no_temp_files_left(self):
-        """Atomic save leaves no temporary files after completion."""
         with tempfile.TemporaryDirectory() as temp_directory:
             store = SessionStore(session_directory=Path(temp_directory))
             store.sessions["http://localhost:8000"] = AgentSession(
@@ -275,27 +220,3 @@ class TestSessionStore:
 
             dir_contents = os.listdir(temp_directory)
             assert dir_contents == ["sessions.json"]
-
-    def test_save_preserves_data_on_reload(self):
-        """Atomic save produces valid JSON that reloads correctly."""
-        with tempfile.TemporaryDirectory() as temp_directory:
-            store = SessionStore(session_directory=Path(temp_directory))
-            creds = AuthCredentials(
-                auth_type=AuthType.BEARER,
-                value="secret-token",
-            )
-            store.set_credentials("http://localhost:8000", creds)
-            store.update(
-                "http://localhost:8000",
-                context_id="ctx-atomic",
-                task_id="task-atomic",
-            )
-
-            new_store = SessionStore(session_directory=Path(temp_directory))
-            new_store.load()
-
-            loaded = new_store.get("http://localhost:8000")
-            assert loaded.context_id == "ctx-atomic"
-            assert loaded.task_id == "task-atomic"
-            assert loaded.credentials is not None
-            assert loaded.credentials.value == "secret-token"

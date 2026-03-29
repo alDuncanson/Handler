@@ -24,6 +24,8 @@ from textual.widgets import (
     Select,
     Static,
     Tab,
+    TabbedContent,
+    TabPane,
     Tabs,
 )
 
@@ -34,17 +36,20 @@ from a2a_handler.common.input_validation import (
     validate_agent_url,
     validate_resource_id,
 )
-from a2a_handler.profiles import (
-    ConnectionProfile,
-    load_all_profiles,
-    resolve_profile_credentials,
+from a2a_handler.connections import (
+    ConnectionCatalog,
+    ConnectionDefinition,
+    ConnectionSource,
+    connection_source_label,
+    load_connection_catalog,
+    resolve_connection_credentials,
 )
 from a2a_handler.service import (
     A2AService,
     SendResult,
     extract_text_from_message_parts,
 )
-from a2a_handler.session import get_credentials, get_session_store
+from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import (
     AgentCardPanel,
     AuthPanel,
@@ -54,10 +59,40 @@ from a2a_handler.tui.components import (
 
 logger = get_logger(__name__)
 
-CUSTOM_TARGET_ID = "custom"
 DEFAULT_HTTP_TIMEOUT_SECONDS = 120
 SHORT_ID_LENGTH = 12
 RESUME_HISTORY_LENGTH = 100
+RECENT_CONNECTION_LIMIT = 12
+EMPTY_CONNECTION_ID = "__empty__"
+
+CONFIGURED_CONNECTION_SOURCES = (
+    ConnectionSource.REPOSITORY,
+    ConnectionSource.GLOBAL,
+    ConnectionSource.RECENT,
+)
+CONNECTION_SOURCE_ORDER = (*CONFIGURED_CONNECTION_SOURCES, ConnectionSource.MANUAL)
+SOURCE_TAB_IDS = {
+    ConnectionSource.REPOSITORY: "source-repository",
+    ConnectionSource.GLOBAL: "source-global",
+    ConnectionSource.RECENT: "source-recent",
+    ConnectionSource.MANUAL: "source-manual",
+}
+SOURCE_SELECT_IDS = {
+    ConnectionSource.REPOSITORY: "repository-connections",
+    ConnectionSource.GLOBAL: "global-connections",
+    ConnectionSource.RECENT: "recent-connections",
+}
+EMPTY_SOURCE_LABELS = {
+    ConnectionSource.REPOSITORY: "No repository connections configured",
+    ConnectionSource.GLOBAL: "No global connections configured",
+    ConnectionSource.RECENT: "No recent connections yet",
+}
+SOURCE_HINTS = {
+    ConnectionSource.REPOSITORY: "Repository-defined connections from this checkout.",
+    ConnectionSource.GLOBAL: "Global connections available across repositories.",
+    ConnectionSource.RECENT: "Recently used agent URLs from prior sessions.",
+    ConnectionSource.MANUAL: "Connect to any agent URL manually.",
+}
 
 
 class WorkspaceConnectionMode(str, Enum):
@@ -72,6 +107,13 @@ class WorkspaceLaunchMode(str, Enum):
 
     START_FRESH = "start_fresh"
     RESUME_SESSION = "resume_session"
+
+
+class WorkspaceAuthMode(str, Enum):
+    """How connect-time auth should be chosen for a workspace."""
+
+    USE_CONNECTION_DEFAULT = "use_connection_default"
+    OVERRIDE = "override"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,8 +135,10 @@ class WorkspaceState:
     current_task_id: str | None = None
     connected_credentials: AuthCredentials | None = None
     auth_source: str = "none"
+    auth_mode: WorkspaceAuthMode = WorkspaceAuthMode.USE_CONNECTION_DEFAULT
     launch_mode: WorkspaceLaunchMode = WorkspaceLaunchMode.START_FRESH
     saved_conversation: SavedConversation | None = None
+    connection_summary: str = "Manual URL"
 
 
 def summarize_identifier(value: str) -> str:
@@ -117,14 +161,15 @@ def build_http_client(
     return httpx.AsyncClient(timeout=timeout_seconds)
 
 
-@dataclass(frozen=True, slots=True)
-class ConnectionTarget:
-    """A selectable remote target for a workspace."""
-
-    target_id: str
-    label: str
-    agent_url: str
-    profile_name: str | None = None
+def build_recent_connection(agent_url: str) -> ConnectionDefinition:
+    """Create a runtime-only connection option for recent usage."""
+    return ConnectionDefinition(
+        connection_id=f"recent:{agent_url}",
+        source=ConnectionSource.RECENT,
+        name=None,
+        agent_url=agent_url,
+        origin_label=connection_source_label(ConnectionSource.RECENT),
+    )
 
 
 class RemoteConnectView(Container):
@@ -133,8 +178,7 @@ class RemoteConnectView(Container):
     def __init__(self, workspace_title: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._workspace_title = workspace_title
-        self._connection_targets: dict[str, ConnectionTarget] = {}
-        self._selected_target_id = CUSTOM_TARGET_ID
+        self._connections_by_id: dict[str, ConnectionDefinition] = {}
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="connect-scroll"):
@@ -144,20 +188,99 @@ class RemoteConnectView(Container):
                         yield Static("Remote Workspace", classes="connect-eyebrow")
                         yield Static(self._workspace_title, id="connect-title")
                         yield Static(
-                            "Choose a profile, recent target, or custom URL before opening the live workspace.",
+                            "Pick a connection source, review the defaults, and open a workspace.",
                             id="connect-subtitle",
                         )
                         with Vertical(id="connect-form"):
-                            yield Select(
-                                [("Custom URL", CUSTOM_TARGET_ID)],
-                                allow_blank=False,
-                                value=CUSTOM_TARGET_ID,
-                                id="connection-target",
-                            )
-                            yield Input(
-                                placeholder="http://localhost:8000",
-                                value="http://localhost:8000",
-                                id="agent-url",
+                            with TabbedContent(
+                                initial=SOURCE_TAB_IDS[ConnectionSource.REPOSITORY],
+                                id="connection-source-content",
+                            ):
+                                with TabPane(
+                                    "Repository",
+                                    id=SOURCE_TAB_IDS[ConnectionSource.REPOSITORY],
+                                    classes="connection-source-pane",
+                                ):
+                                    yield Static(
+                                        SOURCE_HINTS[ConnectionSource.REPOSITORY],
+                                        classes="connection-source-hint",
+                                    )
+                                    yield Select(
+                                        [
+                                            (
+                                                EMPTY_SOURCE_LABELS[
+                                                    ConnectionSource.REPOSITORY
+                                                ],
+                                                EMPTY_CONNECTION_ID,
+                                            )
+                                        ],
+                                        allow_blank=False,
+                                        value=EMPTY_CONNECTION_ID,
+                                        id=SOURCE_SELECT_IDS[
+                                            ConnectionSource.REPOSITORY
+                                        ],
+                                    )
+                                with TabPane(
+                                    "Global",
+                                    id=SOURCE_TAB_IDS[ConnectionSource.GLOBAL],
+                                    classes="connection-source-pane",
+                                ):
+                                    yield Static(
+                                        SOURCE_HINTS[ConnectionSource.GLOBAL],
+                                        classes="connection-source-hint",
+                                    )
+                                    yield Select(
+                                        [
+                                            (
+                                                EMPTY_SOURCE_LABELS[
+                                                    ConnectionSource.GLOBAL
+                                                ],
+                                                EMPTY_CONNECTION_ID,
+                                            )
+                                        ],
+                                        allow_blank=False,
+                                        value=EMPTY_CONNECTION_ID,
+                                        id=SOURCE_SELECT_IDS[ConnectionSource.GLOBAL],
+                                    )
+                                with TabPane(
+                                    "Recent",
+                                    id=SOURCE_TAB_IDS[ConnectionSource.RECENT],
+                                    classes="connection-source-pane",
+                                ):
+                                    yield Static(
+                                        SOURCE_HINTS[ConnectionSource.RECENT],
+                                        classes="connection-source-hint",
+                                    )
+                                    yield Select(
+                                        [
+                                            (
+                                                EMPTY_SOURCE_LABELS[
+                                                    ConnectionSource.RECENT
+                                                ],
+                                                EMPTY_CONNECTION_ID,
+                                            )
+                                        ],
+                                        allow_blank=False,
+                                        value=EMPTY_CONNECTION_ID,
+                                        id=SOURCE_SELECT_IDS[ConnectionSource.RECENT],
+                                    )
+                                with TabPane(
+                                    "Manual",
+                                    id=SOURCE_TAB_IDS[ConnectionSource.MANUAL],
+                                    classes="connection-source-pane",
+                                ):
+                                    yield Static(
+                                        SOURCE_HINTS[ConnectionSource.MANUAL],
+                                        classes="connection-source-hint",
+                                    )
+                                    yield Input(
+                                        placeholder="http://localhost:8000",
+                                        value="http://localhost:8000",
+                                        id="manual-agent-url",
+                                    )
+                            yield Static(
+                                "Connection: repository",
+                                id="connection-selection-status",
                             )
                             yield Static(
                                 "Conversation: start fresh",
@@ -181,115 +304,133 @@ class RemoteConnectView(Container):
                                         id="launch-mode-fresh",
                                         value=True,
                                     )
+                            with Vertical(id="auth-mode-container"):
+                                yield Static(
+                                    "Authentication",
+                                    id="auth-mode-subtitle",
+                                )
+                                with RadioSet(id="auth-mode-selector"):
+                                    yield RadioButton(
+                                        "Use connection default",
+                                        id="auth-mode-default",
+                                        value=True,
+                                    )
+                                    yield RadioButton(
+                                        "Override for this workspace",
+                                        id="auth-mode-override",
+                                    )
                             yield Static("Auth source: none", id="auth-source-status")
-                            yield AuthPanel(id="auth-panel")
+                            yield AuthPanel(id="auth-panel", classes="hidden")
                             with Horizontal(id="connect-actions"):
                                 yield Static("", id="connect-status")
                                 yield Button("CONNECT", id="connect-btn")
+
+    def on_mount(self) -> None:
+        for widget in self.query(
+            "#connection-source-content Tabs, #connection-source-content Tab, #connection-source-content TabPane"
+        ):
+            widget.can_focus = False
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Press connect when any connect-form input is submitted."""
         connect_button = self.query_one("#connect-btn", Button)
         self.post_message(Button.Pressed(connect_button))
 
-    @on(Select.Changed, "#connection-target")
-    def _on_connection_target_changed(self, event: Select.Changed) -> None:
-        if event.value == Select.BLANK:
-            return
+    def activate_source(self, source: ConnectionSource) -> None:
+        """Activate a connection source tab for tests and programmatic flows."""
+        self.query_one(
+            "#connection-source-content", TabbedContent
+        ).active = SOURCE_TAB_IDS[source]
 
-        target_id = str(event.value)
-        self._selected_target_id = target_id
-        target = self._connection_targets.get(target_id)
-        if target:
-            self.query_one("#agent-url", Input).value = target.agent_url
+    def get_active_source(self) -> ConnectionSource:
+        """Return the currently active connection source tab."""
+        active_tab = (
+            self.query_one("#connection-source-content", TabbedContent).active
+            or SOURCE_TAB_IDS[ConnectionSource.REPOSITORY]
+        )
+        for source, tab_id in SOURCE_TAB_IDS.items():
+            if tab_id == active_tab:
+                return source
+        return ConnectionSource.REPOSITORY
 
-    @on(Input.Changed, "#agent-url")
-    def _on_agent_url_changed(self, event: Input.Changed) -> None:
-        selected_target = self._connection_targets.get(self._selected_target_id)
-        if selected_target and selected_target.agent_url == event.value.strip():
-            return
-
-        if self._selected_target_id == CUSTOM_TARGET_ID:
-            return
-
-        self._selected_target_id = CUSTOM_TARGET_ID
-        self.query_one("#connection-target", Select).value = CUSTOM_TARGET_ID
-
-    def set_connection_targets(
+    def set_connection_catalog(
         self,
-        profile_urls: dict[str, str],
-        saved_urls: list[str],
+        repository_connections: tuple[ConnectionDefinition, ...],
+        global_connections: tuple[ConnectionDefinition, ...],
+        recent_connections: tuple[ConnectionDefinition, ...],
     ) -> None:
-        """Populate selector options with profile and recent targets."""
-        targets = {
-            CUSTOM_TARGET_ID: ConnectionTarget(
-                target_id=CUSTOM_TARGET_ID,
-                label="Custom URL",
-                agent_url="",
+        """Populate source tabs with explicit connection options."""
+        self._connections_by_id = {
+            connection.connection_id: connection
+            for connection in (
+                *repository_connections,
+                *global_connections,
+                *recent_connections,
             )
         }
-        options: list[tuple[str, str]] = [("Custom URL", CUSTOM_TARGET_ID)]
+        self._set_source_options(ConnectionSource.REPOSITORY, repository_connections)
+        self._set_source_options(ConnectionSource.GLOBAL, global_connections)
+        self._set_source_options(ConnectionSource.RECENT, recent_connections)
 
-        for profile_name in sorted(profile_urls):
-            target_id = f"profile:{profile_name}"
-            label = f"Profile: {profile_name}"
-            targets[target_id] = ConnectionTarget(
-                target_id=target_id,
-                label=label,
-                agent_url=profile_urls[profile_name],
-                profile_name=profile_name,
-            )
-            options.append((label, target_id))
+    def _set_source_options(
+        self,
+        source: ConnectionSource,
+        connections: tuple[ConnectionDefinition, ...],
+    ) -> None:
+        select = self.query_one(f"#{SOURCE_SELECT_IDS[source]}", Select)
+        options = (
+            [(connection.label, connection.connection_id) for connection in connections]
+            if connections
+            else [(EMPTY_SOURCE_LABELS[source], EMPTY_CONNECTION_ID)]
+        )
+        next_value = options[0][1]
+        current_value = select.value
+        if current_value != Select.BLANK and any(
+            option_value == str(current_value) for _, option_value in options
+        ):
+            next_value = str(current_value)
+        select.set_options(options)
+        with self.prevent(Select.Changed):
+            select.value = next_value
 
-        known_profile_urls = set(profile_urls.values())
-        for url in saved_urls:
-            if url in known_profile_urls:
-                continue
-            target_id = f"saved:{url}"
-            label = f"Recent: {url}"
-            targets[target_id] = ConnectionTarget(
-                target_id=target_id,
-                label=label,
-                agent_url=url,
-            )
-            options.append((label, target_id))
+    def set_selected_connection_summary(self, summary: str) -> None:
+        """Update the connection summary shown under the source picker."""
+        self.query_one("#connection-selection-status", Static).update(summary)
 
-        self._connection_targets = targets
-
-        selector = self.query_one("#connection-target", Select)
-        selector.set_options(options)
-
-        current_value = selector.value
-        if current_value == Select.BLANK:
-            selector.value = CUSTOM_TARGET_ID
-            self._selected_target_id = CUSTOM_TARGET_ID
-            return
-
-        current_target_id = str(current_value)
-        if current_target_id not in targets:
-            selector.value = CUSTOM_TARGET_ID
-            self._selected_target_id = CUSTOM_TARGET_ID
-            return
-
-        self._selected_target_id = current_target_id
-
-    def set_auth_source_status(self, source_description: str) -> None:
+    def set_auth_source_status(
+        self, source_description: str, tone: str = "muted"
+    ) -> None:
+        """Update the auth-source summary shown on the connect screen."""
         status = self.query_one("#auth-source-status", Static)
         status.update(f"Auth source: {source_description}")
+        status.remove_class("status-warning")
+        if tone == "warning":
+            status.add_class("status-warning")
+
+    def _select_radio_button(self, radio_set_id: str, button_id: str) -> None:
+        """Synchronously select a single radio button within a radio set."""
+        radio_set = self.query_one(f"#{radio_set_id}", RadioSet)
+        buttons = list(radio_set.query(RadioButton))
+        button = self.query_one(f"#{button_id}", RadioButton)
+        with radio_set.prevent(RadioButton.Changed, RadioSet.Changed):
+            for candidate in buttons:
+                candidate.value = candidate is button
+        radio_set._pressed_button = button
+        radio_set._selected = buttons.index(button)
 
     def _set_launch_mode_start_fresh_selected(self) -> None:
-        resume_button = self.query_one("#launch-mode-resume", RadioButton)
-        fresh_button = self.query_one("#launch-mode-fresh", RadioButton)
-        with self.prevent(RadioButton.Changed, RadioSet.Changed):
-            resume_button.value = False
-            fresh_button.value = True
+        self._select_radio_button("launch-mode-selector", "launch-mode-fresh")
 
     def _set_launch_mode_resume_selected(self) -> None:
-        resume_button = self.query_one("#launch-mode-resume", RadioButton)
-        fresh_button = self.query_one("#launch-mode-fresh", RadioButton)
-        with self.prevent(RadioButton.Changed, RadioSet.Changed):
-            resume_button.value = True
-            fresh_button.value = False
+        self._select_radio_button("launch-mode-selector", "launch-mode-resume")
+
+    def _set_auth_mode_default_selected(self) -> None:
+        self._select_radio_button("auth-mode-selector", "auth-mode-default")
+        self.query_one("#auth-panel", AuthPanel).add_class("hidden")
+
+    def _set_auth_mode_override_selected(self) -> None:
+        self._select_radio_button("auth-mode-selector", "auth-mode-override")
+        self.query_one("#auth-panel", AuthPanel).remove_class("hidden")
 
     def get_launch_mode(self) -> WorkspaceLaunchMode:
         if self.query_one("#launch-mode-resume", RadioButton).value:
@@ -301,6 +442,17 @@ class RemoteConnectView(Container):
             self._set_launch_mode_resume_selected()
             return
         self._set_launch_mode_start_fresh_selected()
+
+    def get_auth_mode(self) -> WorkspaceAuthMode:
+        if self.query_one("#auth-mode-override", RadioButton).value:
+            return WorkspaceAuthMode.OVERRIDE
+        return WorkspaceAuthMode.USE_CONNECTION_DEFAULT
+
+    def set_auth_mode(self, auth_mode: WorkspaceAuthMode) -> None:
+        if auth_mode == WorkspaceAuthMode.OVERRIDE:
+            self._set_auth_mode_override_selected()
+            return
+        self._set_auth_mode_default_selected()
 
     def set_saved_conversation(
         self,
@@ -337,6 +489,7 @@ class RemoteConnectView(Container):
             self.set_launch_mode(WorkspaceLaunchMode.RESUME_SESSION)
 
     def set_status(self, message: str, tone: str = "muted") -> None:
+        """Update the connect status line."""
         status = self.query_one("#connect-status", Static)
         status.update(message)
         status.remove_class("status-warning")
@@ -346,15 +499,24 @@ class RemoteConnectView(Container):
         elif tone == "error":
             status.add_class("status-error")
 
+    def get_selected_connection(self) -> ConnectionDefinition | None:
+        """Return the currently selected configured connection, if any."""
+        source = self.get_active_source()
+        if source == ConnectionSource.MANUAL:
+            return None
+
+        select = self.query_one(f"#{SOURCE_SELECT_IDS[source]}", Select)
+        if select.value == Select.BLANK:
+            return None
+        return self._connections_by_id.get(str(select.value))
+
     def get_url(self) -> str:
-        return self.query_one("#agent-url", Input).value.strip()
-
-    def get_selected_profile_name(self) -> str | None:
-        target = self._connection_targets.get(self._selected_target_id)
-        return target.profile_name if target else None
-
-    def get_selected_target_id(self) -> str:
-        return self._selected_target_id
+        """Get the current agent URL from the active source selection."""
+        active_source = self.get_active_source()
+        if active_source == ConnectionSource.MANUAL:
+            return self.query_one("#manual-agent-url", Input).value.strip()
+        connection = self.get_selected_connection()
+        return connection.agent_url if connection else ""
 
     def get_auth_credentials(self) -> AuthCredentials | None:
         return self.query_one("#auth-panel", AuthPanel).get_credentials()
@@ -403,11 +565,17 @@ class RemoteLiveView(Container):
         self,
         agent_name: str,
         agent_url: str,
+        connection_summary: str,
         auth_source: str,
         context_id: str | None = None,
         conversation_summary: str | None = None,
     ) -> None:
-        lines = [f"Agent: {agent_name}", f"URL: {agent_url}", f"Auth: {auth_source}"]
+        lines = [
+            f"Agent: {agent_name}",
+            f"Connection: {connection_summary}",
+            f"URL: {agent_url}",
+            f"Auth: {auth_source}",
+        ]
         if context_id:
             lines.append(f"Context: {summarize_identifier(context_id)}")
         if conversation_summary:
@@ -448,13 +616,13 @@ class RemoteWorkspace(Container):
         self.state = WorkspaceState()
         self.http_client: httpx.AsyncClient | None = None
         self._agent_service: A2AService | None = None
-        self._profiles: dict[str, ConnectionProfile] = {}
-        self._profile_credentials: dict[str, AuthCredentials] = {}
-        self._profile_warnings: dict[str, str] = {}
+        self._connection_catalog = ConnectionCatalog()
+        self._connections_by_id: dict[str, ConnectionDefinition] = {}
+        self._connection_credentials: dict[str, AuthCredentials] = {}
+        self._connection_warnings: dict[str, str] = {}
         self._initial_bearer_token = initial_bearer_token
-        self._manual_auth_override = False
         self._syncing_auth_depth = 0
-        self._suspend_target_change_events = False
+        self._suspend_connect_events = False
         self._log_lines: list[str] = []
 
     @property
@@ -509,23 +677,25 @@ class RemoteWorkspace(Container):
         return self._syncing_auth_depth > 0
 
     async def on_mount(self) -> None:
-        self._suspend_target_change_events = True
-        self._load_connection_targets()
-        self._refresh_connect_saved_conversation()
-        self._sync_connect_auth_panel_with_resolved_credentials()
+        self._suspend_connect_events = True
+        self._load_connection_catalog()
+        connect_view = self._get_connect_view()
+        connect_view.set_auth_mode(WorkspaceAuthMode.USE_CONNECTION_DEFAULT)
+        self.state.auth_mode = connect_view.get_auth_mode()
 
         if self._initial_bearer_token:
+            connect_view.set_auth_mode(WorkspaceAuthMode.OVERRIDE)
             with self._suppressing_auth_events():
-                self._get_connect_view().set_auth_credentials(
+                connect_view.set_auth_credentials(
                     AuthCredentials(
                         auth_type=AuthType.BEARER,
                         value=self._initial_bearer_token,
                     )
                 )
-            self._manual_auth_override = True
+            self.state.auth_mode = WorkspaceAuthMode.OVERRIDE
 
-        self._refresh_connect_auth_source_status()
-        self._suspend_target_change_events = False
+        self._refresh_connect_selection()
+        self._suspend_connect_events = False
 
     async def on_unmount(self) -> None:
         if self.http_client:
@@ -552,124 +722,135 @@ class RemoteWorkspace(Container):
         if live_view is not None:
             live_view.messages_panel().add_log(line)
 
-    def _load_connection_targets(self) -> None:
-        self._profiles = load_all_profiles()
-        self._profile_credentials = {}
-        self._profile_warnings = {}
+    def _load_connection_catalog(self) -> None:
+        self._connection_catalog = load_connection_catalog()
+        self._connection_credentials = {}
+        self._connection_warnings = {}
+        self._connections_by_id = {}
 
-        for profile_name, profile in self._profiles.items():
-            credentials, warning = resolve_profile_credentials(profile)
+        configured_connections = (
+            *self._connection_catalog.repository_connections,
+            *self._connection_catalog.global_connections,
+        )
+        for connection_def in configured_connections:
+            self._connections_by_id[connection_def.connection_id] = connection_def
+            credentials, warning = resolve_connection_credentials(connection_def)
             if credentials:
-                self._profile_credentials[profile_name] = credentials
+                self._connection_credentials[connection_def.connection_id] = credentials
             if warning:
-                self._profile_warnings[profile_name] = warning
-                logger.warning("Profile %s: %s", profile_name, warning)
+                self._connection_warnings[connection_def.connection_id] = warning
+                logger.warning("Connection %s: %s", connection_def.label, warning)
 
-        profile_urls = {
-            profile_name: profile.agent_url
-            for profile_name, profile in self._profiles.items()
-        }
-        saved_urls = sorted(
-            {session.agent_url for session in get_session_store().list_all()}
+        configured_urls = self._connection_catalog.all_configured_urls()
+        recent_connections: list[ConnectionDefinition] = []
+        for agent_url in get_session_store().recent_agent_urls(RECENT_CONNECTION_LIMIT):
+            if agent_url in configured_urls:
+                continue
+            recent_connection = build_recent_connection(agent_url)
+            recent_connections.append(recent_connection)
+            self._connections_by_id[recent_connection.connection_id] = recent_connection
+
+        self._get_connect_view().set_connection_catalog(
+            repository_connections=self._connection_catalog.repository_connections,
+            global_connections=self._connection_catalog.global_connections,
+            recent_connections=tuple(recent_connections),
         )
 
-        self._get_connect_view().set_connection_targets(
-            profile_urls=profile_urls,
-            saved_urls=saved_urls,
-        )
+    def _refresh_connect_selection(self) -> None:
+        self._refresh_connect_selection_summary()
+        self._refresh_connect_saved_conversation()
+        self._refresh_connect_auth_source_status()
+
+    def _refresh_connect_selection_summary(self) -> None:
+        connect_view = self._get_connect_view()
+        active_source = connect_view.get_active_source()
+        selected_connection = connect_view.get_selected_connection()
+        agent_url = connect_view.get_url()
+        source_label = connection_source_label(active_source)
+
+        if selected_connection is not None:
+            summary = (
+                f"Connection: {source_label} · {selected_connection.label}\n"
+                f"URL: {selected_connection.agent_url}"
+            )
+        elif active_source == ConnectionSource.MANUAL:
+            if agent_url:
+                summary = f"Connection: Manual URL\nURL: {agent_url}"
+            else:
+                summary = "Connection: Manual URL\nURL: not set"
+        else:
+            summary = (
+                f"Connection: {source_label}\n{EMPTY_SOURCE_LABELS[active_source]}"
+            )
+
+        connect_view.set_selected_connection_summary(summary)
+
+    def _build_connection_summary(
+        self,
+        selected_connection: ConnectionDefinition | None,
+        active_source: ConnectionSource,
+        agent_url: str,
+    ) -> str:
+        if selected_connection is not None:
+            return f"{selected_connection.origin_label} · {selected_connection.label}"
+        if active_source == ConnectionSource.MANUAL:
+            return f"Manual URL · {agent_url}"
+        return connection_source_label(active_source)
 
     def _resolve_connection_credentials(
         self,
-        agent_url: str,
-        selected_profile_name: str | None,
-        manual_credentials: AuthCredentials | None,
-        manual_override: bool = False,
+        selected_connection: ConnectionDefinition | None,
+        active_source: ConnectionSource,
+        auth_mode: WorkspaceAuthMode,
+        override_credentials: AuthCredentials | None,
     ) -> tuple[AuthCredentials | None, str, str | None]:
-        """Resolve connect-time credentials using the agreed precedence order."""
-        if manual_credentials:
-            return manual_credentials, "manual (Auth tab)", None
-        if manual_override:
-            return None, "manual (none)", None
+        """Resolve connect-time credentials from explicit source selection."""
+        if auth_mode == WorkspaceAuthMode.OVERRIDE:
+            if override_credentials is not None:
+                return override_credentials, "manual override", None
+            return None, "manual override (none)", None
 
-        profile = None
-        if selected_profile_name:
-            profile = self._profiles.get(selected_profile_name)
+        if selected_connection is None:
+            if active_source == ConnectionSource.MANUAL:
+                return None, "manual URL (no default auth)", None
+            return (
+                None,
+                f"{connection_source_label(active_source)} connection unavailable",
+                None,
+            )
 
-        if profile and profile.agent_url == agent_url:
-            profile_credentials = self._profile_credentials.get(profile.name)
-            if profile_credentials:
-                return profile_credentials, f"profile '{profile.name}'", None
-
-            profile_warning = self._profile_warnings.get(profile.name)
-            if profile_warning:
-                saved_credentials = get_credentials(agent_url)
-                if saved_credentials:
-                    return (
-                        saved_credentials,
-                        f"saved (profile '{profile.name}' unavailable)",
-                        profile_warning,
-                    )
-                return None, f"profile '{profile.name}' unavailable", profile_warning
-
-            saved_credentials = get_credentials(agent_url)
-            if saved_credentials:
-                return (
-                    saved_credentials,
-                    f"saved (profile '{profile.name}' has no auth)",
-                    None,
-                )
-            return None, f"profile '{profile.name}' (none)", None
-
-        if profile and profile.agent_url != agent_url:
-            saved_credentials = get_credentials(agent_url)
-            if saved_credentials:
-                return (
-                    saved_credentials,
-                    f"saved (selected profile '{profile.name}' URL differs)",
-                    None,
-                )
-            return None, f"none (selected profile '{profile.name}' URL differs)", None
-
-        saved_credentials = get_credentials(agent_url)
-        if saved_credentials:
-            return saved_credentials, "saved", None
-
-        return None, "none", None
-
-    def _sync_connect_auth_panel_with_resolved_credentials(self) -> None:
-        if self._manual_auth_override:
-            return
-
-        connect_view = self._get_connect_view()
-        agent_url = connect_view.get_url()
-        if not agent_url:
-            connect_view.set_auth_credentials(None)
-            return
-
-        selected_profile_name = connect_view.get_selected_profile_name()
-        resolved_credentials, _, _ = self._resolve_connection_credentials(
-            agent_url=agent_url,
-            selected_profile_name=selected_profile_name,
-            manual_credentials=None,
+        credentials = self._connection_credentials.get(
+            selected_connection.connection_id
         )
-        with self._suppressing_auth_events():
-            connect_view.set_auth_credentials(resolved_credentials)
+        if credentials is not None:
+            return (
+                credentials,
+                (
+                    f"{selected_connection.origin_label.lower()} connection "
+                    f"'{selected_connection.label}' default"
+                ),
+                None,
+            )
 
-    def _refresh_connect_auth_source_status(self) -> None:
-        connect_view = self._get_connect_view()
-        agent_url = connect_view.get_url()
-        if not agent_url:
-            connect_view.set_auth_source_status("none")
-            return
+        warning = self._connection_warnings.get(selected_connection.connection_id)
+        if warning:
+            return (
+                None,
+                (
+                    f"{selected_connection.origin_label.lower()} connection "
+                    f"'{selected_connection.label}' default unavailable"
+                ),
+                warning,
+            )
 
-        manual_credentials = connect_view.get_auth_credentials()
-        _, source_description, _ = self._resolve_connection_credentials(
-            agent_url=agent_url,
-            selected_profile_name=connect_view.get_selected_profile_name(),
-            manual_credentials=manual_credentials,
-            manual_override=self._manual_auth_override,
+        return (
+            None,
+            (
+                f"{selected_connection.origin_label.lower()} connection "
+                f"'{selected_connection.label}' (no default auth)"
+            ),
+            None,
         )
-        connect_view.set_auth_source_status(source_description)
 
     def _resolve_saved_conversation(
         self,
@@ -723,6 +904,30 @@ class RemoteWorkspace(Container):
         connect_view.set_saved_conversation(saved_conversation, warning=warning)
         self.state.launch_mode = connect_view.get_launch_mode()
 
+    def _refresh_connect_auth_source_status(self) -> None:
+        connect_view = self._get_connect_view()
+        agent_url = connect_view.get_url()
+        if not agent_url:
+            connect_view.set_auth_source_status("none")
+            return
+
+        auth_mode = connect_view.get_auth_mode()
+        override_credentials = (
+            connect_view.get_auth_credentials()
+            if auth_mode == WorkspaceAuthMode.OVERRIDE
+            else None
+        )
+        _, source_description, warning = self._resolve_connection_credentials(
+            selected_connection=connect_view.get_selected_connection(),
+            active_source=connect_view.get_active_source(),
+            auth_mode=auth_mode,
+            override_credentials=override_credentials,
+        )
+        connect_view.set_auth_source_status(
+            source_description,
+            tone="warning" if warning else "muted",
+        )
+
     def _refresh_live_summary(self) -> None:
         live_view = self._try_get_live_view()
         if (
@@ -733,13 +938,18 @@ class RemoteWorkspace(Container):
             return
 
         auth_source = self.state.auth_source
-        if self._manual_auth_override:
+        if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
             manual_credentials = live_view.messages_panel().get_auth_credentials()
-            auth_source = "manual (Auth tab)" if manual_credentials else "manual (none)"
+            auth_source = (
+                "manual override"
+                if manual_credentials is not None
+                else "manual override (none)"
+            )
 
         live_view.update_connection_summary(
             agent_name=self.current_agent_card.name,
             agent_url=self.current_agent_url,
+            connection_summary=self.state.connection_summary,
             auth_source=auth_source,
             context_id=self.current_context_id,
             conversation_summary=self._conversation_summary(),
@@ -837,16 +1047,6 @@ class RemoteWorkspace(Container):
 
         self._load_task_into_live_view(live_view, task_result.task)
 
-    def _handle_connection_target_transition(self) -> None:
-        connect_view = self._get_connect_view()
-        if connect_view.get_selected_target_id() == CUSTOM_TARGET_ID:
-            return
-
-        self._manual_auth_override = False
-        self._refresh_connect_saved_conversation()
-        self._sync_connect_auth_panel_with_resolved_credentials()
-        self._refresh_connect_auth_source_status()
-
     def _build_connect_error_message(self, error: InputValidationError) -> str:
         if error.suggestion:
             return f"{error.message}. {error.suggestion}"
@@ -881,16 +1081,19 @@ class RemoteWorkspace(Container):
         live_view.update_connection_summary(
             agent_name=agent_card.name,
             agent_url=self.current_agent_url or "",
+            connection_summary=self.state.connection_summary,
             auth_source=self.state.auth_source,
             context_id=self.current_context_id,
             conversation_summary=self._conversation_summary(),
         )
         live_view.messages_panel().load_logs(self._log_lines)
         with self._suppressing_auth_events():
-            live_view.messages_panel().set_auth_credentials(
-                self.state.connected_credentials
-            )
-        self._manual_auth_override = False
+            if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
+                live_view.messages_panel().set_auth_credentials(
+                    self.state.connected_credentials
+                )
+            else:
+                live_view.messages_panel().set_auth_credentials(None)
 
         await self._hydrate_resumed_history(live_view)
 
@@ -902,24 +1105,34 @@ class RemoteWorkspace(Container):
         live_view.messages_panel().add_system_message(f"Connected to {agent_card.name}")
         live_view.input_panel().focus_input()
 
-    @on(Select.Changed, "#connection-target")
-    def _handle_connection_target_changed(self) -> None:
-        if self.is_connected or self._suspend_target_change_events:
+    @on(TabbedContent.TabActivated, "#connection-source-content")
+    def _handle_connection_source_changed(self) -> None:
+        if self.is_connected or self._suspend_connect_events:
             return
-        self._handle_connection_target_transition()
+        self._refresh_connect_selection()
 
-    @on(Input.Changed, "#agent-url")
-    def _handle_agent_url_changed(self) -> None:
-        if self.is_connected:
+    @on(
+        Select.Changed,
+        "#repository-connections, #global-connections, #recent-connections",
+    )
+    def _handle_connection_selection_changed(self) -> None:
+        if self.is_connected or self._suspend_connect_events:
             return
+        self._refresh_connect_selection()
 
+    @on(Input.Changed, "#manual-agent-url")
+    def _handle_manual_url_changed(self) -> None:
+        if self.is_connected or self._suspend_connect_events:
+            return
+        self._refresh_connect_selection()
+
+    @on(RadioSet.Changed, "#auth-mode-selector")
+    def _handle_connect_auth_mode_changed(self) -> None:
+        if self.is_connected or self._suspend_connect_events:
+            return
         connect_view = self._get_connect_view()
-        if connect_view.get_selected_target_id() != CUSTOM_TARGET_ID:
-            self._handle_connection_target_transition()
-            return
-
-        self._refresh_connect_saved_conversation()
-        self._sync_connect_auth_panel_with_resolved_credentials()
+        self.state.auth_mode = connect_view.get_auth_mode()
+        connect_view.set_auth_mode(self.state.auth_mode)
         self._refresh_connect_auth_source_status()
 
     @on(RadioSet.Changed, "#auth-type-selector")
@@ -931,11 +1144,17 @@ class RemoteWorkspace(Container):
     def _handle_auth_field_changed(self) -> None:
         if self._is_syncing_auth_panel:
             return
-        self._manual_auth_override = True
+
         if self.is_connected:
+            self.state.auth_mode = WorkspaceAuthMode.OVERRIDE
             self._refresh_live_summary()
-        else:
-            self._refresh_connect_auth_source_status()
+            return
+
+        connect_view = self._get_connect_view()
+        if connect_view.get_auth_mode() != WorkspaceAuthMode.OVERRIDE:
+            connect_view.set_auth_mode(WorkspaceAuthMode.OVERRIDE)
+        self.state.auth_mode = WorkspaceAuthMode.OVERRIDE
+        self._refresh_connect_auth_source_status()
 
     @on(Button.Pressed, "#connect-btn")
     async def handle_connect_button(self) -> None:
@@ -943,10 +1162,17 @@ class RemoteWorkspace(Container):
             return
 
         connect_view = self._get_connect_view()
+        active_source = connect_view.get_active_source()
+        selected_connection = connect_view.get_selected_connection()
         agent_url = connect_view.get_url()
 
         if not agent_url:
-            connect_view.set_status("Please enter an agent URL", tone="warning")
+            if active_source == ConnectionSource.MANUAL:
+                connect_view.set_status("Please enter an agent URL", tone="warning")
+            else:
+                connect_view.set_status(
+                    "Choose a connection or switch to Manual", tone="warning"
+                )
             return
 
         try:
@@ -961,23 +1187,24 @@ class RemoteWorkspace(Container):
         connect_view.set_status(f"Connecting to {agent_url}...")
 
         try:
-            selected_profile_name = connect_view.get_selected_profile_name()
-            manual_credentials = (
+            auth_mode = connect_view.get_auth_mode()
+            override_credentials = (
                 connect_view.get_auth_credentials()
-                if self._manual_auth_override
+                if auth_mode == WorkspaceAuthMode.OVERRIDE
                 else None
             )
             credentials, source_description, warning = (
                 self._resolve_connection_credentials(
-                    agent_url=agent_url,
-                    selected_profile_name=selected_profile_name,
-                    manual_credentials=manual_credentials,
-                    manual_override=self._manual_auth_override,
+                    selected_connection=selected_connection,
+                    active_source=active_source,
+                    auth_mode=auth_mode,
+                    override_credentials=override_credentials,
                 )
             )
-            connect_view.set_auth_source_status(source_description)
-            if warning:
-                connect_view.set_status(warning, tone="warning")
+            connect_view.set_auth_source_status(
+                source_description,
+                tone="warning" if warning else "muted",
+            )
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
@@ -1001,8 +1228,14 @@ class RemoteWorkspace(Container):
             )
             self.state.connected_credentials = credentials
             self.state.auth_source = source_description
+            self.state.auth_mode = auth_mode
             self.state.launch_mode = launch_mode
             self.state.mode = WorkspaceConnectionMode.CONNECTED
+            self.state.connection_summary = self._build_connection_summary(
+                selected_connection=selected_connection,
+                active_source=active_source,
+                agent_url=agent_url,
+            )
             self._persist_session_state()
 
             await self._show_live_view(warning)
@@ -1044,7 +1277,7 @@ class RemoteWorkspace(Container):
         messages_panel.add_message("user", message_text)
 
         try:
-            if self._manual_auth_override:
+            if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
                 credentials = messages_panel.get_auth_credentials()
                 if credentials is not None:
                     self._agent_service.set_credentials(credentials)

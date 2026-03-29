@@ -1,8 +1,10 @@
-"""Session state management for the Handler CLI.
+"""Conversation session state management for Handler.
 
-Persists context_id, task_id, and authentication credentials
-across CLI invocations for conversation continuity.
+Persists context_id, task_id, and recency metadata across invocations for
+conversation continuity.
 """
+
+from __future__ import annotations
 
 import contextlib
 import json
@@ -10,10 +12,10 @@ import os
 import stat
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_logger
 
 logger = get_logger(__name__)
@@ -34,37 +36,38 @@ def _set_owner_only_permissions(path: Path) -> None:
         pass
 
 
+def _current_timestamp() -> str:
+    """Return an ISO 8601 UTC timestamp for recency tracking."""
+    return datetime.now(timezone.utc).isoformat()
+
+
 @dataclass
 class AgentSession:
-    """Session state for a single agent."""
+    """Conversation session state for a single agent URL."""
 
     agent_url: str
     context_id: str | None = None
     task_id: str | None = None
-    credentials: AuthCredentials | None = None
+    last_used_at: str | None = None
 
     def update(
         self,
         context_id: str | None = None,
         task_id: str | None = None,
-        credentials: AuthCredentials | None = None,
+        last_used_at: str | None = None,
     ) -> None:
         """Update session with new values (only if provided)."""
         if context_id is not None:
             self.context_id = context_id
         if task_id is not None:
             self.task_id = task_id
-        if credentials is not None:
-            self.credentials = credentials
-
-    def clear_credentials(self) -> None:
-        """Clear stored credentials."""
-        self.credentials = None
+        if last_used_at is not None:
+            self.last_used_at = last_used_at
 
 
 @dataclass
 class SessionStore:
-    """Persistent store for agent sessions."""
+    """Persistent store for conversation session state."""
 
     sessions: dict[str, AgentSession] = field(default_factory=dict)
     session_directory: Path = field(default_factory=lambda: DEFAULT_SESSION_DIRECTORY)
@@ -88,16 +91,24 @@ class SessionStore:
             with open(self.session_file_path) as session_file:
                 session_data = json.load(session_file)
 
-            for agent_url, agent_session_data in session_data.items():
-                credentials = None
-                if cred_data := agent_session_data.get("credentials"):
-                    credentials = AuthCredentials.from_dict(cred_data)
+            if not isinstance(session_data, dict):
+                logger.warning(
+                    "Ignoring session file %s: root must be an object",
+                    self.session_file_path,
+                )
+                return
 
+            self.sessions = {}
+            for agent_url, agent_session_data in session_data.items():
+                if not isinstance(agent_url, str) or not isinstance(
+                    agent_session_data, dict
+                ):
+                    continue
                 self.sessions[agent_url] = AgentSession(
                     agent_url=agent_url,
                     context_id=agent_session_data.get("context_id"),
                     task_id=agent_session_data.get("task_id"),
-                    credentials=credentials,
+                    last_used_at=agent_session_data.get("last_used_at"),
                 )
 
             logger.debug(
@@ -112,24 +123,16 @@ class SessionStore:
             logger.warning("Failed to read session file: %s", error)
 
     def save(self) -> None:
-        """Save sessions to disk atomically.
-
-        Writes to a temporary file in the same directory then replaces the
-        target path with ``os.replace``, preventing corruption from
-        concurrent writes or interrupted processes.  The file is set to
-        owner-only permissions (``0o600``) to reduce credential exposure.
-        """
+        """Save sessions to disk atomically."""
         self._ensure_directory_exists()
 
         session_data: dict[str, Any] = {}
         for agent_url, agent_session in self.sessions.items():
-            data: dict[str, Any] = {
+            session_data[agent_url] = {
                 "context_id": agent_session.context_id,
                 "task_id": agent_session.task_id,
+                "last_used_at": agent_session.last_used_at,
             }
-            if agent_session.credentials:
-                data["credentials"] = agent_session.credentials.to_dict()
-            session_data[agent_url] = data
 
         try:
             fd, tmp_path = tempfile.mkstemp(
@@ -168,18 +171,20 @@ class SessionStore:
         agent_url: str,
         context_id: str | None = None,
         task_id: str | None = None,
-        credentials: AuthCredentials | None = None,
     ) -> AgentSession:
         """Update session for an agent and save."""
         agent_session = self.get(agent_url)
-        agent_session.update(context_id, task_id, credentials)
+        agent_session.update(
+            context_id=context_id,
+            task_id=task_id,
+            last_used_at=_current_timestamp(),
+        )
         self.save()
         logger.debug(
-            "Updated session for %s: context_id=%s, task_id=%s, has_credentials=%s",
+            "Updated session for %s: context_id=%s, task_id=%s",
             agent_url,
             context_id,
             task_id,
-            credentials is not None,
         )
         return agent_session
 
@@ -189,15 +194,11 @@ class SessionStore:
         context_id: str | None,
         task_id: str | None,
     ) -> AgentSession:
-        """Replace saved conversation IDs for an agent and save.
-
-        Unlike ``update()``, this method treats ``None`` as an explicit value so
-        callers can clear stale task IDs when they intentionally start a fresh
-        conversation or resume only by ``context_id``.
-        """
+        """Replace saved conversation IDs for an agent and save."""
         agent_session = self.get(agent_url)
         agent_session.context_id = context_id
         agent_session.task_id = task_id
+        agent_session.last_used_at = _current_timestamp()
         self.save()
         logger.debug(
             "Set conversation for %s: context_id=%s, task_id=%s",
@@ -207,38 +208,16 @@ class SessionStore:
         )
         return agent_session
 
-    def set_credentials(
-        self,
-        agent_url: str,
-        credentials: AuthCredentials,
-    ) -> AgentSession:
-        """Set credentials for an agent."""
+    def mark_recent(self, agent_url: str) -> AgentSession:
+        """Update recency metadata without changing conversation IDs."""
         agent_session = self.get(agent_url)
-        agent_session.credentials = credentials
+        agent_session.last_used_at = _current_timestamp()
         self.save()
-        logger.info("Set credentials for %s", agent_url)
+        logger.debug("Marked %s as recent", agent_url)
         return agent_session
 
-    def clear_credentials(self, agent_url: str) -> None:
-        """Clear credentials for an agent."""
-        if agent_url in self.sessions:
-            self.sessions[agent_url].clear_credentials()
-            self.save()
-            logger.info("Cleared credentials for %s", agent_url)
-
-    def get_credentials(self, agent_url: str) -> AuthCredentials | None:
-        """Get credentials for an agent."""
-        if agent_url in self.sessions:
-            return self.sessions[agent_url].credentials
-        return None
-
     def clear(self, agent_url: str | None = None) -> None:
-        """Clear session(s).
-
-        Args:
-            agent_url: If provided, clear only that agent's session.
-                      Otherwise, clear all sessions.
-        """
+        """Clear session(s)."""
         if agent_url:
             if agent_url in self.sessions:
                 del self.sessions[agent_url]
@@ -250,8 +229,21 @@ class SessionStore:
         self.save()
 
     def list_all(self) -> list[AgentSession]:
-        """List all sessions."""
-        return list(self.sessions.values())
+        """List all sessions ordered by recency."""
+        return sorted(
+            self.sessions.values(),
+            key=lambda session: (session.last_used_at or "", session.agent_url),
+            reverse=True,
+        )
+
+    def recent_agent_urls(self, limit: int | None = None) -> list[str]:
+        """Return recently used agent URLs in MRU order."""
+        urls = [
+            session.agent_url for session in self.list_all() if session.last_used_at
+        ]
+        if limit is not None:
+            return urls[:limit]
+        return urls
 
 
 _global_session_store: SessionStore | None = None
@@ -284,18 +276,3 @@ def update_session(
 def clear_session(agent_url: str | None = None) -> None:
     """Clear session(s)."""
     get_session_store().clear(agent_url)
-
-
-def set_credentials(agent_url: str, credentials: AuthCredentials) -> AgentSession:
-    """Set credentials for an agent."""
-    return get_session_store().set_credentials(agent_url, credentials)
-
-
-def clear_credentials(agent_url: str) -> None:
-    """Clear credentials for an agent."""
-    get_session_store().clear_credentials(agent_url)
-
-
-def get_credentials(agent_url: str) -> AuthCredentials | None:
-    """Get credentials for an agent."""
-    return get_session_store().get_credentials(agent_url)

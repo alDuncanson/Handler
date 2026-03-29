@@ -5,9 +5,9 @@ Provides commands for interacting with A2A agents:
 - task get/cancel/resubscribe: Manage tasks
 - task notification set: Configure push notifications
 - card get/validate: Agent card operations
+- connection list/show/validate/path: Manage configured connections
 - server agent/push: Run local servers
-- session list/show/clear: Manage saved sessions
-- profile list/show/validate/path: Manage connection profiles
+- session list/show/clear: Manage saved conversation sessions
 """
 
 import truststore
@@ -28,9 +28,9 @@ from a2a_handler.tui import HandlerTUI
 from . import _config  # noqa: F401 - configures rich-click on import
 from .auth import auth
 from .card import card
+from .connection import connection
 from .mcp import mcp
 from .message import message
-from .profile import profile
 from .schema import describe, schema
 from .server import server
 from .session import session
@@ -84,7 +84,7 @@ cli.add_command(server)
 cli.add_command(session)
 cli.add_command(auth)
 cli.add_command(mcp)
-cli.add_command(profile)
+cli.add_command(connection)
 cli.add_command(schema)
 cli.add_command(describe)
 

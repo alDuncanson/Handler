@@ -569,3 +569,81 @@ Footer > FooterKey > .footer-key--key {
 Footer > FooterKey > .footer-key--description {
     color: $text-muted;
 }
+
+#connection-source-content {
+    height: auto;
+    margin-top: 1;
+    min-height: 6;
+}
+
+#connection-source-content Tabs {
+    height: 2;
+}
+
+#connection-source-content Tab {
+    background: $background;
+    color: $text-muted;
+    padding: 0 1;
+    margin-right: 1;
+}
+
+#connection-source-content Tab.-active {
+    background: $accent;
+    color: $background;
+    text-style: bold;
+}
+
+#connection-source-content TabPane {
+    height: auto;
+    padding: 1;
+    border: round $secondary;
+    background: $background;
+}
+
+.connection-source-pane {
+    layout: vertical;
+    height: auto;
+}
+
+#connection-source-content ContentSwitcher {
+    height: auto;
+}
+
+.connection-source-hint,
+#connection-selection-status,
+#auth-mode-subtitle {
+    height: auto;
+    color: $text-muted;
+}
+
+.connection-source-hint {
+    margin-bottom: 1;
+}
+
+#connection-selection-status {
+    margin-top: 1;
+}
+
+#repository-connections,
+#global-connections,
+#recent-connections,
+#manual-agent-url {
+    width: 1fr;
+    min-width: 20;
+    height: 3;
+    border: none;
+    background: transparent;
+}
+
+#auth-mode-container {
+    height: auto;
+    margin-top: 1;
+}
+
+#auth-source-status.status-warning {
+    color: $warning;
+}
+
+#auth-panel.hidden {
+    display: none;
+}

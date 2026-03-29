@@ -24,74 +24,49 @@ class AuthPanel(Vertical):
 
     can_focus = False
 
+    def _select_auth_button(self, button_id: str) -> None:
+        """Synchronously select a single auth radio button."""
+        radio_set = self.query_one("#auth-type-selector", RadioSet)
+        buttons = list(radio_set.query(RadioButton))
+        button = self.query_one(f"#{button_id}", RadioButton)
+        with radio_set.prevent(RadioButton.Changed, RadioSet.Changed):
+            for candidate in buttons:
+                candidate.value = candidate is button
+        radio_set._pressed_button = button
+        radio_set._selected = buttons.index(button)
+        self._apply_auth_specific_field_visibility()
+
     def _hide_auth_specific_fields(self) -> None:
         """Hide all auth-specific field groups."""
         self.query_one("#api-key-fields", Vertical).add_class("hidden")
         self.query_one("#bearer-fields", Vertical).add_class("hidden")
         self.query_one("#mtls-fields", Vertical).add_class("hidden")
 
+    def _apply_auth_specific_field_visibility(self) -> None:
+        """Show only the field group for the selected auth type."""
+        self._hide_auth_specific_fields()
+        if self.query_one("#auth-api-key", RadioButton).value:
+            self.query_one("#api-key-fields", Vertical).remove_class("hidden")
+        elif self.query_one("#auth-bearer", RadioButton).value:
+            self.query_one("#bearer-fields", Vertical).remove_class("hidden")
+        elif self.query_one("#auth-mtls", RadioButton).value:
+            self.query_one("#mtls-fields", Vertical).remove_class("hidden")
+
     def _set_none_selected(self) -> None:
         """Set no-auth selection and hide auth-specific fields."""
-        none_button = self.query_one("#auth-none", RadioButton)
-        api_key_button = self.query_one("#auth-api-key", RadioButton)
-        bearer_button = self.query_one("#auth-bearer", RadioButton)
-        mtls_button = self.query_one("#auth-mtls", RadioButton)
-
-        with self.prevent(RadioButton.Changed, RadioSet.Changed):
-            none_button.value = True
-            api_key_button.value = False
-            bearer_button.value = False
-            mtls_button.value = False
-
-        self._hide_auth_specific_fields()
+        self._select_auth_button("auth-none")
 
     def _set_api_key_selected(self) -> None:
         """Set API key selection and show API key fields."""
-        none_button = self.query_one("#auth-none", RadioButton)
-        api_key_button = self.query_one("#auth-api-key", RadioButton)
-        bearer_button = self.query_one("#auth-bearer", RadioButton)
-        mtls_button = self.query_one("#auth-mtls", RadioButton)
-
-        with self.prevent(RadioButton.Changed, RadioSet.Changed):
-            none_button.value = False
-            api_key_button.value = True
-            bearer_button.value = False
-            mtls_button.value = False
-
-        self._hide_auth_specific_fields()
-        self.query_one("#api-key-fields", Vertical).remove_class("hidden")
+        self._select_auth_button("auth-api-key")
 
     def _set_bearer_selected(self) -> None:
         """Set bearer selection and show bearer fields."""
-        none_button = self.query_one("#auth-none", RadioButton)
-        api_key_button = self.query_one("#auth-api-key", RadioButton)
-        bearer_button = self.query_one("#auth-bearer", RadioButton)
-        mtls_button = self.query_one("#auth-mtls", RadioButton)
-
-        with self.prevent(RadioButton.Changed, RadioSet.Changed):
-            none_button.value = False
-            api_key_button.value = False
-            bearer_button.value = True
-            mtls_button.value = False
-
-        self._hide_auth_specific_fields()
-        self.query_one("#bearer-fields", Vertical).remove_class("hidden")
+        self._select_auth_button("auth-bearer")
 
     def _set_mtls_selected(self) -> None:
         """Set mTLS selection and show mTLS fields."""
-        none_button = self.query_one("#auth-none", RadioButton)
-        api_key_button = self.query_one("#auth-api-key", RadioButton)
-        bearer_button = self.query_one("#auth-bearer", RadioButton)
-        mtls_button = self.query_one("#auth-mtls", RadioButton)
-
-        with self.prevent(RadioButton.Changed, RadioSet.Changed):
-            none_button.value = False
-            api_key_button.value = False
-            bearer_button.value = False
-            mtls_button.value = True
-
-        self._hide_auth_specific_fields()
-        self.query_one("#mtls-fields", Vertical).remove_class("hidden")
+        self._select_auth_button("auth-mtls")
 
     def compose(self) -> ComposeResult:
         yield Label("Authentication Type")
@@ -129,17 +104,14 @@ class AuthPanel(Vertical):
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Handle auth type selection changes."""
+        self._apply_auth_specific_field_visibility()
         if event.pressed.id == "auth-api-key":
-            self._set_api_key_selected()
             logger.debug("Auth type changed to API Key")
         elif event.pressed.id == "auth-bearer":
-            self._set_bearer_selected()
             logger.debug("Auth type changed to Bearer Token")
         elif event.pressed.id == "auth-mtls":
-            self._set_mtls_selected()
             logger.debug("Auth type changed to mTLS")
         else:
-            self._set_none_selected()
             logger.debug("Auth type changed to None")
 
     def _parse_custom_headers(self) -> dict[str, str] | None:

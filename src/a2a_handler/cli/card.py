@@ -9,7 +9,7 @@ from a2a.types import AgentCard
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
 from a2a_handler.service import A2AService
-from a2a_handler.session import get_credentials
+from a2a_handler.credential_store import get_credentials
 from a2a_handler.validation import (
     ValidationResult,
     validate_agent_card_from_file,

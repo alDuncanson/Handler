@@ -18,7 +18,7 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import A2AService, TaskResult
-from a2a_handler.session import get_credentials
+from a2a_handler.credential_store import get_credentials
 
 from ._helpers import (
     build_http_client,

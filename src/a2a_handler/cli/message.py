@@ -25,7 +25,8 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import A2AService, SendResult
-from a2a_handler.session import get_credentials, get_session, update_session
+from a2a_handler.credential_store import get_credentials
+from a2a_handler.session import get_session, update_session
 
 from ._helpers import build_http_client, handle_client_error, handle_validation_error
 

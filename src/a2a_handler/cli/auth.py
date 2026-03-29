@@ -17,7 +17,11 @@ from a2a_handler.common.input_validation import (
     reject_control_chars,
     validate_agent_url,
 )
-from a2a_handler.session import clear_credentials, get_credentials, set_credentials
+from a2a_handler.credential_store import (
+    clear_credentials,
+    get_credentials,
+    set_credentials,
+)
 
 from ._helpers import handle_validation_error
 
@@ -81,18 +85,18 @@ def auth_set(
     custom_headers: dict[str, str] | None = None
     if headers:
         custom_headers = {}
-        for h in headers:
+        for header in headers:
             try:
-                name, value = parse_header_string(h)
+                name, value = parse_header_string(header)
                 reject_control_chars(name, "header name")
                 reject_control_chars(value, "header value")
                 custom_headers[name] = value
-            except (ValueError, InputValidationError) as e:
-                output.error(str(e))
-                raise click.Abort() from e
+            except (ValueError, InputValidationError) as error:
+                output.error(str(error))
+                raise click.Abort() from error
 
     has_mtls = cert_path or key_path
-    method_count = sum(bool(x) for x in [bearer_token, api_key, has_mtls])
+    method_count = sum(bool(value) for value in [bearer_token, api_key, has_mtls])
 
     if method_count > 1:
         output.error(
@@ -110,9 +114,9 @@ def auth_set(
             raise click.Abort()
         try:
             credentials = create_mtls_auth(cert_path, key_path, ca_cert_path)
-        except FileNotFoundError as e:
-            output.error(str(e))
-            raise click.Abort() from e
+        except FileNotFoundError as error:
+            output.error(str(error))
+            raise click.Abort() from error
         auth_type_display = "mTLS client certificate"
     elif bearer_token:
         credentials = create_bearer_auth(bearer_token)
@@ -127,7 +131,6 @@ def auth_set(
         auth_type_display = "Custom headers only"
 
     credentials.custom_headers = custom_headers
-
     set_credentials(agent_url, credentials)
 
     parts = [auth_type_display]
