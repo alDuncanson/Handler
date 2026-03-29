@@ -29,9 +29,33 @@ class HandlerTUI(App[Any]):
     CSS_PATH = "app.tcss"
 
     BINDINGS = [
-        Binding("ctrl+c", "quit", "Quit", show=True),
+        Binding(
+            "ctrl+c",
+            "quit",
+            "Quit",
+            show=True,
+            key_display="Ctrl+C",
+            priority=True,
+        ),
         Binding("/", "command_palette", "Palette", show=True),
         Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
+        Binding(
+            "ctrl+b",
+            "previous_workspace",
+            "Prev Remote",
+            show=True,
+            key_display="Ctrl+B",
+        ),
+        Binding(
+            "ctrl+t",
+            "next_workspace",
+            "Next Remote",
+            show=True,
+            key_display="Ctrl+T",
+        ),
+        Binding(
+            "ctrl+n", "new_workspace", "New Remote", show=True, key_display="Ctrl+N"
+        ),
     ]
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -106,6 +130,18 @@ class HandlerTUI(App[Any]):
                 self.screen.maximize(panel)
                 self._is_maximized = True
                 return
+
+    def action_previous_workspace(self) -> None:
+        """Activate the previous remote workspace tab."""
+        self.query_one(WorkspaceTabs).action_previous_workspace()
+
+    def action_next_workspace(self) -> None:
+        """Activate the next remote workspace tab."""
+        self.query_one(WorkspaceTabs).action_next_workspace()
+
+    async def action_new_workspace(self) -> None:
+        """Create and activate a new remote workspace tab."""
+        await self.query_one(WorkspaceTabs).create_workspace()
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         """Filter out maximize/minimize commands from the command palette."""

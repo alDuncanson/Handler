@@ -745,6 +745,34 @@ Footer > FooterKey > .footer-key--description {
     color: $text-muted;
 }
 
+CommandPalette {
+    align: center top;
+}
+
+CommandPalette > Vertical {
+    width: 72%;
+    min-width: 64;
+    max-width: 120;
+    height: auto;
+    max-height: 18;
+    margin-top: 2;
+    border: round $secondary 40%;
+    background: $surface;
+}
+
+CommandPalette #--input {
+    width: 100%;
+}
+
+CommandPalette #--results {
+    overlay: none;
+    width: 100%;
+}
+
+CommandPalette CommandList {
+    max-height: 12;
+}
+
 #auth-panel.hidden {
     display: none;
 }

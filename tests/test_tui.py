@@ -111,6 +111,55 @@ def test_app_uses_ctrl_c_for_quit_binding() -> None:
     assert all(binding.key != "ctrl+q" for binding in HandlerTUIApplication.BINDINGS)
 
 
+def test_app_advertises_workspace_hotkeys() -> None:
+    """Workspace shortcuts should be available at the app level."""
+    bindings_by_key = {
+        binding.key: binding.action for binding in HandlerTUIApplication.BINDINGS
+    }
+
+    assert bindings_by_key["ctrl+n"] == "new_workspace"
+    assert bindings_by_key["ctrl+b"] == "previous_workspace"
+    assert bindings_by_key["ctrl+t"] == "next_workspace"
+
+
+@pytest.mark.asyncio
+async def test_footer_shows_quit_and_workspace_hotkeys() -> None:
+    """Global bindings should be visible and ctrl+c should override copy."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert app.screen.active_bindings["ctrl+c"].binding.action == "quit"
+
+        footer = app.query_one("Footer")
+        footer_labels = [str(child.render()) for child in footer.children]
+
+        assert any("Ctrl+C" in label and "Quit" in label for label in footer_labels)
+        assert any("Ctrl+B" in label for label in footer_labels)
+        assert any("Ctrl+T" in label for label in footer_labels)
+        assert any(
+            "Ctrl+N" in label and "New Remote" in label for label in footer_labels
+        )
+
+
+@pytest.mark.asyncio
+async def test_command_palette_is_centered_instead_of_full_width() -> None:
+    """The command palette should render as a centered dialog, not a full-width sheet."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("/")
+        await pilot.pause(1)
+
+        palette = app.screen_stack[-1]
+        command_list = palette.query_one("CommandList")
+
+        assert command_list.region.width < app.screen.region.width
+        assert command_list.region.x > 0
+
+
 @pytest.mark.asyncio
 async def test_initial_bearer_token_seeds_first_workspace_connect_view() -> None:
     """The first workspace should inherit an explicit auth override."""
@@ -146,6 +195,40 @@ async def test_new_remote_button_adds_workspace_tab() -> None:
 
         assert len(workspace_tabs.iter_workspaces()) == 2
         assert tabs.tab_count == 2
+
+
+@pytest.mark.asyncio
+async def test_workspace_hotkeys_create_and_switch_remotes() -> None:
+    """Global shortcuts should add and cycle remote workspace tabs."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+n")
+        await pilot.pause()
+
+        workspace_tabs = app.query_one(WorkspaceTabs)
+        tabs = app.query_one("#workspace-tabs", Tabs)
+        active_workspace = workspace_tabs.get_active_workspace()
+
+        assert len(workspace_tabs.iter_workspaces()) == 2
+        assert tabs.active == "workspace-tab-2"
+        assert active_workspace is not None
+
+        active_workspace.query_one("#launch-mode-select", Select).focus()
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+
+        assert tabs.active == "workspace-tab-1"
+
+        active_workspace = workspace_tabs.get_active_workspace()
+        assert active_workspace is not None
+
+        active_workspace.query_one("#launch-mode-select", Select).focus()
+        await pilot.press("ctrl+t")
+        await pilot.pause()
+
+        assert tabs.active == "workspace-tab-2"
 
 
 @pytest.mark.asyncio

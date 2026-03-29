@@ -1,0 +1,7 @@
+version = 1
+
+[connections.handler_8000]
+url = "http://localhost:8000"
+
+[connections.handler_8001]
+url = "http://localhost:8001"
