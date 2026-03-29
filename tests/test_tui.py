@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
-from textual.containers import VerticalScroll
-from textual.widgets import RadioButton, Static, Tab, Tabs
+from textual.widgets import RadioButton, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.connections import (
@@ -74,7 +73,7 @@ def patch_workspace_sources() -> Generator[Mock, None, None]:
 
 @pytest.mark.asyncio
 async def test_app_starts_with_workspace_shell_and_initial_remote() -> None:
-    """Startup should create the workspace shell and one connect-stage remote."""
+    """Startup should create one unified workspace with the connection bar ready."""
     app = HandlerTUI()
 
     async with app.run_test() as pilot:
@@ -86,11 +85,12 @@ async def test_app_starts_with_workspace_shell_and_initial_remote() -> None:
         assert workspace is not None
         assert not workspace.is_connected
         connect_view = workspace.query_one(RemoteConnectView)
+        live_view = workspace.query_one(RemoteLiveView)
 
         assert connect_view
+        assert live_view
         assert workspace.region.height > 5
-        assert connect_view.region.height > 5
-        assert connect_view.query_one("#connect-scroll", VerticalScroll)
+        assert connect_view.query_one("#connection-bar")
 
 
 def test_workspace_shell_does_not_hijack_tab_navigation() -> None:
@@ -228,10 +228,10 @@ async def test_saved_session_defaults_matching_repository_connection_to_resume_m
 
 
 @pytest.mark.asyncio
-async def test_connect_view_radio_groups_remain_mutually_exclusive(
+async def test_connect_view_selectors_and_auth_panel_remain_exclusive(
     patch_workspace_sources: Mock,
 ) -> None:
-    """Launch, auth-mode, and auth-type radio groups should not leave stale selections on."""
+    """Top-bar selectors and auth radios should settle on one active choice."""
     patch_workspace_sources.list_all.return_value = [
         AgentSession(
             agent_url="https://saved.example.com",
@@ -257,32 +257,34 @@ async def test_connect_view_radio_groups_remain_mutually_exclusive(
             assert workspace is not None
 
             connect_view = workspace.query_one(RemoteConnectView)
+            launch_select = connect_view.query_one("#launch-mode-select", Select)
+            auth_mode_select = connect_view.query_one("#auth-mode-select", Select)
 
-            connect_view.query_one("#launch-mode-fresh", RadioButton).toggle()
+            launch_select.value = WorkspaceLaunchMode.START_FRESH.value
             await pilot.pause()
-            connect_view.query_one("#launch-mode-resume", RadioButton).toggle()
-            await pilot.pause()
-
-            assert connect_view.query_one("#launch-mode-resume", RadioButton).value
-            assert not connect_view.query_one("#launch-mode-fresh", RadioButton).value
-
-            connect_view.query_one("#auth-mode-override", RadioButton).toggle()
-            await pilot.pause()
-            connect_view.query_one("#auth-mode-default", RadioButton).toggle()
+            launch_select.value = WorkspaceLaunchMode.RESUME_SESSION.value
             await pilot.pause()
 
-            assert connect_view.query_one("#auth-mode-default", RadioButton).value
-            assert not connect_view.query_one("#auth-mode-override", RadioButton).value
+            assert connect_view.get_launch_mode() == WorkspaceLaunchMode.RESUME_SESSION
 
-            connect_view.query_one("#auth-mode-override", RadioButton).toggle()
+            auth_mode_select.value = WorkspaceAuthMode.OVERRIDE.value
             await pilot.pause()
-            connect_view.query_one("#auth-bearer", RadioButton).toggle()
-            await pilot.pause()
-            connect_view.query_one("#auth-api-key", RadioButton).toggle()
+            auth_mode_select.value = WorkspaceAuthMode.USE_CONNECTION_DEFAULT.value
             await pilot.pause()
 
-            assert connect_view.query_one("#auth-api-key", RadioButton).value
-            assert not connect_view.query_one("#auth-bearer", RadioButton).value
+            assert (
+                connect_view.get_auth_mode() == WorkspaceAuthMode.USE_CONNECTION_DEFAULT
+            )
+
+            auth_mode_select.value = WorkspaceAuthMode.OVERRIDE.value
+            await pilot.pause()
+            workspace.query_one("#auth-bearer", RadioButton).toggle()
+            await pilot.pause()
+            workspace.query_one("#auth-api-key", RadioButton).toggle()
+            await pilot.pause()
+
+            assert workspace.query_one("#auth-api-key", RadioButton).value
+            assert not workspace.query_one("#auth-bearer", RadioButton).value
 
 
 @pytest.mark.asyncio
@@ -581,7 +583,7 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title() -> (
     None
 ):
-    """Successful connect should morph the same workspace into the live layout."""
+    """Successful connect should update the unified workspace view and tab title."""
     repo_connection = _make_connection(
         source=ConnectionSource.REPOSITORY,
         name="demo",

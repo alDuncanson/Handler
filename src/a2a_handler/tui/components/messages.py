@@ -247,6 +247,13 @@ class TabbedMessagesPanel(Container):
         logs_panel = self._get_logs_panel()
         logs_panel.clear()
 
+    async def reset_session(self) -> None:
+        """Clear connection-scoped message, task, and artifact state."""
+        chat_container = self._get_chat_container()
+        await chat_container.remove_children()
+        self._get_tasks_panel().clear()
+        self._get_artifacts_panel().clear()
+
     def get_auth_credentials(self) -> "AuthCredentials | None":
         """Get configured authentication credentials from the auth panel."""
         auth_panel = self._get_auth_panel()

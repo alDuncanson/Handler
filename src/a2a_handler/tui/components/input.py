@@ -13,6 +13,8 @@ class InputPanel(Container):
     """Panel for message input."""
 
     ALLOW_MAXIMIZE = False
+    DEFAULT_PLACEHOLDER = "Type your message..."
+    DISCONNECTED_PLACEHOLDER = "Connect to an agent to start chatting."
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="input-row"):
@@ -33,3 +35,15 @@ class InputPanel(Container):
     def focus_input(self) -> None:
         """Focus the message input field."""
         self.query_one("#message-input", Input).focus()
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable message composition based on connection state."""
+        message_input = self.query_one("#message-input", Input)
+        send_button = self.query_one("#send-btn", Button)
+        message_input.disabled = not enabled
+        send_button.disabled = not enabled
+        if enabled:
+            message_input.placeholder = self.DEFAULT_PLACEHOLDER
+            return
+        message_input.value = ""
+        message_input.placeholder = self.DISCONNECTED_PLACEHOLDER
