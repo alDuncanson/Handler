@@ -218,14 +218,29 @@ class RemoteConnectView(Container):
                 )
                 yield Button("CONNECT", id="connect-btn")
             with Horizontal(id="connection-meta-row"):
-                yield Static("Connection: Repository", id="connection-selection-status")
-                yield Static("Conversation: fresh", id="conversation-status")
-                yield Static("Auth: none", id="auth-source-status")
-                yield Static("", id="connect-status")
+                yield Static(
+                    "Repository",
+                    id="connection-selection-status",
+                    classes="status-badge status-connection",
+                )
+                yield Static(
+                    "Fresh only",
+                    id="conversation-status",
+                    classes="status-badge status-conversation",
+                )
+                yield Static(
+                    "Auth · none",
+                    id="auth-source-status",
+                    classes="status-badge status-auth",
+                )
+                yield Static(
+                    "Disconnected",
+                    id="connect-status",
+                    classes="status-badge status-live",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#connect-btn", Button).can_focus = False
-        self.query_one("#connection-shell", Vertical).border_title = "Connection"
         self.sync_source_controls()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -317,19 +332,30 @@ class RemoteConnectView(Container):
         with self.prevent(Select.Changed):
             select.value = next_value
 
+    def _set_badge(
+        self,
+        badge_id: str,
+        text: str,
+        tone: str | None = None,
+    ) -> None:
+        badge = self.query_one(f"#{badge_id}", Static)
+        badge.update(text)
+        badge.remove_class("status-info")
+        badge.remove_class("status-success")
+        badge.remove_class("status-warning")
+        badge.remove_class("status-error")
+        if tone in {"info", "success", "warning", "error"}:
+            badge.add_class(f"status-{tone}")
+
     def set_selected_connection_summary(self, summary: str) -> None:
-        """Update the compact connection summary shown below the bar."""
-        self.query_one("#connection-selection-status", Static).update(summary)
+        """Update the connection badge shown below the bar."""
+        self._set_badge("connection-selection-status", summary)
 
     def set_auth_source_status(
-        self, source_description: str, tone: str = "muted"
+        self, source_description: str, tone: str | None = None
     ) -> None:
-        """Update the auth-source summary shown below the bar."""
-        status = self.query_one("#auth-source-status", Static)
-        status.update(f"Auth: {source_description}")
-        status.remove_class("status-warning")
-        if tone == "warning":
-            status.add_class("status-warning")
+        """Update the auth-source badge shown below the bar."""
+        self._set_badge("auth-source-status", f"Auth · {source_description}", tone)
 
     def get_launch_mode(self) -> WorkspaceLaunchMode:
         launch_value = self.query_one("#launch-mode-select", Select).value
@@ -360,44 +386,50 @@ class RemoteConnectView(Container):
         conversation: SavedConversation | None,
         warning: str | None = None,
     ) -> None:
-        status = self.query_one("#conversation-status", Static)
         launch_select = self.query_one("#launch-mode-select", Select)
-        status.remove_class("status-warning")
 
         if warning:
             launch_select.set_options(START_FRESH_OPTION)
             self.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
-            status.update(f"Conversation: {warning}")
-            status.add_class("status-warning")
+            self._set_badge("conversation-status", warning, tone="warning")
             return
 
         if conversation is None:
             launch_select.set_options(START_FRESH_OPTION)
             self.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
-            status.update("Conversation: fresh")
+            self._set_badge("conversation-status", "Fresh only")
             return
 
         launch_select.set_options(SAVED_SESSION_OPTIONS)
         task_suffix = ""
         if conversation.task_id:
-            task_suffix = f" · last task {summarize_identifier(conversation.task_id)}"
-        status.update(
-            "Conversation: saved context "
-            f"{summarize_identifier(conversation.context_id)}{task_suffix}"
+            task_suffix = f" · task {summarize_identifier(conversation.task_id)}"
+        self._set_badge(
+            "conversation-status",
+            "Resume available · "
+            f"{summarize_identifier(conversation.context_id)}{task_suffix}",
+            tone="info",
         )
         if self.get_launch_mode() == WorkspaceLaunchMode.START_FRESH:
             self.set_launch_mode(WorkspaceLaunchMode.RESUME_SESSION)
 
-    def set_status(self, message: str, tone: str = "muted") -> None:
-        """Update the bar status line."""
-        status = self.query_one("#connect-status", Static)
-        status.update(message)
-        status.remove_class("status-warning")
-        status.remove_class("status-error")
-        if tone == "warning":
-            status.add_class("status-warning")
-        elif tone == "error":
-            status.add_class("status-error")
+    def set_status(self, message: str, tone: str | None = None) -> None:
+        """Update the live connection badge."""
+        display_message = message or "Disconnected"
+        if display_message == "Disconnected" and tone is None:
+            tone = "info"
+        self._set_badge("connect-status", display_message, tone)
+
+    def set_connected_status(
+        self,
+        agent_name: str,
+        context_id: str | None = None,
+    ) -> None:
+        """Show the currently live connection state in the status badge."""
+        message = f"Connected · {agent_name}"
+        if context_id:
+            message = f"{message} · {summarize_identifier(context_id)}"
+        self.set_status(message, tone="success")
 
     def get_selected_connection(self) -> ConnectionDefinition | None:
         """Return the currently selected configured connection, if any."""
@@ -440,7 +472,6 @@ class RemoteLiveView(Container):
             yield RemoteConnectView(self._workspace_title)
             with Container(id="live-stage", classes="workspace-live-layout"):
                 with Vertical(id="workspace-meta"):
-                    yield Static("", id="workspace-summary", classes="panel")
                     yield AgentCardPanel(id="agent-card-container", classes="panel")
 
                 with Vertical(id="workspace-main"):
@@ -448,7 +479,6 @@ class RemoteLiveView(Container):
                     yield InputPanel(id="input-container", classes="panel")
 
     def on_mount(self) -> None:
-        self.query_one("#workspace-summary", Static).border_title = "Session"
         self.query_one(
             "#agent-card-container", AgentCardPanel
         ).border_title = "Agent Card"
@@ -462,27 +492,6 @@ class RemoteLiveView(Container):
     def connect_view(self) -> RemoteConnectView:
         return self.query_one(RemoteConnectView)
 
-    def update_connection_summary(
-        self,
-        agent_name: str,
-        agent_url: str,
-        connection_summary: str,
-        auth_source: str,
-        context_id: str | None = None,
-        conversation_summary: str | None = None,
-    ) -> None:
-        lines = [
-            f"Agent: {agent_name}",
-            f"Connection: {connection_summary}",
-            f"URL: {agent_url}",
-            f"Auth: {auth_source}",
-        ]
-        if context_id:
-            lines.append(f"Context: {summarize_identifier(context_id)}")
-        if conversation_summary:
-            lines.append(f"Conversation: {conversation_summary}")
-        self.query_one("#workspace-summary", Static).update("\n".join(lines))
-
     def agent_card_panel(self) -> AgentCardPanel:
         return self.query_one("#agent-card-container", AgentCardPanel)
 
@@ -493,9 +502,7 @@ class RemoteLiveView(Container):
         return self.query_one("#input-container", InputPanel)
 
     def show_disconnected_state(self) -> None:
-        self.query_one("#workspace-summary", Static).update(
-            "Status: disconnected\nUse the connection bar above to open a workspace."
-        )
+        self.connect_view().set_status("Disconnected", tone="info")
         self.agent_card_panel().update_card(None)
         self.input_panel().set_enabled(False)
 
@@ -687,19 +694,14 @@ class RemoteWorkspace(Container):
         source_label = connection_source_label(active_source)
 
         if selected_connection is not None:
-            summary = (
-                f"Connection: {source_label} · {selected_connection.label} · "
-                f"{selected_connection.agent_url}"
-            )
+            summary = f"{source_label} · {selected_connection.label}"
         elif active_source == ConnectionSource.MANUAL:
             if agent_url:
-                summary = f"Connection: Manual URL · {agent_url}"
+                summary = "Manual URL"
             else:
-                summary = "Connection: Manual URL · URL not set"
+                summary = "Manual URL · URL not set"
         else:
-            summary = (
-                f"Connection: {source_label} · {EMPTY_SOURCE_LABELS[active_source]}"
-            )
+            summary = f"{source_label} · unavailable"
 
         connect_view.set_selected_connection_summary(summary)
 
@@ -843,7 +845,7 @@ class RemoteWorkspace(Container):
         )
         connect_view.set_auth_source_status(
             source_description,
-            tone="warning" if warning else "muted",
+            tone="warning" if warning else None,
         )
 
     def _refresh_live_summary(self) -> None:
@@ -855,22 +857,9 @@ class RemoteWorkspace(Container):
             live_view.show_disconnected_state()
             return
 
-        auth_source = self.state.auth_source
-        if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
-            manual_credentials = live_view.messages_panel().get_auth_credentials()
-            auth_source = (
-                "manual override"
-                if manual_credentials is not None
-                else "manual override (none)"
-            )
-
-        live_view.update_connection_summary(
+        live_view.connect_view().set_connected_status(
             agent_name=self.current_agent_card.name,
-            agent_url=self.current_agent_url,
-            connection_summary=self.state.connection_summary,
-            auth_source=auth_source,
             context_id=self.current_context_id,
-            conversation_summary=self._conversation_summary(),
         )
 
     def _conversation_summary(self) -> str:
@@ -1005,14 +994,6 @@ class RemoteWorkspace(Container):
         live_view = self._get_live_view()
         await live_view.prepare_for_connection()
         live_view.agent_card_panel().update_card(agent_card)
-        live_view.update_connection_summary(
-            agent_name=agent_card.name,
-            agent_url=self.current_agent_url or "",
-            connection_summary=self.state.connection_summary,
-            auth_source=self.state.auth_source,
-            context_id=self.current_context_id,
-            conversation_summary=self._conversation_summary(),
-        )
         with self._suppressing_auth_events():
             if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
                 live_view.messages_panel().set_auth_credentials(
@@ -1132,7 +1113,7 @@ class RemoteWorkspace(Container):
             )
             connect_view.set_auth_source_status(
                 source_description,
-                tone="warning" if warning else "muted",
+                tone="warning" if warning else None,
             )
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
@@ -1168,7 +1149,6 @@ class RemoteWorkspace(Container):
             self._persist_session_state()
 
             await self._show_live_view(warning)
-            connect_view.set_status(f"Connected to {agent_card.name}")
             self.post_message(self.TitleChanged(self.workspace_id, agent_card.name))
 
         except Exception as error:
@@ -1241,6 +1221,8 @@ class RemoteWorkspace(Container):
                             send_result.task_id or "",
                             self.current_context_id or "",
                         )
+
+            self._refresh_live_summary()
 
         except Exception as error:
             logger.error(

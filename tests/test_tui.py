@@ -18,6 +18,7 @@ from a2a_handler.connections import (
 from a2a_handler.session import AgentSession
 from a2a_handler.service import TaskResult
 from a2a_handler.tui import HandlerTUI
+from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import TabbedMessagesPanel
 from a2a_handler.tui.workspace import (
     RemoteConnectView,
@@ -91,12 +92,23 @@ async def test_app_starts_with_workspace_shell_and_initial_remote() -> None:
         assert live_view
         assert workspace.region.height > 5
         assert connect_view.query_one("#connection-bar")
+        assert len(list(live_view.query("#workspace-summary"))) == 0
+
+        connect_status = connect_view.query_one("#connect-status", Static)
+        assert str(connect_status.content) == "Disconnected"
+        assert connect_status.has_class("status-info")
 
 
 def test_workspace_shell_does_not_hijack_tab_navigation() -> None:
     """Workspace switching should not steal the Tab key from form controls."""
     assert all(binding.key != "tab" for binding in WorkspaceTabs.BINDINGS)
     assert all(binding.key != "shift+tab" for binding in WorkspaceTabs.BINDINGS)
+
+
+def test_app_uses_ctrl_c_for_quit_binding() -> None:
+    """The app should advertise ctrl+c as the quit shortcut."""
+    assert any(binding.key == "ctrl+c" for binding in HandlerTUIApplication.BINDINGS)
+    assert all(binding.key != "ctrl+q" for binding in HandlerTUIApplication.BINDINGS)
 
 
 @pytest.mark.asyncio
@@ -223,7 +235,7 @@ async def test_saved_session_defaults_matching_repository_connection_to_resume_m
             connect_view = workspace.query_one(RemoteConnectView)
             conversation_status = connect_view.query_one("#conversation-status", Static)
 
-            assert "saved context" in str(conversation_status.content)
+            assert "Resume available" in str(conversation_status.content)
             assert connect_view.get_launch_mode() == WorkspaceLaunchMode.RESUME_SESSION
 
 
@@ -625,11 +637,16 @@ async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title(
 
             live_view = workspace.query_one(RemoteLiveView)
             messages_panel = live_view.query_one(TabbedMessagesPanel)
+            connect_status = workspace.query_one("#connect-status", Static)
             tabs = app.query_one("#workspace-tabs", Tabs)
             first_tab = tabs.query_one("#workspace-tab-1", Tab)
 
             assert first_tab.label_text == "Demo Agent"
             assert messages_panel
+            assert len(list(live_view.query("#workspace-summary"))) == 0
+            assert "Connected" in str(connect_status.content)
+            assert "Demo Agent" in str(connect_status.content)
+            assert connect_status.has_class("status-success")
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(
                 new_http_client,

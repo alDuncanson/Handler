@@ -29,7 +29,7 @@ class HandlerTUI(App[Any]):
     CSS_PATH = "app.tcss"
 
     BINDINGS = [
-        Binding("ctrl+q", "quit", "Quit", show=True),
+        Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("/", "command_palette", "Palette", show=True),
         Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
     ]

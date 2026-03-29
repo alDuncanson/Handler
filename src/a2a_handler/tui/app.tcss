@@ -17,27 +17,31 @@ Screen {
 }
 
 #workspace-tab-row {
-    height: 1;
+    height: 2;
     margin-bottom: 0;
     align: left middle;
 }
 
 #workspace-tabs {
     width: 1fr;
-    height: auto;
+    height: 2;
 }
 
 #workspace-tabs Tab {
     background: transparent;
     color: $text-muted;
     padding: 0 1;
-    margin-right: 1;
 }
 
 #workspace-tabs Tab.-active {
-    background: $primary 20%;
+    background: transparent;
     color: $text;
     text-style: bold;
+}
+
+#workspace-tabs Underline > .underline--bar {
+    color: $accent;
+    background: $surface;
 }
 
 #new-workspace-btn {
@@ -49,7 +53,6 @@ Screen {
 #workspace-content {
     height: 1fr;
     min-height: 1;
-    border: round $secondary 40%;
     padding: 0;
     background: $background;
 }
@@ -78,10 +81,8 @@ RemoteConnectView {
 #connection-shell {
     height: auto;
     border: round $secondary 40%;
-    border-title-align: right;
-    border-title-color: $text-muted;
     padding: 0 1;
-    margin-bottom: 1;
+    margin-bottom: 0;
     background: $background;
 }
 
@@ -116,22 +117,60 @@ RemoteConnectView {
 #connection-meta-row {
     height: auto;
     margin-top: 1;
+    align: left middle;
 }
 
-#connection-meta-row > Static {
+#connection-meta-row > .status-badge {
+    height: auto;
     width: auto;
-    color: $text-muted;
     margin-top: 0;
     margin-right: 1;
+    padding: 0 1;
+    background: $surface;
+    color: $text-muted;
+    text-style: bold;
 }
 
-#connection-status,
-#connect-status {
+#connection-selection-status {
     width: 1fr;
+    min-width: 24;
+    background: $primary 16%;
+    color: $text;
+}
+
+#conversation-status {
+    background: $accent 16%;
+    color: $text;
+}
+
+#auth-source-status {
+    background: $secondary 20%;
+    color: $text;
 }
 
 #connect-status {
+    min-width: 18;
     margin-right: 0;
+}
+
+.status-badge.status-info {
+    background: $accent 24%;
+    color: $text;
+}
+
+.status-badge.status-success {
+    background: $success 24%;
+    color: $text;
+}
+
+.status-badge.status-warning {
+    background: $warning 24%;
+    color: $background;
+}
+
+.status-badge.status-error {
+    background: $error 24%;
+    color: $text;
 }
 
 .hidden {
@@ -196,15 +235,10 @@ RemoteConnectView {
     margin-bottom: 0;
 }
 
-#conversation-status,
 #launch-mode-subtitle {
     height: auto;
     color: $text-muted;
     margin-top: 1;
-}
-
-#conversation-status.status-warning {
-    color: $warning;
 }
 
 #launch-mode-container {
@@ -226,20 +260,6 @@ RemoteConnectView {
     margin-top: 1;
 }
 
-#connect-status {
-    width: 1fr;
-    color: $text-muted;
-    margin-right: 1;
-}
-
-#connect-status.status-warning {
-    color: $warning;
-}
-
-#connect-status.status-error {
-    color: $error;
-}
-
 #live-stage {
     height: 1fr;
     margin-top: 0;
@@ -258,13 +278,6 @@ RemoteConnectView {
     width: 2fr;
     height: 1fr;
     margin-left: 1;
-}
-
-#workspace-summary {
-    height: auto;
-    margin-bottom: 1;
-    color: $text-muted;
-    padding: 0 1;
 }
 
 /* Panels - Cockpit Style */
@@ -317,12 +330,6 @@ RemoteConnectView {
     padding: 1 1;
     width: 1fr;
     min-width: 20;
-}
-
-#auth-source-status {
-    height: auto;
-    color: $text-muted;
-    margin-top: 1;
 }
 
 Button {
@@ -438,20 +445,24 @@ Select:focus SelectCurrent {
 }
 
 #messages-tabs Tabs {
-    height: 1;
+    height: 2;
 }
 
 #messages-tabs Tab {
     background: transparent;
     color: $text-muted;
     padding: 0 1;
-    margin-right: 1;
 }
 
 #messages-tabs Tab.-active {
-    background: $primary 20%;
+    background: transparent;
     color: $text;
     text-style: bold;
+}
+
+#messages-tabs Underline > .underline--bar {
+    color: $accent;
+    background: $surface;
 }
 
 #messages-tabs ContentSwitcher {
@@ -732,18 +743,6 @@ Footer > FooterKey > .footer-key--key {
 
 Footer > FooterKey > .footer-key--description {
     color: $text-muted;
-}
-
-#connection-selection-status,
-#conversation-status,
-#auth-source-status,
-#connect-status {
-    height: auto;
-    color: $text-muted;
-}
-
-#auth-source-status.status-warning {
-    color: $warning;
 }
 
 #auth-panel.hidden {
