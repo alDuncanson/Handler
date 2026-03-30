@@ -1300,12 +1300,14 @@ class WorkspaceTabs(Container):
         self._workspace_ids_by_tab_id[tab_id] = workspace_id
 
         switcher = self.query_one("#workspace-content", ContentSwitcher)
-        await switcher.mount(workspace)
-
         tabs = self.query_one("#workspace-tabs", Tabs)
-        await tabs.add_tab(Tab(workspace_title, id=tab_id, classes="workspace-tab"))
-        tabs.active = tab_id
-        switcher.current = workspace_id
+
+        with self.app.batch_update():
+            await switcher.mount(workspace)
+            await tabs.add_tab(Tab(workspace_title, id=tab_id, classes="workspace-tab"))
+            tabs.active = tab_id
+            switcher.current = workspace_id
+
         self.post_message(self.WorkspaceAdded(workspace))
         return workspace
 
