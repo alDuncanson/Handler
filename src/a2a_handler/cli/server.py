@@ -155,7 +155,14 @@ def _write_toml_from_data(path: Path, data: dict[str, object]) -> None:
 
 @server.command("list")
 def server_list() -> None:
-    """List configured repository and global servers."""
+    """List configured repository and global servers.
+
+    **Examples:**
+
+    ```
+    handler server list
+    ```
+    """
     output = Output()
     catalog = load_server_catalog()
 
@@ -185,7 +192,15 @@ def server_list() -> None:
     help="Restrict lookup to a specific server source",
 )
 def server_show(name: str, source: str | None) -> None:
-    """Show details for a configured server."""
+    """Show details for a configured server.
+
+    **Examples:**
+
+    ```
+    handler server show my_agent
+    handler server show my_agent --source global
+    ```
+    """
     output = Output()
     catalog = load_server_catalog()
 
@@ -261,7 +276,18 @@ def server_add(
     use_global: bool,
     use_repository: bool,
 ) -> None:
-    """Add a server to the configuration."""
+    """Add a server to the configuration.
+
+    **Examples:**
+
+    ```
+    handler server add my_agent --url http://localhost:8000
+    handler server add my_agent --url http://localhost:8000 --bearer TOKEN
+    handler server add my_agent --url http://localhost:8000 --api-key KEY
+    handler server add my_agent --url http://localhost:8000 --cert client.crt --key client.key
+    handler server add my_agent --url http://localhost:8000 --repository
+    ```
+    """
     output = Output()
     path = _resolve_servers_path(use_repository)
 
@@ -308,7 +334,15 @@ def server_add(
     help="Remove from repository-local config",
 )
 def server_remove(name: str, use_global: bool, use_repository: bool) -> None:
-    """Remove a server from the configuration."""
+    """Remove a server from the configuration.
+
+    **Examples:**
+
+    ```
+    handler server remove my_agent
+    handler server remove my_agent --repository
+    ```
+    """
     output = Output()
     path = _resolve_servers_path(use_repository)
 
@@ -329,7 +363,14 @@ def server_remove(name: str, use_global: bool, use_repository: bool) -> None:
 
 @server.command("validate")
 def server_validate() -> None:
-    """Validate configured servers and default auth resolution."""
+    """Validate configured servers and default auth resolution.
+
+    **Examples:**
+
+    ```
+    handler server validate
+    ```
+    """
     output = Output()
     catalog = load_server_catalog()
 
@@ -402,7 +443,17 @@ def server_agent(
     api_key: Optional[str],
     model: Optional[str],
 ) -> None:
-    """Start a local A2A agent server."""
+    """Start a local A2A agent server.
+
+    **Examples:**
+
+    ```
+    handler server run agent
+    handler server run agent --port 9000
+    handler server run agent --auth --api-key my-secret
+    handler server run agent --model gemini-2.0-flash
+    ```
+    """
     log.info("Starting A2A server on %s:%d", host, port)
     run_server(
         host=host,
@@ -417,6 +468,14 @@ def server_agent(
 @click.option("--host", default="127.0.0.1", help="Host to bind to", show_default=True)
 @click.option("--port", default=9000, help="Port to bind to", show_default=True)
 def server_push(host: str, port: int) -> None:
-    """Start a local webhook server for receiving push notifications."""
+    """Start a local webhook server for receiving push notifications.
+
+    **Examples:**
+
+    ```
+    handler server run push
+    handler server run push --port 9001
+    ```
+    """
     log.info("Starting webhook server on %s:%d", host, port)
     run_webhook_server(host, port)

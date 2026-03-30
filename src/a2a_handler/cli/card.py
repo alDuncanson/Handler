@@ -42,7 +42,16 @@ def card_get(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Retrieve an agent's card."""
+    """Retrieve an agent's card.
+
+    **Examples:**
+
+    ```
+    handler card get --server my_agent
+    handler card get --url http://localhost:8000
+    handler card get --url http://localhost:8000 --bearer TOKEN
+    ```
+    """
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
@@ -102,7 +111,16 @@ def card_validate(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Validate an agent card from URL or file."""
+    """Validate an agent card from URL or file.
+
+    **Examples:**
+
+    ```
+    handler card validate --server my_agent
+    handler card validate --url http://localhost:8000
+    handler card validate --file ./agent-card.json
+    ```
+    """
     output = Output()
 
     if file_path and (agent_url or server_name):

@@ -91,7 +91,15 @@ cli.add_command(describe)
 @cli.command()
 @click.pass_context
 def version(ctx: click.Context) -> None:
-    """Display the current version."""
+    """Display the current version.
+
+    **Examples:**
+
+    ```
+    handler version
+    handler --output json version
+    ```
+    """
     output = Output()
     output_format = (ctx.obj or {}).get("output_format", "text")
     if output_format == "text":
@@ -115,7 +123,18 @@ def tui(
     connect_servers: tuple[str, ...],
     url: str | None,
 ) -> None:
-    """Launch the interactive terminal interface."""
+    """Launch the interactive terminal interface.
+
+    **Examples:**
+
+    ```
+    handler tui
+    handler tui --connect my_agent
+    handler tui --connect my_agent --connect other_agent
+    handler tui --url http://localhost:8000
+    handler tui --bearer TOKEN
+    ```
+    """
     log.info("Launching TUI")
     logging.getLogger().handlers = []
     app = HandlerTUI(
@@ -130,7 +149,15 @@ def tui(
 @click.option("--host", default="localhost", help="Host to bind to", show_default=True)
 @click.option("--port", "-p", default=8001, help="Port to bind to", show_default=True)
 def web(host: str, port: int) -> None:
-    """Serve the TUI as a web application."""
+    """Serve the TUI as a web application.
+
+    **Examples:**
+
+    ```
+    handler web
+    handler web --port 9000
+    ```
+    """
     from textual_serve.server import Server
 
     log.info("Starting web server on %s:%d", host, port)

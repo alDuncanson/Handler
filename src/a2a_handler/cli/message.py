@@ -84,7 +84,18 @@ def message_send(
     api_key: Optional[str],
     headers: tuple[str, ...] = (),
 ) -> None:
-    """Send a message to an agent and receive a response."""
+    """Send a message to an agent and receive a response.
+
+    **Examples:**
+
+    ```
+    handler message send --server my_agent --text "Hello"
+    handler message send --url http://localhost:8000 --text "Hello"
+    handler message send --server my_agent --text "Hello" --stream
+    handler message send --server my_agent --text "Follow up" --continue
+    handler message send --url http://localhost:8000 --bearer TOKEN --text "Hi"
+    ```
+    """
     output = Output()
     payload: dict[str, Any] = {}
 
@@ -272,7 +283,16 @@ def message_stream(
     api_key: Optional[str],
     headers: tuple[str, ...] = (),
 ) -> None:
-    """Send a message and stream the response in real-time."""
+    """Send a message and stream the response in real-time.
+
+    **Examples:**
+
+    ```
+    handler message stream --server my_agent --text "Hello"
+    handler message stream --url http://localhost:8000 --text "Hello"
+    handler message stream --server my_agent --text "Follow up" --continue
+    ```
+    """
     ctx.invoke(
         message_send,
         agent_url=agent_url,

@@ -58,7 +58,16 @@ def task_get(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Retrieve the current status of a task."""
+    """Retrieve the current status of a task.
+
+    **Examples:**
+
+    ```
+    handler task get --server my_agent --task task-123
+    handler task get --url http://localhost:8000 --task task-123
+    handler task get --server my_agent --task task-123 --history-length 10
+    ```
+    """
     output = Output()
     payload: dict[str, Any] = {}
 
@@ -132,7 +141,15 @@ def task_cancel(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Request cancellation of a task."""
+    """Request cancellation of a task.
+
+    **Examples:**
+
+    ```
+    handler task cancel --server my_agent --task task-123
+    handler task cancel --url http://localhost:8000 --task task-123
+    ```
+    """
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
@@ -188,7 +205,15 @@ def task_resubscribe(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Resubscribe to a task's SSE stream after disconnection."""
+    """Resubscribe to a task's SSE stream after disconnection.
+
+    **Examples:**
+
+    ```
+    handler task resubscribe --server my_agent --task task-123
+    handler task resubscribe --url http://localhost:8000 --task task-123
+    ```
+    """
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
@@ -273,7 +298,15 @@ def notification_set(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Configure a push notification webhook for a task."""
+    """Configure a push notification webhook for a task.
+
+    **Examples:**
+
+    ```
+    handler task notification set --server my_agent --task task-123 --webhook-url http://webhook.example.com
+    handler task notification set --url http://localhost:8000 --task task-123 --webhook-url http://webhook.example.com --token SECRET
+    ```
+    """
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
@@ -341,7 +374,15 @@ def notification_get(
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
-    """Get the push notification configuration for a task."""
+    """Get the push notification configuration for a task.
+
+    **Examples:**
+
+    ```
+    handler task notification get --server my_agent --task task-123
+    handler task notification get --url http://localhost:8000 --task task-123
+    ```
+    """
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(

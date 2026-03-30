@@ -19,7 +19,14 @@ def session() -> None:
 
 @session.command("list")
 def session_list() -> None:
-    """List all saved conversation sessions."""
+    """List all saved conversation sessions.
+
+    **Examples:**
+
+    ```
+    handler session list
+    ```
+    """
     output = Output()
     store = get_session_store()
     sessions = store.list_all()
@@ -44,7 +51,15 @@ def session_list() -> None:
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
-    """Display saved conversation state for an agent."""
+    """Display saved conversation state for an agent.
+
+    **Examples:**
+
+    ```
+    handler session show --server my_agent
+    handler session show --url http://localhost:8000
+    ```
+    """
     output = Output()
 
     if server_name:
@@ -89,7 +104,16 @@ def session_clear(
     server_name: Optional[str],
     clear_all: bool,
 ) -> None:
-    """Clear saved conversation state."""
+    """Clear saved conversation state.
+
+    **Examples:**
+
+    ```
+    handler session clear --server my_agent
+    handler session clear --url http://localhost:8000
+    handler session clear --all
+    ```
+    """
     output = Output()
     if clear_all:
         clear_session()
