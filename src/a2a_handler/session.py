@@ -159,6 +159,10 @@ class SessionStore:
         except OSError as error:
             logger.warning("Failed to write session file: %s", error)
 
+    def find(self, agent_url: str) -> AgentSession | None:
+        """Look up a session without creating one."""
+        return self.sessions.get(agent_url)
+
     def get(self, agent_url: str) -> AgentSession:
         """Get or create a session for an agent URL."""
         if agent_url not in self.sessions:

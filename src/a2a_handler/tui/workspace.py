@@ -775,14 +775,7 @@ class RemoteWorkspace(Container):
         self,
         agent_url: str,
     ) -> tuple[SavedConversation | None, str | None]:
-        session = next(
-            (
-                existing_session
-                for existing_session in get_session_store().list_all()
-                if existing_session.agent_url == agent_url
-            ),
-            None,
-        )
+        session = get_session_store().find(agent_url)
         if session is None or not session.context_id:
             return None, None
 

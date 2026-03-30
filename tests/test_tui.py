@@ -56,6 +56,7 @@ def _make_connection(
 def patch_workspace_sources() -> Generator[Mock, None, None]:
     """Keep TUI tests isolated from user connection and session files."""
     session_store = Mock()
+    session_store.find.return_value = None
     session_store.list_all.return_value = []
     session_store.recent_agent_urls.return_value = []
 
@@ -291,13 +292,11 @@ async def test_saved_session_defaults_matching_repository_connection_to_resume_m
     patch_workspace_sources: Mock,
 ) -> None:
     """Matching saved contexts should make resume the default launch mode."""
-    patch_workspace_sources.list_all.return_value = [
-        AgentSession(
-            agent_url="https://saved.example.com",
-            context_id="ctx-saved-123456",
-            task_id="task-saved-654321",
-        )
-    ]
+    patch_workspace_sources.find.return_value = AgentSession(
+        agent_url="https://saved.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
     repo_connection = _make_connection(
         source=ConnectionSource.REPOSITORY,
         name="saved",
@@ -327,13 +326,11 @@ async def test_connect_view_selectors_and_auth_panel_remain_exclusive(
     patch_workspace_sources: Mock,
 ) -> None:
     """Top-bar selectors and auth radios should settle on one active choice."""
-    patch_workspace_sources.list_all.return_value = [
-        AgentSession(
-            agent_url="https://saved.example.com",
-            context_id="ctx-saved-123456",
-            task_id="task-saved-654321",
-        )
-    ]
+    patch_workspace_sources.find.return_value = AgentSession(
+        agent_url="https://saved.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
     repo_connection = _make_connection(
         source=ConnectionSource.REPOSITORY,
         name="saved",
@@ -387,13 +384,11 @@ async def test_connect_resume_mode_reuses_saved_context(
     patch_workspace_sources: Mock,
 ) -> None:
     """Resume mode should carry the saved context into the live workspace."""
-    patch_workspace_sources.list_all.return_value = [
-        AgentSession(
-            agent_url="https://agent.example.com",
-            context_id="ctx-saved-123456",
-            task_id="task-saved-654321",
-        )
-    ]
+    patch_workspace_sources.find.return_value = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
     repo_connection = _make_connection(
         source=ConnectionSource.REPOSITORY,
         name="agent",
@@ -442,13 +437,11 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
     patch_workspace_sources: Mock,
 ) -> None:
     """Resume mode should preload prior task history into the live workspace."""
-    patch_workspace_sources.list_all.return_value = [
-        AgentSession(
-            agent_url="https://agent.example.com",
-            context_id="ctx-saved-123456",
-            task_id="task-saved-654321",
-        )
-    ]
+    patch_workspace_sources.find.return_value = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
     repo_connection = _make_connection(
         source=ConnectionSource.REPOSITORY,
         name="agent",
