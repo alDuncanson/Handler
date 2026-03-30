@@ -1,7 +1,7 @@
 """Server definition loading and auth resolution.
 
-Servers are defined in ``~/.handler/servers.toml`` and optionally in a
-repository-local ``.handler/servers.toml`` file at the git root.
+Servers are defined in ``$XDG_CONFIG_HOME/handler/servers.toml`` and optionally
+in a repository-local ``.handler/servers.toml`` file at the git root.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Mapping
+
+from platformdirs import user_config_dir
 
 from a2a_handler.auth import (
     AuthCredentials,
@@ -30,7 +32,7 @@ from a2a_handler.common.input_validation import (
 
 logger = get_logger(__name__)
 
-DEFAULT_SERVER_DIRECTORY = Path.home() / ".handler"
+DEFAULT_SERVER_DIRECTORY = Path(user_config_dir("handler"))
 SERVERS_FILENAME = "servers.toml"
 SERVER_SCHEMA_VERSION = 1
 _ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

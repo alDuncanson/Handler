@@ -10,12 +10,14 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from platformdirs import user_data_dir
+
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.common import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_CREDENTIAL_DIRECTORY = Path.home() / ".handler"
+DEFAULT_CREDENTIAL_DIRECTORY = Path(user_data_dir("handler"))
 CREDENTIAL_FILENAME = "credentials.json"
 _OWNER_RW = stat.S_IRUSR | stat.S_IWUSR  # 0o600
 

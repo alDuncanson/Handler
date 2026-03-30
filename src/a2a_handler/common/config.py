@@ -8,9 +8,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from platformdirs import user_config_dir
+
 logger = logging.getLogger(__name__)
 
-CONFIG_DIR = Path.home() / ".handler"
+CONFIG_DIR = Path(user_config_dir("handler"))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_THEME = "gruvbox"

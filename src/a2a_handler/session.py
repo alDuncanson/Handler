@@ -16,11 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from platformdirs import user_data_dir
+
 from a2a_handler.common import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_SESSION_DIRECTORY = Path.home() / ".handler"
+DEFAULT_SESSION_DIRECTORY = Path(user_data_dir("handler"))
 SESSION_FILENAME = "sessions.json"
 _OWNER_RW = stat.S_IRUSR | stat.S_IWUSR  # 0o600
 
