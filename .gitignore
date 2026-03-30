@@ -52,3 +52,6 @@ uv.lock
 
 # Logs
 *.log
+
+# Handler local config
+.handler/
