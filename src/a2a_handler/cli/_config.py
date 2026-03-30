@@ -17,8 +17,12 @@ click.rich_click.OPTION_GROUPS = {
     ],
     "handler message send": [
         {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+        {
             "name": "Message Options",
-            "options": ["--stream", "--continue", "--context-id", "--task-id"],
+            "options": ["--text", "--stream", "--continue", "--context-id", "--task-id"],
         },
         {
             "name": "Authentication Options",
@@ -30,6 +34,14 @@ click.rich_click.OPTION_GROUPS = {
         },
     ],
     "handler message stream": [
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+        {
+            "name": "Message Options",
+            "options": ["--text"],
+        },
         {
             "name": "Conversation Options",
             "options": ["--continue", "--context-id", "--task-id"],
@@ -44,13 +56,48 @@ click.rich_click.OPTION_GROUPS = {
         },
     ],
     "handler task get": [
-        {"name": "Query Options", "options": ["--history-length"]},
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+        {"name": "Query Options", "options": ["--task", "--history-length"]},
+    ],
+    "handler task cancel": [
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+    ],
+    "handler task resubscribe": [
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
     ],
     "handler task notification set": [
-        {"name": "Notification Options", "options": ["--url", "--token"]},
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+        {"name": "Notification Options", "options": ["--task", "--webhook-url", "--token"]},
+    ],
+    "handler task notification get": [
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
     ],
     "handler card get": [
-        {"name": "Card Options", "options": ["--authenticated"]},
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+    ],
+    "handler card validate": [
+        {
+            "name": "Source",
+            "options": ["--url", "--server", "--file"],
+        },
     ],
     "handler server agent": [
         {"name": "Server Options", "options": ["--host", "--port", "--help"]},
@@ -58,7 +105,17 @@ click.rich_click.OPTION_GROUPS = {
     "handler server push": [
         {"name": "Server Options", "options": ["--host", "--port", "--help"]},
     ],
+    "handler session show": [
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
+    ],
     "handler session clear": [
+        {
+            "name": "Target",
+            "options": ["--url", "--server"],
+        },
         {"name": "Clear Options", "options": ["--all", "--help"]},
     ],
     "handler auth set": [

@@ -70,7 +70,9 @@ class TestSessionShow:
         )
 
         with patch("a2a_handler.cli.session.get_session", return_value=mock_session):
-            result = runner.invoke(session, ["show", "http://localhost:8000"])
+            result = runner.invoke(
+                session, ["show", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 0
             assert "ctx-123" in result.output
@@ -85,14 +87,16 @@ class TestSessionShow:
         )
 
         with patch("a2a_handler.cli.session.get_session", return_value=mock_session):
-            result = runner.invoke(session, ["show", "http://localhost:8000"])
+            result = runner.invoke(
+                session, ["show", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 0
             assert "none" in result.output.lower()
 
     def test_show_rejects_invalid_agent_url(self, runner):
         """Test show rejects malformed agent URL."""
-        result = runner.invoke(session, ["show", "not-a-url"])
+        result = runner.invoke(session, ["show", "--url", "not-a-url"])
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output
@@ -104,7 +108,9 @@ class TestSessionClear:
     def test_clear_specific_session(self, runner):
         """Test clearing a specific session."""
         with patch("a2a_handler.cli.session.clear_session") as mock_clear:
-            result = runner.invoke(session, ["clear", "http://localhost:8000"])
+            result = runner.invoke(
+                session, ["clear", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 0
             assert "Cleared" in result.output
@@ -128,7 +134,7 @@ class TestSessionClear:
 
     def test_clear_rejects_invalid_agent_url(self, runner):
         """Test clearing a malformed URL fails with validation error."""
-        result = runner.invoke(session, ["clear", "not-a-url"])
+        result = runner.invoke(session, ["clear", "--url", "not-a-url"])
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output

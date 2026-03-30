@@ -28,7 +28,12 @@ from a2a_handler.service import A2AService, SendResult
 from a2a_handler.credential_store import get_credentials
 from a2a_handler.session import get_session, update_session
 
-from ._helpers import build_http_client, handle_client_error, handle_validation_error
+from ._helpers import (
+    build_http_client,
+    handle_client_error,
+    handle_validation_error,
+    resolve_agent_target,
+)
 
 log = get_logger(__name__)
 
@@ -40,9 +45,10 @@ def message() -> None:
 
 
 @message.command("send")
-@click.argument("agent_url")
-@click.argument("text", required=False)
-@click.option("--stream", "-s", is_flag=True, help="Stream responses in real-time")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--text", "-t", help="Message text")
+@click.option("--stream", is_flag=True, help="Stream responses in real-time")
 @click.option(
     "--json",
     "json_payload",
@@ -65,7 +71,8 @@ def message() -> None:
     help="Custom header (repeatable, format: 'Name: Value')",
 )
 def message_send(
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     text: Optional[str],
     stream: bool,
     json_payload: Optional[str],
@@ -81,8 +88,13 @@ def message_send(
     """Send a message to an agent and receive a response."""
     output = Output()
     payload: dict[str, Any] = {}
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
         if json_payload:
             payload = parse_json_object(json_payload, "json_payload")
             reject_unknown_keys(
@@ -108,7 +120,7 @@ def message_send(
                 raise InputValidationError(
                     code="missing_message_text",
                     message="Provide message text as argument or in --json payload",
-                    suggestion='Pass TEXT or include {"text": "..."} in --json',
+                    suggestion='Pass --text or include {"text": "..."} in --json',
                 )
 
         payload_context_id = payload.get("context_id")
@@ -161,10 +173,10 @@ def message_send(
 
     assert text is not None
 
-    log.info("Sending message to %s", agent_url)
+    log.info("Sending message to %s", resolved_url)
 
     if use_session and not context_id:
-        session = get_session(agent_url)
+        session = get_session(resolved_url)
         if session.context_id:
             context_id = session.context_id
             log.info("Using saved context: %s", context_id)
@@ -182,13 +194,9 @@ def message_send(
                 output.error(str(e))
                 raise click.Abort() from e
 
-    credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    credentials = resolved_credentials
+    if not credentials and not bearer_token and not api_key:
+        credentials = get_credentials(resolved_url)
 
     if custom_headers:
         if credentials is None:
@@ -207,34 +215,35 @@ def message_send(
             async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(
                     http_client,
-                    agent_url,
+                    resolved_url,
                     enable_streaming=stream,
                     push_notification_url=push_url,
                     push_notification_token=push_token,
                     credentials=credentials,
                 )
 
-                output.dim(f"Sending to {agent_url}...")
+                output.dim(f"Sending to {resolved_url}...")
 
                 if stream:
                     await _stream_message(
-                        service, text, context_id, task_id, agent_url, output
+                        service, text, context_id, task_id, resolved_url, output
                     )
                 else:
                     result = await service.send(text, context_id, task_id)
-                    update_session(agent_url, result.context_id, result.task_id)
+                    update_session(resolved_url, result.context_id, result.task_id)
                     _format_send_result(result, output)
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_send())
 
 
 @message.command("stream")
-@click.argument("agent_url")
-@click.argument("text")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--text", "-t", required=True, help="Message text")
 @click.option("--context-id", help="Context ID for conversation continuity")
 @click.option("--task-id", help="Task ID to continue")
 @click.option(
@@ -254,7 +263,8 @@ def message_send(
 @click.pass_context
 def message_stream(
     ctx: click.Context,
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     text: str,
     context_id: Optional[str],
     task_id: Optional[str],
@@ -269,6 +279,7 @@ def message_stream(
     ctx.invoke(
         message_send,
         agent_url=agent_url,
+        server_name=server_name,
         text=text,
         stream=True,
         context_id=context_id,
@@ -342,7 +353,7 @@ def _format_send_result(result: SendResult, output: Output) -> None:
             "Set credentials with: handler auth set <agent_url> --bearer <token>"
         )
         output.line(
-            "Or provide inline: handler message send <agent_url> --bearer <token> ..."
+            "Or provide inline: handler message send --url <agent_url> --bearer <token> ..."
         )
     elif result.text:
         output.markdown(result.text)

@@ -24,6 +24,7 @@ from ._helpers import (
     build_http_client,
     handle_client_error,
     handle_validation_error,
+    resolve_agent_target,
 )
 
 log = get_logger(__name__)
@@ -36,8 +37,9 @@ def task() -> None:
 
 
 @task.command("get")
-@click.argument("agent_url")
-@click.argument("task_id")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", required=True, help="Task ID to retrieve")
 @click.option(
     "--history-length", "-n", type=int, help="Number of history messages to include"
 )
@@ -49,7 +51,8 @@ def task() -> None:
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def task_get(
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     task_id: str,
     history_length: Optional[int],
     json_params: Optional[str],
@@ -59,8 +62,13 @@ def task_get(
     """Retrieve the current status of a task."""
     output = Output()
     payload: dict[str, Any] = {}
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
         if json_params:
             payload = parse_json_object(json_params, "params")
             reject_unknown_keys(
@@ -93,44 +101,49 @@ def task_get(
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Getting task %s from %s", task_id, agent_url)
+    log.info("Getting task %s from %s", task_id, resolved_url)
 
-    credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    credentials = resolved_credentials
+    if not credentials and not bearer_token and not api_key:
+        credentials = get_credentials(resolved_url)
 
     async def do_get() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+                service = A2AService(
+                    http_client, resolved_url, credentials=credentials
+                )
                 result = await service.get_task(task_id, history_length)
                 _format_task_result(result, output)
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_get())
 
 
 @task.command("cancel")
-@click.argument("agent_url")
-@click.argument("task_id")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", required=True, help="Task ID to cancel")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def task_cancel(
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     task_id: str,
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
     """Request cancellation of a task."""
     output = Output()
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
         validate_resource_id(task_id, "task_id")
         if bearer_token:
             reject_control_chars(bearer_token, "bearer_token")
@@ -140,20 +153,18 @@ def task_cancel(
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Canceling task %s at %s", task_id, agent_url)
+    log.info("Canceling task %s at %s", task_id, resolved_url)
 
-    credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    credentials = resolved_credentials
+    if not credentials and not bearer_token and not api_key:
+        credentials = get_credentials(resolved_url)
 
     async def do_cancel() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+                service = A2AService(
+                    http_client, resolved_url, credentials=credentials
+                )
 
                 output.dim(f"Canceling task {task_id}...")
 
@@ -163,27 +174,34 @@ def task_cancel(
                 output.success("Task canceled")
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_cancel())
 
 
 @task.command("resubscribe")
-@click.argument("agent_url")
-@click.argument("task_id")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", required=True, help="Task ID to resubscribe to")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def task_resubscribe(
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     task_id: str,
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
     """Resubscribe to a task's SSE stream after disconnection."""
     output = Output()
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
         validate_resource_id(task_id, "task_id")
         if bearer_token:
             reject_control_chars(bearer_token, "bearer_token")
@@ -193,20 +211,18 @@ def task_resubscribe(
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Resubscribing to task %s at %s", task_id, agent_url)
+    log.info("Resubscribing to task %s at %s", task_id, resolved_url)
 
-    credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    credentials = resolved_credentials
+    if not credentials and not bearer_token and not api_key:
+        credentials = get_credentials(resolved_url)
 
     async def do_resubscribe() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+                service = A2AService(
+                    http_client, resolved_url, credentials=credentials
+                )
 
                 output.dim(f"Resubscribing to task {task_id}...")
 
@@ -220,7 +236,7 @@ def task_resubscribe(
                         output.line(event.text)
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_resubscribe())
@@ -246,26 +262,35 @@ def task_notification() -> None:
 
 
 @task_notification.command("set")
-@click.argument("agent_url")
-@click.argument("task_id")
-@click.option("--url", "-u", required=True, help="Webhook URL to receive notifications")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", required=True, help="Task ID")
+@click.option(
+    "--webhook-url", required=True, help="Webhook URL to receive notifications"
+)
 @click.option("--token", "-t", help="Authentication token for the webhook")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def notification_set(
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     task_id: str,
-    url: str,
+    webhook_url: str,
     token: Optional[str],
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
     """Configure a push notification webhook for a task."""
     output = Output()
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
         validate_resource_id(task_id, "task_id")
-        validate_webhook_url(url)
+        validate_webhook_url(webhook_url)
         if token:
             reject_control_chars(token, "token")
         if bearer_token:
@@ -276,24 +301,22 @@ def notification_set(
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Setting push config for task %s at %s", task_id, agent_url)
+    log.info("Setting push config for task %s at %s", task_id, resolved_url)
 
-    credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    credentials = resolved_credentials
+    if not credentials and not bearer_token and not api_key:
+        credentials = get_credentials(resolved_url)
 
     async def do_set() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+                service = A2AService(
+                    http_client, resolved_url, credentials=credentials
+                )
 
                 output.dim(f"Setting notification config for task {task_id}...")
 
-                config = await service.set_push_config(task_id, url, token)
+                config = await service.set_push_config(task_id, webhook_url, token)
 
                 output.success("Push notification config set")
                 output.field("Task ID", config.task_id)
@@ -306,20 +329,22 @@ def notification_set(
                         output.field("Config ID", pnc.id)
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_set())
 
 
 @task_notification.command("get")
-@click.argument("agent_url")
-@click.argument("task_id")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", required=True, help="Task ID")
 @click.option("--config-id", "-c", help="Specific push notification config ID")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def notification_get(
-    agent_url: str,
+    agent_url: Optional[str],
+    server_name: Optional[str],
     task_id: str,
     config_id: Optional[str],
     bearer_token: Optional[str],
@@ -327,8 +352,13 @@ def notification_get(
 ) -> None:
     """Get the push notification configuration for a task."""
     output = Output()
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
         validate_resource_id(task_id, "task_id")
         if config_id:
             validate_resource_id(config_id, "config_id")
@@ -340,20 +370,18 @@ def notification_get(
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Getting push config for task %s at %s", task_id, agent_url)
+    log.info("Getting push config for task %s at %s", task_id, resolved_url)
 
-    credentials: AuthCredentials | None = None
-    if bearer_token:
-        credentials = create_bearer_auth(bearer_token)
-    elif api_key:
-        credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
+    credentials = resolved_credentials
+    if not credentials and not bearer_token and not api_key:
+        credentials = get_credentials(resolved_url)
 
     async def do_get() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+                service = A2AService(
+                    http_client, resolved_url, credentials=credentials
+                )
 
                 config = await service.get_push_config(task_id, config_id)
 
@@ -367,7 +395,7 @@ def notification_get(
                         output.field("Config ID", pnc.id)
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_get())

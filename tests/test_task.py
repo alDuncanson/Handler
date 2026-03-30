@@ -50,7 +50,16 @@ class TestTaskGet:
             mock_service.get_task.return_value = mock_result
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(task, ["get", "http://localhost:8000", "task-123"])
+            result = runner.invoke(
+                task,
+                [
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                ],
+            )
 
             assert result.exit_code == 0
             assert "task-123" in result.output
@@ -74,7 +83,16 @@ class TestTaskGet:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                task, ["get", "http://localhost:8000", "task-123", "-n", "5"]
+                task,
+                [
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                    "-n",
+                    "5",
+                ],
             )
 
             assert result.exit_code == 0
@@ -102,7 +120,9 @@ class TestTaskGet:
                 task,
                 [
                     "get",
+                    "--url",
                     "http://localhost:8000",
+                    "--task",
                     "task-123",
                     "--bearer",
                     "my-token",
@@ -134,7 +154,15 @@ class TestTaskGet:
 
             result = runner.invoke(
                 task,
-                ["get", "http://localhost:8000", "task-123", "--api-key", "my-key"],
+                [
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                    "--api-key",
+                    "my-key",
+                ],
             )
 
             assert result.exit_code == 0
@@ -156,7 +184,16 @@ class TestTaskGet:
             mock_service.get_task.side_effect = httpx.ConnectError("Connection refused")
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(task, ["get", "http://localhost:8000", "task-123"])
+            result = runner.invoke(
+                task,
+                [
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                ],
+            )
 
             assert result.exit_code == 1
             assert "Connection refused" in result.output
@@ -183,7 +220,9 @@ class TestTaskGet:
                 task,
                 [
                     "get",
+                    "--url",
                     "http://localhost:8000",
+                    "--task",
                     "task-123",
                     "--params",
                     '{"task_id":"task-999","history_length":3}',
@@ -197,7 +236,13 @@ class TestTaskGet:
         """Test task get rejects malformed task IDs."""
         result = runner.invoke(
             task,
-            ["get", "http://localhost:8000", "task-123?fields=name"],
+            [
+                "get",
+                "--url",
+                "http://localhost:8000",
+                "--task",
+                "task-123?fields=name",
+            ],
         )
 
         assert result.exit_code == 1
@@ -226,7 +271,14 @@ class TestTaskCancel:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                task, ["cancel", "http://localhost:8000", "task-123"]
+                task,
+                [
+                    "cancel",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                ],
             )
 
             assert result.exit_code == 0
@@ -254,7 +306,9 @@ class TestTaskCancel:
                 task,
                 [
                     "cancel",
+                    "--url",
                     "http://localhost:8000",
+                    "--task",
                     "task-123",
                     "--bearer",
                     "token",
@@ -295,7 +349,14 @@ class TestTaskResubscribe:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                task, ["resubscribe", "http://localhost:8000", "task-123"]
+                task,
+                [
+                    "resubscribe",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                ],
             )
 
             assert result.exit_code == 0
@@ -324,7 +385,9 @@ class TestTaskResubscribe:
                 task,
                 [
                     "resubscribe",
+                    "--url",
                     "http://localhost:8000",
+                    "--task",
                     "task-123",
                     "--api-key",
                     "my-key",
@@ -367,9 +430,11 @@ class TestTaskNotificationSet:
                 [
                     "notification",
                     "set",
-                    "http://localhost:8000",
-                    "task-123",
                     "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                    "--webhook-url",
                     "http://webhook.example.com",
                 ],
             )
@@ -407,9 +472,11 @@ class TestTaskNotificationSet:
                 [
                     "notification",
                     "set",
-                    "http://localhost:8000",
-                    "task-123",
                     "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                    "--webhook-url",
                     "http://webhook.example.com",
                     "--token",
                     "webhook-token",
@@ -421,14 +488,16 @@ class TestTaskNotificationSet:
                 "task-123", "http://webhook.example.com", "webhook-token"
             )
 
-    def test_notification_set_requires_url(self, runner):
-        """Test that notification set requires --url."""
+    def test_notification_set_requires_webhook_url(self, runner):
+        """Test that notification set requires --webhook-url."""
         result = runner.invoke(
             task,
             [
                 "notification",
                 "set",
+                "--url",
                 "http://localhost:8000",
+                "--task",
                 "task-123",
             ],
         )
@@ -467,7 +536,15 @@ class TestTaskNotificationGet:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                task, ["notification", "get", "http://localhost:8000", "task-123"]
+                task,
+                [
+                    "notification",
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                ],
             )
 
             assert result.exit_code == 0
@@ -504,7 +581,9 @@ class TestTaskNotificationGet:
                 [
                     "notification",
                     "get",
+                    "--url",
                     "http://localhost:8000",
+                    "--task",
                     "task-123",
                     "--config-id",
                     "specific-config-id",

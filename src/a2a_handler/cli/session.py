@@ -41,10 +41,20 @@ def session_list() -> None:
 
 
 @session.command("show")
-@click.argument("agent_url")
-def session_show(agent_url: str) -> None:
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
     """Display saved conversation state for an agent."""
     output = Output()
+
+    if server_name:
+        from ._helpers import resolve_agent_target
+
+        resolved_url, _ = resolve_agent_target(agent_url, server_name)
+        agent_url = resolved_url
+    elif not agent_url:
+        raise click.UsageError("Provide --url or --server.")
+
     try:
         validate_agent_url(agent_url)
     except InputValidationError as error:
@@ -71,14 +81,26 @@ def session_show(agent_url: str) -> None:
 
 
 @session.command("clear")
-@click.argument("agent_url", required=False)
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--all", "-a", "clear_all", is_flag=True, help="Clear all sessions")
-def session_clear(agent_url: Optional[str], clear_all: bool) -> None:
+def session_clear(
+    agent_url: Optional[str],
+    server_name: Optional[str],
+    clear_all: bool,
+) -> None:
     """Clear saved conversation state."""
     output = Output()
     if clear_all:
         clear_session()
         output.success("Cleared all sessions")
+    elif server_name:
+        from ._helpers import resolve_agent_target
+
+        resolved_url, _ = resolve_agent_target(agent_url, server_name)
+        agent_url = resolved_url
+        clear_session(agent_url)
+        output.success(f"Cleared session for {agent_url}")
     elif agent_url:
         try:
             validate_agent_url(agent_url)
@@ -89,4 +111,4 @@ def session_clear(agent_url: Optional[str], clear_all: bool) -> None:
         clear_session(agent_url)
         output.success(f"Cleared session for {agent_url}")
     else:
-        output.warning("Provide AGENT_URL or use --all to clear sessions")
+        output.warning("Provide --url or --server, or use --all to clear sessions")

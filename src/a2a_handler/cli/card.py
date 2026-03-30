@@ -1,7 +1,7 @@
 """Card commands for agent card operations."""
 
 import asyncio
-from typing import Any
+from typing import Any, Optional
 
 import rich_click as click
 from a2a.types import AgentCard
@@ -20,6 +20,7 @@ from ._helpers import (
     build_http_client,
     handle_client_error,
     handle_validation_error,
+    resolve_agent_target,
 )
 
 log = get_logger(__name__)
@@ -32,30 +33,48 @@ def card() -> None:
 
 
 @card.command("get")
-@click.argument("agent_url")
-def card_get(agent_url: str) -> None:
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
+@click.option("--api-key", "-k", help="API key (overrides saved)")
+def card_get(
+    agent_url: Optional[str],
+    server_name: Optional[str],
+    bearer_token: Optional[str],
+    api_key: Optional[str],
+) -> None:
     """Retrieve an agent's card."""
     output = Output()
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Fetching agent card from %s", agent_url)
-    credentials = get_credentials(agent_url)
+    log.info("Fetching agent card from %s", resolved_url)
+
+    credentials = resolved_credentials
+    if not credentials:
+        credentials = get_credentials(resolved_url)
 
     async def do_get() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+                service = A2AService(
+                    http_client, resolved_url, credentials=credentials
+                )
                 card_data = await service.get_card()
                 log.info("Retrieved card for agent: %s", card_data.name)
 
                 _format_agent_card(card_data, output)
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_get())
@@ -74,27 +93,55 @@ def _format_agent_card(card_data: object, output: Output) -> None:
 
 
 @card.command("validate")
-@click.argument("source")
-def card_validate(source: str) -> None:
+@click.option("--url", "agent_url", help="Agent URL to validate")
+@click.option("--file", "file_path", help="File path to validate")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
+@click.option("--api-key", "-k", help="API key (overrides saved)")
+def card_validate(
+    agent_url: Optional[str],
+    file_path: Optional[str],
+    server_name: Optional[str],
+    bearer_token: Optional[str],
+    api_key: Optional[str],
+) -> None:
     """Validate an agent card from URL or file."""
     output = Output()
-    log.info("Validating agent card from %s", source)
-    is_url = source.startswith(("http://", "https://"))
-    if is_url:
-        try:
-            validate_agent_url(source)
-        except InputValidationError as error:
-            handle_validation_error(error, output)
-            raise click.Abort() from error
 
-    credentials = get_credentials(source) if is_url else None
+    if file_path and (agent_url or server_name):
+        raise click.UsageError("Provide --file or --url/--server, not both.")
+
+    if file_path:
+        log.info("Validating agent card from %s", file_path)
+
+        async def do_validate_file() -> None:
+            result = validate_agent_card_from_file(file_path)
+            _format_validation_result(result, output)
+            if not result.valid:
+                raise SystemExit(1)
+
+        asyncio.run(do_validate_file())
+        return
+
+    resolved_url, resolved_credentials = resolve_agent_target(
+        agent_url, server_name, bearer_token, api_key
+    )
+
+    try:
+        validate_agent_url(resolved_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    log.info("Validating agent card from %s", resolved_url)
+
+    credentials = resolved_credentials
+    if not credentials:
+        credentials = get_credentials(resolved_url)
 
     async def do_validate() -> None:
-        if is_url:
-            async with build_http_client(credentials=credentials) as http_client:
-                result = await validate_agent_card_from_url(source, http_client)
-        else:
-            result = validate_agent_card_from_file(source)
+        async with build_http_client(credentials=credentials) as http_client:
+            result = await validate_agent_card_from_url(resolved_url, http_client)
 
         _format_validation_result(result, output)
 

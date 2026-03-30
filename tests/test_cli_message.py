@@ -53,7 +53,8 @@ class TestMessageSend:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                message, ["send", "http://localhost:8000", "Hello agent"]
+                message,
+                ["send", "--url", "http://localhost:8000", "--text", "Hello agent"],
             )
 
             assert result.exit_code == 0
@@ -82,7 +83,9 @@ class TestMessageSend:
                 message,
                 [
                     "send",
+                    "--url",
                     "http://localhost:8000",
+                    "--text",
                     "Hello",
                     "--context-id",
                     "ctx-456",
@@ -121,7 +124,14 @@ class TestMessageSend:
 
             result = runner.invoke(
                 message,
-                ["send", "http://localhost:8000", "Hello", "--continue"],
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--text",
+                    "Hello",
+                    "--continue",
+                ],
             )
 
             assert result.exit_code == 0
@@ -150,7 +160,9 @@ class TestMessageSend:
                 message,
                 [
                     "send",
+                    "--url",
                     "http://localhost:8000",
+                    "--text",
                     "Hello",
                     "--bearer",
                     "my-token",
@@ -184,7 +196,9 @@ class TestMessageSend:
                 message,
                 [
                     "send",
+                    "--url",
                     "http://localhost:8000",
+                    "--text",
                     "Hello",
                     "--push-url",
                     "http://webhook.example.com",
@@ -212,7 +226,10 @@ class TestMessageSend:
             mock_service.send.side_effect = httpx.ConnectError("Connection refused")
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(message, ["send", "http://localhost:8000", "Hello"])
+            result = runner.invoke(
+                message,
+                ["send", "--url", "http://localhost:8000", "--text", "Hello"],
+            )
 
             assert result.exit_code == 1
 
@@ -239,6 +256,7 @@ class TestMessageSend:
                 message,
                 [
                     "send",
+                    "--url",
                     "http://localhost:8000",
                     "--json",
                     '{"text":"Hello from json","context_id":"ctx-9"}',
@@ -252,7 +270,13 @@ class TestMessageSend:
         """Test message send fails when text is missing in both argument and json."""
         result = runner.invoke(
             message,
-            ["send", "http://localhost:8000", "--json", '{"context_id":"ctx"}'],
+            [
+                "send",
+                "--url",
+                "http://localhost:8000",
+                "--json",
+                '{"context_id":"ctx"}',
+            ],
         )
 
         assert result.exit_code == 1
@@ -260,10 +284,19 @@ class TestMessageSend:
 
     def test_message_send_rejects_invalid_agent_url(self, runner):
         """Test message send rejects invalid agent URLs."""
-        result = runner.invoke(message, ["send", "not-a-url", "Hello"])
+        result = runner.invoke(
+            message, ["send", "--url", "not-a-url", "--text", "Hello"]
+        )
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output
+
+    def test_message_send_requires_url_or_server(self, runner):
+        """Test message send fails without --url or --server."""
+        result = runner.invoke(message, ["send", "--text", "Hello"])
+
+        assert result.exit_code != 0
+        assert "Provide --url or --server" in result.output
 
 
 class TestMessageStream:
@@ -299,7 +332,8 @@ class TestMessageStream:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                message, ["stream", "http://localhost:8000", "Hello"]
+                message,
+                ["stream", "--url", "http://localhost:8000", "--text", "Hello"],
             )
 
             assert result.exit_code == 0

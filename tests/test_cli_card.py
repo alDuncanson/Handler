@@ -63,7 +63,9 @@ class TestCardGet:
             mock_service.get_card.return_value = mock_card
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(card, ["get", "http://localhost:8000"])
+            result = runner.invoke(
+                card, ["get", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 0
             assert "Test Agent" in result.output
@@ -86,7 +88,9 @@ class TestCardGet:
             mock_service.get_card.side_effect = httpx.ConnectError("Connection refused")
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(card, ["get", "http://localhost:8000"])
+            result = runner.invoke(
+                card, ["get", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 1
 
@@ -110,7 +114,9 @@ class TestCardGet:
             mock_service.get_card.return_value = mock_card
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(card, ["get", "http://localhost:8000"])
+            result = runner.invoke(
+                card, ["get", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 0
             mock_get_credentials.assert_called_once_with("http://localhost:8000")
@@ -139,7 +145,14 @@ class TestCardGet:
 
             result = runner.invoke(
                 cli,
-                ["--output", "json", "card", "get", "http://localhost:8000"],
+                [
+                    "--output",
+                    "json",
+                    "card",
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                ],
             )
 
             assert result.exit_code == 0
@@ -148,7 +161,7 @@ class TestCardGet:
 
     def test_card_get_rejects_invalid_agent_url(self, runner):
         """Test card get rejects malformed URLs early."""
-        result = runner.invoke(card, ["get", "not-a-url"])
+        result = runner.invoke(card, ["get", "--url", "not-a-url"])
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output
@@ -181,7 +194,7 @@ class TestCardValidate:
             json.dump(card_data, f)
             f.flush()
 
-            result = runner.invoke(card, ["validate", f.name])
+            result = runner.invoke(card, ["validate", "--file", f.name])
 
             assert result.exit_code == 0
             assert "Valid" in result.output
@@ -196,7 +209,7 @@ class TestCardValidate:
             json.dump(card_data, f)
             f.flush()
 
-            result = runner.invoke(card, ["validate", f.name])
+            result = runner.invoke(card, ["validate", "--file", f.name])
 
             assert result.exit_code == 1
             assert "Invalid" in result.output
@@ -205,7 +218,9 @@ class TestCardValidate:
 
     def test_validate_nonexistent_file(self, runner):
         """Test validating a nonexistent file."""
-        result = runner.invoke(card, ["validate", "/nonexistent/path/agent.json"])
+        result = runner.invoke(
+            card, ["validate", "--file", "/nonexistent/path/agent.json"]
+        )
 
         assert result.exit_code == 1
 
@@ -229,14 +244,16 @@ class TestCardValidate:
 
             mock_validate.return_value = mock_result
 
-            result = runner.invoke(card, ["validate", "http://localhost:8000"])
+            result = runner.invoke(
+                card, ["validate", "--url", "http://localhost:8000"]
+            )
 
             assert result.exit_code == 0
             assert "Valid" in result.output
 
     def test_validate_rejects_invalid_url(self, runner):
         """Test validating malformed URL source fails with validation envelope."""
-        result = runner.invoke(card, ["validate", "http:///"])
+        result = runner.invoke(card, ["validate", "--url", "http:///"])
 
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output

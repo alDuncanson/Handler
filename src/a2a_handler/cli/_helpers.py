@@ -8,9 +8,18 @@ from a2a.client.errors import (
     A2AClientTimeoutError,
 )
 
-from a2a_handler.auth import AuthCredentials, AuthType
+from a2a_handler.auth import (
+    AuthCredentials,
+    AuthType,
+    create_api_key_auth,
+    create_bearer_auth,
+)
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError
+from a2a_handler.servers import (
+    load_server_catalog,
+    resolve_server_credentials,
+)
 
 TIMEOUT = 120
 log = get_logger(__name__)
@@ -86,6 +95,47 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         )
     else:
         click.echo(f"Error [{error_code}]: {message}", err=True)
+
+
+def resolve_agent_target(
+    url: str | None,
+    server: str | None,
+    bearer_token: str | None = None,
+    api_key: str | None = None,
+) -> tuple[str, AuthCredentials | None]:
+    """Resolve agent URL and credentials from --url or --server flag.
+
+    CLI flag auth (``--bearer``, ``--api-key``) overrides server auth.
+    """
+    if url and server:
+        raise click.UsageError("Provide either --url or --server, not both.")
+
+    if url:
+        credentials: AuthCredentials | None = None
+        if bearer_token:
+            credentials = create_bearer_auth(bearer_token)
+        elif api_key:
+            credentials = create_api_key_auth(api_key)
+        return url, credentials
+
+    if server:
+        catalog = load_server_catalog()
+        for server_def in (
+            *catalog.repository_servers,
+            *catalog.global_servers,
+        ):
+            if server_def.name == server:
+                if bearer_token:
+                    return server_def.agent_url, create_bearer_auth(bearer_token)
+                if api_key:
+                    return server_def.agent_url, create_api_key_auth(api_key)
+                creds, warning = resolve_server_credentials(server_def)
+                if warning:
+                    log.warning(warning)
+                return server_def.agent_url, creds
+        raise click.UsageError(f"Server '{server}' not found in servers.toml.")
+
+    raise click.UsageError("Provide --url or --server.")
 
 
 def handle_validation_error(error: InputValidationError, output: Output) -> None:
