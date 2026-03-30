@@ -9,7 +9,7 @@ from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.logging import TextualHandler
 from textual.screen import Screen
-from textual.widgets import Footer
+from textual.widgets import Footer, Tabs
 
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
@@ -55,6 +55,13 @@ class HandlerTUI(App[Any]):
         ),
         Binding(
             "ctrl+n", "new_workspace", "New Remote", show=True, key_display="Ctrl+N"
+        ),
+        Binding(
+            "ctrl+w",
+            "close_workspace",
+            "Close Remote",
+            show=True,
+            key_display="Ctrl+W",
         ),
     ]
 
@@ -143,12 +150,60 @@ class HandlerTUI(App[Any]):
         """Create and activate a new remote workspace tab."""
         await self.query_one(WorkspaceTabs).create_workspace()
 
+    async def action_close_workspace(self) -> None:
+        """Close the active remote workspace tab."""
+        await self.query_one(WorkspaceTabs).close_workspace()
+
+    async def action_connect_workspace(self) -> None:
+        """Trigger the connect button on the active workspace."""
+        workspace = self.query_one(WorkspaceTabs).get_active_workspace()
+        if workspace is not None and not workspace.is_connected:
+            await workspace.handle_connect_button()
+
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
-        """Filter out maximize/minimize commands from the command palette."""
+        """Provide custom commands and filter out maximize/minimize."""
         for command in super().get_system_commands(screen):
             if command.title.lower() in ("maximize", "minimize"):
                 continue
             yield command
+
+        workspace_tabs = self.query_one(WorkspaceTabs)
+        active = workspace_tabs.get_active_workspace()
+
+        if active is not None and not active.is_connected:
+            yield SystemCommand(
+                "Connect",
+                "Connect the active remote to an A2A agent",
+                self.action_connect_workspace,
+            )
+
+        if active is not None and len(workspace_tabs.iter_workspaces()) > 1:
+            yield SystemCommand(
+                f"Close {active.title}",
+                "Close the active remote workspace tab",
+                self.action_close_workspace,
+            )
+
+        for workspace in workspace_tabs.iter_workspaces():
+            if active is not None and workspace is active:
+                continue
+            title = workspace.title
+            yield SystemCommand(
+                f"Switch to {title}",
+                f"Activate the {title} workspace tab",
+                self._switch_to_workspace(workspace.workspace_id),
+            )
+
+    def _switch_to_workspace(self, workspace_id: str) -> callable:
+        """Return a callback that activates the given workspace tab."""
+        def callback() -> None:
+            workspace_tabs = self.query_one(WorkspaceTabs)
+            tab_id = workspace_tabs._tab_ids_by_workspace_id.get(workspace_id)
+            if tab_id is not None:
+                tabs = workspace_tabs.query_one("#workspace-tabs", Tabs)
+                tabs.active = tab_id
+
+        return callback
 
     async def on_unmount(self) -> None:
         if self._tui_log_handler is not None:

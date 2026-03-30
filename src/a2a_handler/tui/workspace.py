@@ -1335,6 +1335,38 @@ class WorkspaceTabs(Container):
         tab = self.query_one(f"#{tab_id}", Tab)
         tab.label = event.title
 
+    async def close_workspace(self, workspace_id: str | None = None) -> None:
+        """Close and remove a workspace tab. Defaults to the active workspace."""
+        if workspace_id is None:
+            active = self.get_active_workspace()
+            if active is None:
+                return
+            workspace_id = active.workspace_id
+
+        tab_id = self._tab_ids_by_workspace_id.get(workspace_id)
+        if tab_id is None:
+            return
+
+        if len(self._workspace_ids_by_tab_id) <= 1:
+            return
+
+        tabs = self.query_one("#workspace-tabs", Tabs)
+        switcher = self.query_one("#workspace-content", ContentSwitcher)
+        workspace = self.query_one(f"#{workspace_id}", RemoteWorkspace)
+
+        with self.app.batch_update():
+            await tabs.remove_tab(tab_id)
+            await workspace.remove()
+
+        del self._tab_ids_by_workspace_id[workspace_id]
+        del self._workspace_ids_by_tab_id[tab_id]
+
+        active_tab_id = tabs.active
+        if active_tab_id:
+            new_workspace_id = self._workspace_ids_by_tab_id.get(active_tab_id)
+            if new_workspace_id:
+                switcher.current = new_workspace_id
+
     def action_previous_workspace(self) -> None:
         self.query_one("#workspace-tabs", Tabs).action_previous_tab()
 
