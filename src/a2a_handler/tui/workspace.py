@@ -240,7 +240,6 @@ class RemoteConnectView(Container):
                 )
 
     def on_mount(self) -> None:
-        self.query_one("#connect-btn", Button).can_focus = False
         self.sync_source_controls()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
