@@ -14,7 +14,7 @@ from textual.widgets import Footer, Tabs
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
-from a2a_handler.tui.workspace import WorkspaceTabs
+from a2a_handler.tui.workspace_tabs import WorkspaceTabs
 
 logging.basicConfig(
     level="NOTSET",

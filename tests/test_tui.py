@@ -20,14 +20,10 @@ from a2a_handler.service import TaskResult
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import TabbedMessagesPanel
-from a2a_handler.tui.workspace import (
-    RemoteConnectView,
-    RemoteLiveView,
-    RemoteWorkspace,
-    WorkspaceAuthMode,
-    WorkspaceLaunchMode,
-    WorkspaceTabs,
-)
+from a2a_handler.tui.remote_workspace import RemoteWorkspace
+from a2a_handler.tui.workspace_tabs import WorkspaceTabs
+from a2a_handler.tui.workspace_types import WorkspaceAuthMode, WorkspaceLaunchMode
+from a2a_handler.tui.workspace_views import RemoteConnectView, RemoteLiveView
 
 
 def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
@@ -62,11 +58,11 @@ def patch_workspace_sources() -> Generator[Mock, None, None]:
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(),
         ),
         patch(
-            "a2a_handler.tui.workspace.get_session_store",
+            "a2a_handler.tui.remote_workspace.get_session_store",
             return_value=session_store,
         ),
     ):
@@ -245,7 +241,7 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
     )
 
     with patch(
-        "a2a_handler.tui.workspace.load_connection_catalog",
+        "a2a_handler.tui.remote_workspace.load_connection_catalog",
         return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
@@ -305,7 +301,7 @@ async def test_saved_session_defaults_matching_repository_connection_to_resume_m
     app = HandlerTUI()
 
     with patch(
-        "a2a_handler.tui.workspace.load_connection_catalog",
+        "a2a_handler.tui.remote_workspace.load_connection_catalog",
         return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
@@ -339,7 +335,7 @@ async def test_connect_view_selectors_and_auth_panel_remain_exclusive(
     app = HandlerTUI()
 
     with patch(
-        "a2a_handler.tui.workspace.load_connection_catalog",
+        "a2a_handler.tui.remote_workspace.load_connection_catalog",
         return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
@@ -402,14 +398,14 @@ async def test_connect_resume_mode_reuses_saved_context(
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.workspace.build_http_client",
+            "a2a_handler.tui.remote_workspace.build_http_client",
             return_value=new_http_client,
         ),
-        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.remote_workspace.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -476,14 +472,14 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.workspace.build_http_client",
+            "a2a_handler.tui.remote_workspace.build_http_client",
             return_value=new_http_client,
         ),
-        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.remote_workspace.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -537,15 +533,15 @@ async def test_connect_start_fresh_ignores_saved_context(
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.workspace.build_http_client",
+            "a2a_handler.tui.remote_workspace.build_http_client",
             return_value=new_http_client,
         ),
-        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
-        patch("a2a_handler.tui.workspace.uuid.uuid4", return_value=fresh_context),
+        patch("a2a_handler.tui.remote_workspace.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.remote_workspace.uuid.uuid4", return_value=fresh_context),
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -587,14 +583,14 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.workspace.build_http_client",
+            "a2a_handler.tui.remote_workspace.build_http_client",
             return_value=new_http_client,
         ) as mock_build_http_client,
-        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.remote_workspace.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -635,14 +631,14 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.workspace.build_http_client",
+            "a2a_handler.tui.remote_workspace.build_http_client",
             return_value=new_http_client,
         ) as mock_build_http_client,
-        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.remote_workspace.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -685,14 +681,14 @@ async def test_connect_transitions_workspace_to_live_view_and_updates_tab_title(
 
     with (
         patch(
-            "a2a_handler.tui.workspace.load_connection_catalog",
+            "a2a_handler.tui.remote_workspace.load_connection_catalog",
             return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.workspace.build_http_client",
+            "a2a_handler.tui.remote_workspace.build_http_client",
             return_value=new_http_client,
         ) as mock_build_http_client,
-        patch("a2a_handler.tui.workspace.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.remote_workspace.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
