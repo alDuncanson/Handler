@@ -150,7 +150,7 @@ async def test_command_palette_is_centered_instead_of_full_width() -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("/")
+        await pilot.press("ctrl+p")
         await pilot.pause(1)
 
         palette = app.screen_stack[-1]

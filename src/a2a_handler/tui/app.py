@@ -37,7 +37,7 @@ class HandlerTUI(App[Any]):
             key_display="Ctrl+C",
             priority=True,
         ),
-        Binding("/", "command_palette", "Palette", show=True),
+        Binding("ctrl+p", "command_palette", "Palette", show=True, key_display="Ctrl+P"),
         Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
         Binding(
             "ctrl+b",
