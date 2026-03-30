@@ -18,7 +18,6 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import A2AService, TaskResult
-from a2a_handler.credential_store import get_credentials
 
 from ._helpers import (
     build_http_client,
@@ -104,8 +103,6 @@ def task_get(
     log.info("Getting task %s from %s", task_id, resolved_url)
 
     credentials = resolved_credentials
-    if not credentials and not bearer_token and not api_key:
-        credentials = get_credentials(resolved_url)
 
     async def do_get() -> None:
         try:
@@ -156,8 +153,6 @@ def task_cancel(
     log.info("Canceling task %s at %s", task_id, resolved_url)
 
     credentials = resolved_credentials
-    if not credentials and not bearer_token and not api_key:
-        credentials = get_credentials(resolved_url)
 
     async def do_cancel() -> None:
         try:
@@ -214,8 +209,6 @@ def task_resubscribe(
     log.info("Resubscribing to task %s at %s", task_id, resolved_url)
 
     credentials = resolved_credentials
-    if not credentials and not bearer_token and not api_key:
-        credentials = get_credentials(resolved_url)
 
     async def do_resubscribe() -> None:
         try:
@@ -304,8 +297,6 @@ def notification_set(
     log.info("Setting push config for task %s at %s", task_id, resolved_url)
 
     credentials = resolved_credentials
-    if not credentials and not bearer_token and not api_key:
-        credentials = get_credentials(resolved_url)
 
     async def do_set() -> None:
         try:
@@ -373,8 +364,6 @@ def notification_get(
     log.info("Getting push config for task %s at %s", task_id, resolved_url)
 
     credentials = resolved_credentials
-    if not credentials and not bearer_token and not api_key:
-        credentials = get_credentials(resolved_url)
 
     async def do_get() -> None:
         try:

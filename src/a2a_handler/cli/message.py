@@ -25,7 +25,6 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import A2AService, SendResult
-from a2a_handler.credential_store import get_credentials
 from a2a_handler.session import get_session, update_session
 
 from ._helpers import (
@@ -195,8 +194,6 @@ def message_send(
                 raise click.Abort() from e
 
     credentials = resolved_credentials
-    if not credentials and not bearer_token and not api_key:
-        credentials = get_credentials(resolved_url)
 
     if custom_headers:
         if credentials is None:
@@ -331,7 +328,7 @@ async def _stream_message(
         output.warning("Authentication required")
         output.line("The agent requires authentication to complete this task.")
         output.line(
-            "Set credentials with: handler auth set <agent_url> --bearer <token>"
+            "Set credentials with: handler server add <name> --url <agent_url> --bearer <token>"
         )
 
 
@@ -350,10 +347,13 @@ def _format_send_result(result: SendResult, output: Output) -> None:
         output.warning("Authentication required")
         output.line("The agent requires authentication to complete this task.")
         output.line(
-            "Set credentials with: handler auth set <agent_url> --bearer <token>"
+            "Set credentials with: handler server add <name> --url <agent_url> --bearer <token>"
         )
         output.line(
             "Or provide inline: handler message send --url <agent_url> --bearer <token> ..."
+        )
+        output.line(
+            "Or use a named server: handler message send --server <name> ..."
         )
     elif result.text:
         output.markdown(result.text)

@@ -129,19 +129,12 @@ click.rich_click.OPTION_GROUPS = {
         },
         {"name": "Clear Options", "options": ["--all", "--help"]},
     ],
-    "handler auth set": [
-        {
-            "name": "Auth Type",
-            "options": ["--bearer", "--api-key", "--api-key-header"],
-        },
-    ],
 }
 
 click.rich_click.COMMAND_GROUPS = {
     "handler": [
         {"name": "Agent Communication", "commands": ["message", "task"]},
         {"name": "Agent Discovery", "commands": ["card"]},
-        {"name": "Authentication", "commands": ["auth"]},
         {"name": "Servers", "commands": ["server"]},
         {"name": "Interfaces", "commands": ["tui", "web"]},
         {"name": "Utilities", "commands": ["session", "version"]},
@@ -168,8 +161,5 @@ click.rich_click.COMMAND_GROUPS = {
     ],
     "handler session": [
         {"name": "Session Commands", "commands": ["list", "show", "clear"]},
-    ],
-    "handler auth": [
-        {"name": "Auth Commands", "commands": ["set", "show", "clear"]},
     ],
 }

@@ -8,6 +8,9 @@ Provides commands for interacting with A2A agents:
 - server list/show/add/remove/validate: Manage configured servers
 - server run agent/push: Run local servers
 - session list/show/clear: Manage saved conversation sessions
+
+Authentication is configured per-server via `handler server add` or
+supplied ad-hoc with --bearer / --api-key flags.
 """
 
 import truststore
@@ -26,7 +29,6 @@ from a2a_handler.common.output import OutputFormat
 from a2a_handler.tui import HandlerTUI
 
 from . import _config  # noqa: F401 - configures rich-click on import
-from .auth import auth
 from .card import card
 from .mcp import mcp
 from .message import message
@@ -81,7 +83,6 @@ cli.add_command(task)
 cli.add_command(card)
 cli.add_command(server)
 cli.add_command(session)
-cli.add_command(auth)
 cli.add_command(mcp)
 cli.add_command(schema)
 cli.add_command(describe)

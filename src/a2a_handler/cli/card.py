@@ -9,7 +9,6 @@ from a2a.types import AgentCard
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
 from a2a_handler.service import A2AService
-from a2a_handler.credential_store import get_credentials
 from a2a_handler.validation import (
     ValidationResult,
     validate_agent_card_from_file,
@@ -59,8 +58,6 @@ def card_get(
     log.info("Fetching agent card from %s", resolved_url)
 
     credentials = resolved_credentials
-    if not credentials:
-        credentials = get_credentials(resolved_url)
 
     async def do_get() -> None:
         try:
@@ -136,8 +133,6 @@ def card_validate(
     log.info("Validating agent card from %s", resolved_url)
 
     credentials = resolved_credentials
-    if not credentials:
-        credentials = get_credentials(resolved_url)
 
     async def do_validate() -> None:
         async with build_http_client(credentials=credentials) as http_client:

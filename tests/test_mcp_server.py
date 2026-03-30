@@ -1,7 +1,5 @@
 """Tests for MCP server tool registration and validation guards."""
 
-from unittest.mock import patch
-
 import pytest
 
 from a2a_handler.mcp.server import create_mcp_server
@@ -45,38 +43,4 @@ async def test_set_task_notification_rejects_invalid_webhook() -> None:
         )
 
 
-@pytest.mark.asyncio
-async def test_set_agent_credentials_accepts_valid_input() -> None:
-    server = create_mcp_server()
-    set_agent_credentials = _tool_fn(server, "set_agent_credentials")
 
-    with patch("a2a_handler.mcp.server.set_credentials") as mock_set:
-        result = await set_agent_credentials(
-            agent_url="http://localhost:8000",
-            api_key="secret-key",
-        )
-
-    assert result == {"agent_url": "http://localhost:8000", "auth_type": "api_key"}
-    mock_set.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_set_agent_credentials_rejects_missing_auth_values() -> None:
-    server = create_mcp_server()
-    set_agent_credentials = _tool_fn(server, "set_agent_credentials")
-
-    with pytest.raises(ValueError, match="missing_auth_arguments"):
-        await set_agent_credentials(agent_url="http://localhost:8000")
-
-
-@pytest.mark.asyncio
-async def test_set_agent_credentials_rejects_multiple_auth_values() -> None:
-    server = create_mcp_server()
-    set_agent_credentials = _tool_fn(server, "set_agent_credentials")
-
-    with pytest.raises(ValueError, match="invalid_auth_arguments"):
-        await set_agent_credentials(
-            agent_url="http://localhost:8000",
-            bearer_token="token",
-            api_key="secret-key",
-        )

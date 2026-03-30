@@ -22,10 +22,6 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import A2AService
-from a2a_handler.credential_store import (
-    clear_credentials as session_clear_credentials,
-)
-from a2a_handler.credential_store import get_credentials, set_credentials
 from a2a_handler.session import (
     clear_session,
     get_session,
@@ -78,9 +74,6 @@ def _resolve_credentials(
         credentials = create_bearer_auth(bearer_token)
     elif api_key:
         credentials = create_api_key_auth(api_key)
-    else:
-        credentials = get_credentials(agent_url)
-
     if custom_headers:
         if credentials is None:
             credentials = AuthCredentials(
@@ -570,8 +563,7 @@ def create_mcp_server() -> FastMCP:
         Returns:
             A dictionary containing:
             - count: Number of saved sessions
-            - sessions: List of sessions with agent_url, context_id, task_id,
-                       and has_credentials flag
+            - sessions: List of sessions with agent_url, context_id, task_id
         """
         logger.info("Listing all sessions")
 
@@ -585,7 +577,6 @@ def create_mcp_server() -> FastMCP:
                     "agent_url": s.agent_url,
                     "context_id": s.context_id,
                     "task_id": s.task_id,
-                    "has_credentials": get_credentials(s.agent_url) is not None,
                 }
                 for s in sessions
             ],
@@ -606,7 +597,6 @@ def create_mcp_server() -> FastMCP:
             - agent_url: The agent URL
             - context_id: Saved context ID (or None)
             - task_id: Saved task ID (or None)
-            - has_credentials: Whether credentials are saved
         """
         logger.info("Getting session for %s", agent_url)
         try:
@@ -620,7 +610,6 @@ def create_mcp_server() -> FastMCP:
             "agent_url": session.agent_url,
             "context_id": session.context_id,
             "task_id": session.task_id,
-            "has_credentials": get_credentials(session.agent_url) is not None,
         }
 
     @mcp.tool()
@@ -628,7 +617,7 @@ def create_mcp_server() -> FastMCP:
         """Clear saved session data.
 
         Removes saved session state (context_id, task_id) for an agent or all
-        agents. Does not clear credentials - use clear_agent_credentials for that.
+        agents.
 
         Args:
             agent_url: URL of agent to clear. If None, clears ALL sessions.
@@ -649,111 +638,6 @@ def create_mcp_server() -> FastMCP:
             logger.info("Clearing all sessions")
             clear_session()
             return {"cleared": "All sessions"}
-
-    @mcp.tool()
-    async def set_agent_credentials(
-        agent_url: str,
-        bearer_token: str | None = None,
-        api_key: str | None = None,
-        cert_path: str | None = None,
-        key_path: str | None = None,
-        ca_cert_path: str | None = None,
-        custom_headers: dict[str, str] | None = None,
-    ) -> dict:
-        """Set authentication credentials for an agent.
-
-        Saves credentials that will be used for all future requests to this
-        agent. Provide one of: bearer_token, api_key, or cert_path/key_path
-        for mTLS.
-
-        Args:
-            agent_url: Base URL of the A2A agent
-            bearer_token: Bearer token for Authorization header
-            api_key: API key for X-API-Key header
-            cert_path: Client certificate path for mTLS (PEM)
-            key_path: Client private key path for mTLS (PEM)
-            ca_cert_path: CA certificate path for mTLS server verification (PEM)
-
-        Returns:
-            A dictionary containing:
-            - agent_url: The agent URL
-            - auth_type: Type of auth configured ("bearer", "api_key", or "mtls")
-        """
-        logger.info("Setting credentials for %s", agent_url)
-        try:
-            validate_agent_url(agent_url)
-
-            has_mtls = cert_path or key_path
-            method_count = sum(bool(x) for x in [bearer_token, api_key, has_mtls])
-
-            if method_count > 1:
-                raise InputValidationError(
-                    code="invalid_auth_arguments",
-                    message="Provide only one auth method: bearer_token, api_key, or cert_path/key_path",
-                    suggestion="Pass only one auth mechanism per call",
-                )
-            if method_count == 0 and not custom_headers:
-                raise InputValidationError(
-                    code="missing_auth_arguments",
-                    message="Provide bearer_token, api_key, cert_path/key_path, or custom_headers",
-                    suggestion="Provide at least one auth mechanism or custom headers",
-                )
-            if has_mtls and (not cert_path or not key_path):
-                raise InputValidationError(
-                    code="incomplete_mtls_arguments",
-                    message="mTLS requires both cert_path and key_path",
-                    suggestion="Provide both cert_path and key_path",
-                )
-            if bearer_token:
-                reject_control_chars(bearer_token, "bearer_token")
-            if api_key:
-                reject_control_chars(api_key, "api_key")
-        except InputValidationError as error:
-            raise _validation_error(error) from error
-
-        credentials: AuthCredentials
-        if cert_path and key_path:
-            credentials = create_mtls_auth(cert_path, key_path, ca_cert_path)
-            auth_type = "mtls"
-        elif bearer_token:
-            credentials = create_bearer_auth(bearer_token)
-            auth_type = "bearer"
-        elif api_key:
-            credentials = create_api_key_auth(api_key)
-            auth_type = "api_key"
-        elif custom_headers:
-            credentials = AuthCredentials(auth_type=AuthType.BEARER)
-            auth_type = "custom_headers"
-        else:
-            raise AssertionError("validated auth inputs should guarantee a return")
-
-        credentials.custom_headers = custom_headers
-        set_credentials(agent_url, credentials)
-        return {"agent_url": agent_url, "auth_type": auth_type}
-
-    @mcp.tool()
-    async def clear_agent_credentials(agent_url: str) -> dict:
-        """Clear saved credentials for an agent.
-
-        Removes any saved authentication credentials for the specified agent.
-
-        Args:
-            agent_url: Base URL of the A2A agent
-
-        Returns:
-            A dictionary containing:
-            - agent_url: The agent URL
-            - cleared: True if credentials were cleared
-        """
-        logger.info("Clearing credentials for %s", agent_url)
-        try:
-            validate_agent_url(agent_url)
-        except InputValidationError as error:
-            raise _validation_error(error) from error
-
-        session_clear_credentials(agent_url)
-
-        return {"agent_url": agent_url, "cleared": True}
 
     return mcp
 

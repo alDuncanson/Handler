@@ -9,7 +9,6 @@ import pytest
 from click.testing import CliRunner
 from a2a.types import AgentCard, AgentSkill, AgentCapabilities
 
-from a2a_handler.auth import create_bearer_auth
 from a2a_handler.cli import cli
 from a2a_handler.cli.card import card, _format_agent_card, _format_validation_result
 from a2a_handler.common import Output
@@ -94,37 +93,30 @@ class TestCardGet:
 
             assert result.exit_code == 1
 
-    def test_card_get_uses_saved_credentials(self, runner):
-        """Test card get passes stored credentials to service."""
+    def test_card_get_uses_bearer_flag_credentials(self, runner):
+        """Test card get passes --bearer credentials to service."""
         mock_card = _make_agent_card()
-        credentials = create_bearer_auth("test-token")
 
         with (
             patch("a2a_handler.cli.card.build_http_client") as mock_client,
-            patch("a2a_handler.cli.card.get_credentials") as mock_get_credentials,
             patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
         ):
             mock_http = AsyncMock()
             mock_http.__aenter__.return_value = mock_http
             mock_http.__aexit__.return_value = None
             mock_client.return_value = mock_http
-            mock_get_credentials.return_value = credentials
 
             mock_service = AsyncMock()
             mock_service.get_card.return_value = mock_card
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                card, ["get", "--url", "http://localhost:8000"]
+                card, ["get", "--url", "http://localhost:8000", "--bearer", "test-token"]
             )
 
             assert result.exit_code == 0
-            mock_get_credentials.assert_called_once_with("http://localhost:8000")
-            mock_service_cls.assert_called_once_with(
-                mock_http,
-                "http://localhost:8000",
-                credentials=credentials,
-            )
+            call_kwargs = mock_service_cls.call_args
+            assert call_kwargs[1]["credentials"] is not None
 
     def test_card_get_json_output_is_structured(self, runner):
         """Test card get emits structured payload in global json mode."""
