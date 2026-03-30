@@ -99,10 +99,21 @@ click.rich_click.OPTION_GROUPS = {
             "options": ["--url", "--server", "--file"],
         },
     ],
-    "handler server agent": [
+    "handler server add": [
+        {"name": "Server", "options": ["--url"]},
+        {
+            "name": "Authentication",
+            "options": ["--bearer", "--api-key", "--api-key-header", "--cert", "--key"],
+        },
+        {"name": "Scope", "options": ["--global", "--repository"]},
+    ],
+    "handler server remove": [
+        {"name": "Scope", "options": ["--global", "--repository"]},
+    ],
+    "handler server run agent": [
         {"name": "Server Options", "options": ["--host", "--port", "--help"]},
     ],
-    "handler server push": [
+    "handler server run push": [
         {"name": "Server Options", "options": ["--host", "--port", "--help"]},
     ],
     "handler session show": [
@@ -131,7 +142,8 @@ click.rich_click.COMMAND_GROUPS = {
         {"name": "Agent Communication", "commands": ["message", "task"]},
         {"name": "Agent Discovery", "commands": ["card"]},
         {"name": "Authentication", "commands": ["auth"]},
-        {"name": "Interfaces", "commands": ["tui", "web", "server"]},
+        {"name": "Servers", "commands": ["server"]},
+        {"name": "Interfaces", "commands": ["tui", "web"]},
         {"name": "Utilities", "commands": ["session", "version"]},
     ],
     "handler message": [
@@ -148,6 +160,10 @@ click.rich_click.COMMAND_GROUPS = {
         {"name": "Card Commands", "commands": ["get", "validate"]},
     ],
     "handler server": [
+        {"name": "Management", "commands": ["list", "show", "add", "remove", "validate"]},
+        {"name": "Run", "commands": ["run"]},
+    ],
+    "handler server run": [
         {"name": "Server Commands", "commands": ["agent", "push"]},
     ],
     "handler session": [
