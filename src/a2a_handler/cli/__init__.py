@@ -102,11 +102,27 @@ def version(ctx: click.Context) -> None:
 
 @cli.command()
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token for agent auth")
-def tui(bearer_token: str | None) -> None:
+@click.option(
+    "--connect",
+    "-c",
+    "connect_servers",
+    multiple=True,
+    help="Named server to pre-connect on startup (repeatable)",
+)
+@click.option("--url", help="URL to pre-connect on startup")
+def tui(
+    bearer_token: str | None,
+    connect_servers: tuple[str, ...],
+    url: str | None,
+) -> None:
     """Launch the interactive terminal interface."""
     log.info("Launching TUI")
     logging.getLogger().handlers = []
-    app = HandlerTUI(initial_bearer_token=bearer_token)
+    app = HandlerTUI(
+        initial_bearer_token=bearer_token,
+        connect_servers=connect_servers or None,
+        connect_url=url,
+    )
     app.run()
 
 

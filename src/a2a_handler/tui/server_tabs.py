@@ -23,9 +23,17 @@ class ServerTabs(Container):
             super().__init__()
             self.server = server
 
-    def __init__(self, initial_bearer_token: str | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        initial_bearer_token: str | None = None,
+        connect_servers: tuple[str, ...] | None = None,
+        connect_url: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self._initial_bearer_token = initial_bearer_token
+        self._connect_servers = connect_servers
+        self._connect_url = connect_url
         self._server_count = 0
         self._tab_ids_by_server_id: dict[str, str] = {}
         self._server_ids_by_tab_id: dict[str, str] = {}
@@ -40,7 +48,20 @@ class ServerTabs(Container):
     async def on_mount(self) -> None:
         self.query_one("#server-tabs", Tabs).can_focus = False
         self.query_one("#new-server-btn", Button).can_focus = False
-        await self.create_server(initial_bearer_token=self._initial_bearer_token)
+
+        if self._connect_servers:
+            for server_name in self._connect_servers:
+                await self.create_server(
+                    initial_bearer_token=self._initial_bearer_token,
+                    auto_connect_server=server_name,
+                )
+        elif self._connect_url:
+            await self.create_server(
+                initial_bearer_token=self._initial_bearer_token,
+                auto_connect_url=self._connect_url,
+            )
+        else:
+            await self.create_server(initial_bearer_token=self._initial_bearer_token)
 
     def iter_servers(self) -> list[ServerTab]:
         return list(self.query(ServerTab))
@@ -63,9 +84,11 @@ class ServerTabs(Container):
     async def create_server(
         self,
         initial_bearer_token: str | None = None,
+        auto_connect_server: str | None = None,
+        auto_connect_url: str | None = None,
     ) -> ServerTab:
         self._server_count += 1
-        server_title = f"Server {self._server_count}"
+        server_title = auto_connect_server or f"Server {self._server_count}"
         server_id = f"server-{self._server_count}"
         tab_id = f"server-tab-{self._server_count}"
 
@@ -73,6 +96,8 @@ class ServerTabs(Container):
             server_id=server_id,
             title=server_title,
             initial_bearer_token=initial_bearer_token,
+            auto_connect_server=auto_connect_server,
+            auto_connect_url=auto_connect_url,
         )
 
         self._tab_ids_by_server_id[server_id] = tab_id

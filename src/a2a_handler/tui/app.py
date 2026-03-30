@@ -80,14 +80,26 @@ class HandlerTUI(App[Any]):
             return False
         return True
 
-    def __init__(self, initial_bearer_token: str | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        initial_bearer_token: str | None = None,
+        connect_servers: tuple[str, ...] | None = None,
+        connect_url: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self._is_maximized: bool = False
         self._initial_bearer_token = initial_bearer_token
+        self._connect_servers = connect_servers
+        self._connect_url = connect_url
         self._tui_log_handler: TUILogHandler | None = None
 
     def compose(self) -> ComposeResult:
-        yield ServerTabs(initial_bearer_token=self._initial_bearer_token)
+        yield ServerTabs(
+            initial_bearer_token=self._initial_bearer_token,
+            connect_servers=self._connect_servers,
+            connect_url=self._connect_url,
+        )
         yield Footer(show_command_palette=False)
 
     async def on_mount(self) -> None:

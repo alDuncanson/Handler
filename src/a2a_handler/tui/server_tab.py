@@ -66,6 +66,8 @@ class ServerTab(Container):
         server_id: str,
         title: str,
         initial_bearer_token: str | None = None,
+        auto_connect_server: str | None = None,
+        auto_connect_url: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=server_id, **kwargs)
@@ -79,6 +81,8 @@ class ServerTab(Container):
         self._server_credentials: dict[str, AuthCredentials] = {}
         self._server_warnings: dict[str, str] = {}
         self._initial_bearer_token = initial_bearer_token
+        self._auto_connect_server = auto_connect_server
+        self._auto_connect_url = auto_connect_url
         self._syncing_auth_depth = 0
         self._suspend_connect_events = False
         self._log_lines: list[str] = []
@@ -151,6 +155,34 @@ class ServerTab(Container):
 
         live_view.show_disconnected_state()
         self._suspend_connect_events = False
+
+        if self._auto_connect_server:
+            self._select_server_by_name(self._auto_connect_server)
+            await self.handle_connect_button()
+        elif self._auto_connect_url:
+            self._select_manual_url(self._auto_connect_url)
+            await self.handle_connect_button()
+
+    def _select_server_by_name(self, server_name: str) -> None:
+        """Pre-select a named server in the picker."""
+        connect_view = self._get_connect_view()
+        for server_def in self._servers_by_id.values():
+            if server_def.name == server_name:
+                select = connect_view.query_one("#server-select", Select)
+                with connect_view.prevent(Select.Changed):
+                    select.value = server_def.server_id
+                connect_view._sync_manual_input()
+                return
+        logger.warning("Server '%s' not found in catalog", server_name)
+
+    def _select_manual_url(self, url: str) -> None:
+        """Pre-select manual URL entry and fill in the URL."""
+        connect_view = self._get_connect_view()
+        select = connect_view.query_one("#server-select", Select)
+        with connect_view.prevent(Select.Changed):
+            select.value = MANUAL_SERVER_ID
+        connect_view._sync_manual_input()
+        connect_view.query_one("#manual-agent-url", Input).value = url
 
     async def on_unmount(self) -> None:
         if self.http_client:

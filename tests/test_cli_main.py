@@ -20,7 +20,11 @@ def test_tui_passes_bearer_token_to_app(runner: CliRunner) -> None:
         result = runner.invoke(cli, ["tui", "--bearer", "token-123"])
 
         assert result.exit_code == 0
-        mock_tui_cls.assert_called_once_with(initial_bearer_token="token-123")
+        mock_tui_cls.assert_called_once_with(
+            initial_bearer_token="token-123",
+            connect_servers=None,
+            connect_url=None,
+        )
         mock_tui_cls.return_value.run.assert_called_once()
 
 
