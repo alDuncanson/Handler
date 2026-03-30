@@ -22,7 +22,6 @@ from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import TabbedMessagesPanel
 from a2a_handler.tui.server_tab import ServerTab
 from a2a_handler.tui.server_tabs import ServerTabs
-from a2a_handler.tui.server_types import ServerAuthMode, ServerLaunchMode
 from a2a_handler.tui.server_views import ServerConnectView, ServerLiveView
 
 
@@ -88,12 +87,12 @@ async def test_app_starts_with_server_shell_and_initial_server() -> None:
         assert connect_view
         assert live_view
         assert workspace.region.height > 5
-        assert connect_view.query_one("#connection-bar")
+        assert connect_view.query_one("#server-bar")
         assert len(list(live_view.query("#server-summary"))) == 0
 
-        connect_status = connect_view.query_one("#connect-status", Static)
-        assert str(connect_status.content) == "Disconnected"
-        assert connect_status.has_class("status-info")
+        status = connect_view.query_one("#server-status-row", Static)
+        assert str(status.content) == "Disconnected"
+        assert status.has_class("status-info")
 
 
 def test_server_shell_does_not_hijack_tab_navigation() -> None:
@@ -171,7 +170,7 @@ async def test_initial_bearer_token_seeds_first_server_connect_view() -> None:
         connect_view = workspace.query_one(ServerConnectView)
         credentials = connect_view.get_auth_credentials()
 
-        assert connect_view.get_auth_mode() == ServerAuthMode.OVERRIDE
+        assert workspace.state.auth_overridden
         assert credentials is not None
         assert credentials.auth_type == AuthType.BEARER
         assert credentials.value == "test-token"
@@ -212,7 +211,7 @@ async def test_server_hotkeys_create_and_switch_servers() -> None:
         assert tabs.active == "server-tab-2"
         assert active_server is not None
 
-        active_server.query_one("#launch-mode-select", Select).focus()
+        active_server.query_one("#server-select", Select).focus()
         await pilot.press("ctrl+b")
         await pilot.pause()
 
@@ -221,7 +220,7 @@ async def test_server_hotkeys_create_and_switch_servers() -> None:
         active_server = server_tabs.get_active_server()
         assert active_server is not None
 
-        active_server.query_one("#launch-mode-select", Select).focus()
+        active_server.query_one("#server-select", Select).focus()
         await pilot.press("ctrl+t")
         await pilot.pause()
 
@@ -252,7 +251,6 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
 
             connect_view = workspace.query_one(ServerConnectView)
 
-            assert connect_view.get_active_source() == ServerSource.REPOSITORY
             assert connect_view.get_selected_server() == repo_connection
             assert connect_view.get_url() == "https://staging.example.com"
 
@@ -261,7 +259,7 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
 async def test_recent_connections_are_loaded_from_session_recency(
     patch_server_sources: Mock,
 ) -> None:
-    """Recent tab should reflect session MRU URLs distinctly from configured connections."""
+    """Recent servers should appear in the single server selector."""
     patch_server_sources.recent_agent_urls.return_value = [
         "https://recent.example.com"
     ]
@@ -274,8 +272,8 @@ async def test_recent_connections_are_loaded_from_session_recency(
         assert workspace is not None
 
         connect_view = workspace.query_one(ServerConnectView)
-        connect_view.activate_source(ServerSource.RECENT)
-        workspace._refresh_connect_selection()
+        server_select = connect_view.query_one("#server-select", Select)
+        server_select.value = "recent:https://recent.example.com"
 
         selected = connect_view.get_selected_server()
         assert selected is not None
@@ -284,102 +282,10 @@ async def test_recent_connections_are_loaded_from_session_recency(
 
 
 @pytest.mark.asyncio
-async def test_saved_session_defaults_matching_repository_connection_to_resume_mode(
+async def test_auto_resume_when_saved_session_exists(
     patch_server_sources: Mock,
 ) -> None:
-    """Matching saved contexts should make resume the default launch mode."""
-    patch_server_sources.find.return_value = AgentSession(
-        agent_url="https://saved.example.com",
-        context_id="ctx-saved-123456",
-        task_id="task-saved-654321",
-    )
-    repo_connection = _make_server(
-        source=ServerSource.REPOSITORY,
-        name="saved",
-        agent_url="https://saved.example.com",
-    )
-    app = HandlerTUI()
-
-    with patch(
-        "a2a_handler.tui.server_tab.load_server_catalog",
-        return_value=ServerCatalog(repository_servers=(repo_connection,)),
-    ):
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            workspace = app.query_one(ServerTabs).get_active_server()
-            assert workspace is not None
-
-            connect_view = workspace.query_one(ServerConnectView)
-            conversation_status = connect_view.query_one("#conversation-status", Static)
-
-            assert "Resume available" in str(conversation_status.content)
-            assert connect_view.get_launch_mode() == ServerLaunchMode.RESUME_SESSION
-
-
-@pytest.mark.asyncio
-async def test_connect_view_selectors_and_auth_panel_remain_exclusive(
-    patch_server_sources: Mock,
-) -> None:
-    """Top-bar selectors and auth radios should settle on one active choice."""
-    patch_server_sources.find.return_value = AgentSession(
-        agent_url="https://saved.example.com",
-        context_id="ctx-saved-123456",
-        task_id="task-saved-654321",
-    )
-    repo_connection = _make_server(
-        source=ServerSource.REPOSITORY,
-        name="saved",
-        agent_url="https://saved.example.com",
-    )
-    app = HandlerTUI()
-
-    with patch(
-        "a2a_handler.tui.server_tab.load_server_catalog",
-        return_value=ServerCatalog(repository_servers=(repo_connection,)),
-    ):
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            workspace = app.query_one(ServerTabs).get_active_server()
-            assert workspace is not None
-
-            connect_view = workspace.query_one(ServerConnectView)
-            launch_select = connect_view.query_one("#launch-mode-select", Select)
-            auth_mode_select = connect_view.query_one("#auth-mode-select", Select)
-
-            launch_select.value = ServerLaunchMode.START_FRESH.value
-            await pilot.pause()
-            launch_select.value = ServerLaunchMode.RESUME_SESSION.value
-            await pilot.pause()
-
-            assert connect_view.get_launch_mode() == ServerLaunchMode.RESUME_SESSION
-
-            auth_mode_select.value = ServerAuthMode.OVERRIDE.value
-            await pilot.pause()
-            auth_mode_select.value = ServerAuthMode.USE_CONNECTION_DEFAULT.value
-            await pilot.pause()
-
-            assert (
-                connect_view.get_auth_mode() == ServerAuthMode.USE_CONNECTION_DEFAULT
-            )
-
-            auth_mode_select.value = ServerAuthMode.OVERRIDE.value
-            await pilot.pause()
-            workspace.query_one("#auth-bearer", RadioButton).toggle()
-            await pilot.pause()
-            workspace.query_one("#auth-api-key", RadioButton).toggle()
-            await pilot.pause()
-
-            assert workspace.query_one("#auth-api-key", RadioButton).value
-            assert not workspace.query_one("#auth-bearer", RadioButton).value
-
-
-@pytest.mark.asyncio
-async def test_connect_resume_mode_reuses_saved_context(
-    patch_server_sources: Mock,
-) -> None:
-    """Resume mode should carry the saved context into the live workspace."""
+    """Auto-resume should use saved context when a session exists."""
     patch_server_sources.find.return_value = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
@@ -421,6 +327,7 @@ async def test_connect_resume_mode_reuses_saved_context(
             await pilot.pause()
 
             assert workspace.current_context_id == "ctx-saved-123456"
+            assert workspace.state.resumed
             patch_server_sources.set_conversation.assert_called_with(
                 "https://agent.example.com",
                 "ctx-saved-123456",
@@ -429,10 +336,10 @@ async def test_connect_resume_mode_reuses_saved_context(
 
 
 @pytest.mark.asyncio
-async def test_connect_resume_mode_hydrates_saved_task_history(
+async def test_auto_resume_hydrates_saved_task_history(
     patch_server_sources: Mock,
 ) -> None:
-    """Resume mode should preload prior task history into the live workspace."""
+    """Auto-resume should preload prior task history into the live workspace."""
     patch_server_sources.find.return_value = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
@@ -508,17 +415,15 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
 
 
 @pytest.mark.asyncio
-async def test_connect_start_fresh_ignores_saved_context(
+async def test_force_fresh_ignores_saved_context(
     patch_server_sources: Mock,
 ) -> None:
-    """Users can explicitly start fresh even when a saved context exists."""
-    patch_server_sources.list_all.return_value = [
-        AgentSession(
-            agent_url="https://agent.example.com",
-            context_id="ctx-saved-123456",
-            task_id="task-saved-654321",
-        )
-    ]
+    """Force fresh via command palette should ignore saved context."""
+    patch_server_sources.find.return_value = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
         name="agent",
@@ -553,12 +458,11 @@ async def test_connect_start_fresh_ignores_saved_context(
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            connect_view = workspace.query_one(ServerConnectView)
-            connect_view.set_launch_mode(ServerLaunchMode.START_FRESH)
-            await workspace.handle_connect_button()
+            await workspace.handle_connect_button(force_fresh=True)
             await pilot.pause()
 
             assert workspace.current_context_id == str(fresh_context)
+            assert not workspace.state.resumed
             patch_server_sources.set_conversation.assert_called_with(
                 "https://agent.example.com",
                 str(fresh_context),
@@ -651,8 +555,8 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
             assert workspace is not None
 
             connect_view = workspace.query_one(ServerConnectView)
-            connect_view.set_auth_mode(ServerAuthMode.OVERRIDE)
             connect_view.set_auth_credentials(create_bearer_auth("manual-token"))
+            workspace.state.auth_overridden = True
             await workspace.handle_connect_button()
             await pilot.pause()
 
@@ -709,16 +613,16 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
             live_view = workspace.query_one(ServerLiveView)
             messages_panel = live_view.query_one(TabbedMessagesPanel)
-            connect_status = workspace.query_one("#connect-status", Static)
+            status = workspace.query_one("#server-status-row", Static)
             tabs = app.query_one("#server-tabs", Tabs)
             first_tab = tabs.query_one("#server-tab-1", Tab)
 
             assert first_tab.label_text == "Demo Agent"
             assert messages_panel
             assert len(list(live_view.query("#server-summary"))) == 0
-            assert "Connected" in str(connect_status.content)
-            assert "Demo Agent" in str(connect_status.content)
-            assert connect_status.has_class("status-success")
+            assert "Connected" in str(status.content)
+            assert "Demo Agent" in str(status.content)
+            assert status.has_class("status-success")
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(
                 new_http_client,
@@ -739,13 +643,16 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         assert workspace is not None
 
         connect_view = workspace.query_one(ServerConnectView)
-        connect_view.activate_source(ServerSource.MANUAL)
+        from a2a_handler.tui.server_types import MANUAL_SERVER_ID
+
+        server_select = connect_view.query_one("#server-select", Select)
+        server_select.value = MANUAL_SERVER_ID
+        connect_view._sync_manual_input()
         connect_view.query_one("#manual-agent-url").value = "not-a-url"
-        workspace._refresh_connect_selection()
         await workspace.handle_connect_button()
         await pilot.pause()
 
-        status = connect_view.query_one("#connect-status", Static)
+        status = connect_view.query_one("#server-status-row", Static)
 
         assert "valid http(s) URL" in str(status.content)
 
@@ -762,10 +669,8 @@ def test_resolve_server_credentials_uses_server_default_auth() -> None:
         server_def.server_id: create_bearer_auth("profile-token")
     }
 
-    credentials, source, warning = server._resolve_server_credentials(
+    credentials, source, warning = server._resolve_auth(
         selected_server=server_def,
-        active_source=ServerSource.REPOSITORY,
-        auth_mode=ServerAuthMode.USE_CONNECTION_DEFAULT,
         override_credentials=None,
     )
 
@@ -779,10 +684,8 @@ def test_resolve_server_credentials_uses_manual_override() -> None:
     server = ServerTab(server_id="server-test", title="Server Test")
     manual = create_bearer_auth("manual-token")
 
-    credentials, source, warning = server._resolve_server_credentials(
+    credentials, source, warning = server._resolve_auth(
         selected_server=None,
-        active_source=ServerSource.MANUAL,
-        auth_mode=ServerAuthMode.OVERRIDE,
         override_credentials=manual,
     )
 

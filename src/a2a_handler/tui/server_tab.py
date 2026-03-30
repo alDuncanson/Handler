@@ -33,16 +33,14 @@ from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
 from a2a_handler.tui.server_resolution import (
     build_server_summary,
-    build_selection_summary,
     resolve_saved_conversation,
-    resolve_workspace_credentials,
+    resolve_server_auth,
 )
 from a2a_handler.tui.server_types import (
+    MANUAL_SERVER_ID,
     RECENT_SERVER_LIMIT,
     RESUME_HISTORY_LENGTH,
-    ServerAuthMode,
     ServerConnectionMode,
-    ServerLaunchMode,
     ServerState,
     build_http_client,
     build_recent_server,
@@ -140,12 +138,8 @@ class ServerTab(Container):
         self._suspend_connect_events = True
         live_view = self._get_live_view()
         self._load_server_catalog()
-        connect_view = self._get_connect_view()
-        connect_view.set_auth_mode(ServerAuthMode.USE_CONNECTION_DEFAULT)
-        self.state.auth_mode = connect_view.get_auth_mode()
 
         if self._initial_bearer_token:
-            connect_view.set_auth_mode(ServerAuthMode.OVERRIDE)
             with self._suppressing_auth_events():
                 live_view.messages_panel().set_auth_credentials(
                     AuthCredentials(
@@ -153,10 +147,9 @@ class ServerTab(Container):
                         value=self._initial_bearer_token,
                     )
                 )
-            self.state.auth_mode = ServerAuthMode.OVERRIDE
+            self.state.auth_overridden = True
 
         live_view.show_disconnected_state()
-        self._refresh_connect_selection()
         self._suspend_connect_events = False
 
     async def on_unmount(self) -> None:
@@ -221,31 +214,13 @@ class ServerTab(Container):
             recent_servers=tuple(recent_servers),
         )
 
-    def _refresh_connect_selection(self) -> None:
-        self._refresh_connect_selection_summary()
-        self._refresh_connect_saved_conversation()
-        self._refresh_connect_auth_source_status()
-
-    def _refresh_connect_selection_summary(self) -> None:
-        connect_view = self._get_connect_view()
-        summary = build_selection_summary(
-            selected_server=connect_view.get_selected_server(),
-            active_source=connect_view.get_active_source(),
-            agent_url=connect_view.get_url(),
-        )
-        connect_view.set_selected_server_summary(summary)
-
-    def _resolve_server_credentials(
+    def _resolve_auth(
         self,
         selected_server: ServerDefinition | None,
-        active_source: ServerSource,
-        auth_mode: ServerAuthMode,
         override_credentials: AuthCredentials | None,
     ) -> tuple[AuthCredentials | None, str, str | None]:
-        return resolve_workspace_credentials(
+        return resolve_server_auth(
             selected_server=selected_server,
-            active_source=active_source,
-            auth_mode=auth_mode,
             override_credentials=override_credentials,
             server_credentials=self._server_credentials,
             server_warnings=self._server_warnings,
@@ -257,44 +232,6 @@ class ServerTab(Container):
     ) -> tuple[..., ...]:
         session = get_session_store().find(agent_url)
         return resolve_saved_conversation(session, agent_url)
-
-    def _refresh_connect_saved_conversation(self) -> None:
-        connect_view = self._get_connect_view()
-        agent_url = connect_view.get_url()
-        if not agent_url:
-            self.state.saved_conversation = None
-            self.state.launch_mode = ServerLaunchMode.START_FRESH
-            connect_view.set_saved_conversation(None)
-            return
-
-        saved_conversation, warning = self._resolve_saved_conversation(agent_url)
-        self.state.saved_conversation = saved_conversation
-        connect_view.set_saved_conversation(saved_conversation, warning=warning)
-        self.state.launch_mode = connect_view.get_launch_mode()
-
-    def _refresh_connect_auth_source_status(self) -> None:
-        connect_view = self._get_connect_view()
-        agent_url = connect_view.get_url()
-        if not agent_url:
-            connect_view.set_auth_source_status("none")
-            return
-
-        auth_mode = connect_view.get_auth_mode()
-        override_credentials = (
-            connect_view.get_auth_credentials()
-            if auth_mode == ServerAuthMode.OVERRIDE
-            else None
-        )
-        _, source_description, warning = self._resolve_server_credentials(
-            selected_server=connect_view.get_selected_server(),
-            active_source=connect_view.get_active_source(),
-            auth_mode=auth_mode,
-            override_credentials=override_credentials,
-        )
-        connect_view.set_auth_source_status(
-            source_description,
-            tone="warning" if warning else None,
-        )
 
     def _refresh_live_summary(self) -> None:
         live_view = self._try_get_live_view()
@@ -311,7 +248,7 @@ class ServerTab(Container):
         )
 
     def _conversation_summary(self) -> str:
-        if self.state.launch_mode == ServerLaunchMode.RESUME_SESSION:
+        if self.state.resumed:
             return "resumed saved context"
         return "fresh server context"
 
@@ -372,7 +309,7 @@ class ServerTab(Container):
         messages_panel.add_message("system", text)
 
     async def _hydrate_resumed_history(self, live_view: ServerLiveView) -> None:
-        if self.state.launch_mode != ServerLaunchMode.RESUME_SESSION:
+        if not self.state.resumed:
             return
 
         saved_conversation = self.state.saved_conversation
@@ -443,7 +380,7 @@ class ServerTab(Container):
         await live_view.prepare_for_connection()
         live_view.agent_card_panel().update_card(agent_card)
         with self._suppressing_auth_events():
-            if self.state.auth_mode == ServerAuthMode.OVERRIDE:
+            if self.state.auth_overridden:
                 live_view.messages_panel().set_auth_credentials(
                     self.state.connected_credentials
                 )
@@ -460,40 +397,17 @@ class ServerTab(Container):
         live_view.input_panel().focus_input()
         self._refresh_live_summary()
 
-    @on(Select.Changed, "#connection-source-select")
-    def _handle_connection_source_changed(self) -> None:
+    @on(Select.Changed, "#server-select")
+    def _handle_server_select_changed(self) -> None:
         if self._suspend_connect_events:
             return
-        self._get_connect_view().sync_source_controls()
-        self._refresh_connect_selection()
-
-    @on(Select.Changed, "#connection-target-select")
-    def _handle_connection_selection_changed(self) -> None:
-        if self._suspend_connect_events:
-            return
-        self._refresh_connect_selection()
+        connect_view = self._get_connect_view()
+        connect_view._sync_manual_input()
 
     @on(Input.Changed, "#manual-agent-url")
     def _handle_manual_url_changed(self) -> None:
         if self._suspend_connect_events:
             return
-        self._refresh_connect_selection()
-
-    @on(Select.Changed, "#launch-mode-select")
-    def _handle_launch_mode_changed(self) -> None:
-        if self._suspend_connect_events:
-            return
-        self.state.launch_mode = self._get_connect_view().get_launch_mode()
-
-    @on(Select.Changed, "#auth-mode-select")
-    def _handle_connect_auth_mode_changed(self) -> None:
-        if self._suspend_connect_events:
-            return
-        connect_view = self._get_connect_view()
-        self.state.auth_mode = connect_view.get_auth_mode()
-        self._refresh_connect_auth_source_status()
-        if self.is_connected:
-            self._refresh_live_summary()
 
     @on(RadioSet.Changed, "#auth-type-selector")
     @on(
@@ -505,27 +419,18 @@ class ServerTab(Container):
         if self._is_syncing_auth_panel:
             return
 
-        connect_view = self._get_connect_view()
-        if connect_view.get_auth_mode() != ServerAuthMode.OVERRIDE:
-            connect_view.set_auth_mode(ServerAuthMode.OVERRIDE)
+        self.state.auth_overridden = True
         if self.is_connected:
-            self.state.auth_mode = ServerAuthMode.OVERRIDE
-            self._refresh_connect_auth_source_status()
             self._refresh_live_summary()
-            return
-
-        self.state.auth_mode = ServerAuthMode.OVERRIDE
-        self._refresh_connect_auth_source_status()
 
     @on(Button.Pressed, "#connect-btn")
-    async def handle_connect_button(self) -> None:
+    async def handle_connect_button(self, force_fresh: bool = False) -> None:
         connect_view = self._get_connect_view()
-        active_source = connect_view.get_active_source()
         selected_server = connect_view.get_selected_server()
         agent_url = connect_view.get_url()
 
         if not agent_url:
-            if active_source == ServerSource.MANUAL:
+            if connect_view._is_manual_selected():
                 connect_view.set_status("Please enter an agent URL", tone="warning")
             else:
                 connect_view.set_status(
@@ -545,58 +450,56 @@ class ServerTab(Container):
         connect_view.set_status(f"Connecting to {agent_url}...")
 
         try:
-            auth_mode = connect_view.get_auth_mode()
             override_credentials = (
                 connect_view.get_auth_credentials()
-                if auth_mode == ServerAuthMode.OVERRIDE
+                if self.state.auth_overridden
                 else None
             )
-            credentials, source_description, warning = (
-                self._resolve_server_credentials(
-                    selected_server=selected_server,
-                    active_source=active_source,
-                    auth_mode=auth_mode,
-                    override_credentials=override_credentials,
-                )
-            )
-            connect_view.set_auth_source_status(
-                source_description,
-                tone="warning" if warning else None,
+            credentials, source_description, warning = self._resolve_auth(
+                selected_server=selected_server,
+                override_credentials=override_credentials,
             )
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
-            saved_conversation = self.state.saved_conversation
-            launch_mode = connect_view.get_launch_mode()
-            context_id = str(uuid.uuid4())
-            if (
-                launch_mode == ServerLaunchMode.RESUME_SESSION
+            saved_conversation, session_warning = self._resolve_saved_conversation(
+                agent_url
+            )
+            self.state.saved_conversation = saved_conversation
+
+            resumed = (
+                not force_fresh
                 and saved_conversation is not None
-            ):
+                and session_warning is None
+            )
+            context_id = str(uuid.uuid4())
+            if resumed:
                 context_id = saved_conversation.context_id
 
             self.current_agent_card = agent_card
             self.current_agent_url = agent_url
             self.current_context_id = context_id
             self.current_task_id = (
-                saved_conversation.task_id
-                if launch_mode == ServerLaunchMode.RESUME_SESSION
-                and saved_conversation is not None
-                else None
+                saved_conversation.task_id if resumed else None
             )
             self.state.connected_credentials = credentials
             self.state.auth_source = source_description
-            self.state.auth_mode = auth_mode
-            self.state.launch_mode = launch_mode
+            self.state.auth_overridden = override_credentials is not None
+            self.state.resumed = resumed
             self.state.mode = ServerConnectionMode.CONNECTED
             self.state.connection_summary = build_server_summary(
                 selected_server=selected_server,
-                active_source=active_source,
                 agent_url=agent_url,
             )
             self._persist_session_state()
 
-            await self._show_live_view(warning)
+            combined_warning = warning
+            if session_warning:
+                combined_warning = (
+                    f"{warning}; {session_warning}" if warning else session_warning
+                )
+
+            await self._show_live_view(combined_warning)
             self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 
         except Exception as error:
@@ -635,7 +538,7 @@ class ServerTab(Container):
         messages_panel.add_message("user", message_text)
 
         try:
-            if self.state.auth_mode == ServerAuthMode.OVERRIDE:
+            if self.state.auth_overridden:
                 credentials = messages_panel.get_auth_credentials()
                 if credentials is not None:
                     self._agent_service.set_credentials(credentials)

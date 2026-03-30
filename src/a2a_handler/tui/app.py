@@ -160,6 +160,12 @@ class HandlerTUI(App[Any]):
         if server is not None and not server.is_connected:
             await server.handle_connect_button()
 
+    async def action_start_fresh(self) -> None:
+        """Connect the active server without resuming any saved session."""
+        server = self.query_one(ServerTabs).get_active_server()
+        if server is not None and not server.is_connected:
+            await server.handle_connect_button(force_fresh=True)
+
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         """Provide custom commands and filter out maximize/minimize."""
         for command in super().get_system_commands(screen):
@@ -175,6 +181,13 @@ class HandlerTUI(App[Any]):
                 "Connect",
                 "Connect the active server to an A2A agent",
                 self.action_connect_server,
+            )
+
+        if active is not None and not active.is_connected:
+            yield SystemCommand(
+                "Start Fresh",
+                "Connect without resuming any saved session",
+                self.action_start_fresh,
             )
 
         if active is not None and len(server_tabs.iter_servers()) > 1:

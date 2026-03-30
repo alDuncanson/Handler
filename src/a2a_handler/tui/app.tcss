@@ -78,7 +78,7 @@ ServerConnectView {
     height: 1fr;
 }
 
-#connection-shell {
+#connect-shell {
     height: auto;
     border: round $secondary 40%;
     padding: 0 1;
@@ -86,71 +86,35 @@ ServerConnectView {
     background: $background;
 }
 
-#connection-bar {
+#server-bar {
     height: 1;
     align: left middle;
 }
 
-#connection-bar > Select,
-#connection-bar > Input {
+#server-bar > Select,
+#server-bar > Input {
     margin-right: 1;
 }
 
-#connection-source-select {
-    width: 14;
+#server-select {
+    width: 1fr;
+    min-width: 20;
 }
 
-#connection-target-select,
 #manual-agent-url {
     width: 1fr;
     min-width: 20;
 }
 
-#launch-mode-select {
-    width: 12;
-}
-
-#auth-mode-select {
-    width: 16;
-}
-
-#connection-meta-row {
-    height: auto;
-    margin-top: 1;
-    align: left middle;
-}
-
-#connection-meta-row > .status-badge {
+#server-status-row {
     height: auto;
     width: auto;
-    margin-top: 0;
-    margin-right: 1;
+    margin-top: 1;
     padding: 0 1;
     background: $surface;
     color: $text-muted;
     text-style: bold;
-}
-
-#connection-selection-status {
-    width: 1fr;
-    min-width: 24;
-    background: $primary 16%;
-    color: $text;
-}
-
-#conversation-status {
-    background: $accent 16%;
-    color: $text;
-}
-
-#auth-source-status {
-    background: $secondary 20%;
-    color: $text;
-}
-
-#connect-status {
     min-width: 18;
-    margin-right: 0;
 }
 
 .status-badge.status-info {
