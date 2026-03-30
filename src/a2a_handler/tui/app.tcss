@@ -756,12 +756,13 @@ CommandPalette > Vertical {
     height: auto;
     max-height: 18;
     margin-top: 2;
-    border: round $secondary 40%;
     background: $surface;
 }
 
 CommandPalette #--input {
     width: 100%;
+    border: none;
+    border-left: wide $accent;
 }
 
 CommandPalette #--results {
@@ -771,6 +772,8 @@ CommandPalette #--results {
 
 CommandPalette CommandList {
     max-height: 12;
+    border: none;
+    border-left: wide $accent;
 }
 
 #auth-panel.hidden {
