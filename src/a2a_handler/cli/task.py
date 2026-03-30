@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from typing import Optional
 
-import rich_click as click
+import click
 
 from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import Output, get_logger

@@ -1,7 +1,7 @@
 """Shared utilities for CLI commands."""
 
 import httpx
-import rich_click as click
+import click
 from a2a.client.errors import (
     A2AClientError,
     A2AClientHTTPError,

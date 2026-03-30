@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-import rich_click as click
+import click
 
 from a2a_handler.common import get_logger
 

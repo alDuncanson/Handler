@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 from typing import Optional
 
-import rich_click as click
+import click
 
 from a2a_handler.common import Output, get_logger
 from a2a_handler.server import run_server

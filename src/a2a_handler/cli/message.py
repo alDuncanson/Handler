@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Any
 from typing import Optional
 
-import rich_click as click
+import click
 
 from a2a_handler.auth import (
     AuthCredentials,

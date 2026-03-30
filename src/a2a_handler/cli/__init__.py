@@ -21,14 +21,13 @@ import logging
 
 logging.getLogger().setLevel(logging.WARNING)
 
-import rich_click as click
+import click
 
 from a2a_handler import __version__
 from a2a_handler.common import Output, configure_output, get_logger, setup_logging
 from a2a_handler.common.output import OutputFormat
 from a2a_handler.tui import HandlerTUI
 
-from . import _config  # noqa: F401 - configures rich-click on import
 from .card import card
 from .mcp import mcp
 from .message import message

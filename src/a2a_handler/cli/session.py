@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-import rich_click as click
+import click
 
 from a2a_handler.common import Output
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
