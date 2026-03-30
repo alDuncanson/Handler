@@ -367,6 +367,11 @@ Button:disabled {
     padding: 1 2;
 }
 
+#placeholder Static {
+    width: auto;
+    text-align: center;
+}
+
 #raw-scroll {
     height: 1fr;
     scrollbar-size: 1 1;
