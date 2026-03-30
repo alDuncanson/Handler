@@ -21,31 +21,31 @@ from a2a_handler.common.input_validation import (
     InputValidationError,
     validate_agent_url,
 )
-from a2a_handler.connections import (
-    ConnectionCatalog,
-    ConnectionDefinition,
-    ConnectionSource,
-    load_connection_catalog,
-    resolve_connection_credentials,
+from a2a_handler.servers import (
+    ServerCatalog,
+    ServerDefinition,
+    ServerSource,
+    load_server_catalog,
+    resolve_server_credentials,
 )
 from a2a_handler.service import A2AService, SendResult, extract_text_from_message_parts
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
-from a2a_handler.tui.connection_resolution import (
-    build_connection_summary,
+from a2a_handler.tui.server_resolution import (
+    build_server_summary,
     build_selection_summary,
     resolve_saved_conversation,
     resolve_workspace_credentials,
 )
 from a2a_handler.tui.server_types import (
-    RECENT_CONNECTION_LIMIT,
+    RECENT_SERVER_LIMIT,
     RESUME_HISTORY_LENGTH,
     ServerAuthMode,
     ServerConnectionMode,
     ServerLaunchMode,
     ServerState,
     build_http_client,
-    build_recent_connection,
+    build_recent_server,
 )
 from a2a_handler.tui.server_views import ServerConnectView, ServerLiveView
 
@@ -76,10 +76,10 @@ class ServerTab(Container):
         self.state = ServerState()
         self.http_client: httpx.AsyncClient | None = None
         self._agent_service: A2AService | None = None
-        self._connection_catalog = ConnectionCatalog()
-        self._connections_by_id: dict[str, ConnectionDefinition] = {}
-        self._connection_credentials: dict[str, AuthCredentials] = {}
-        self._connection_warnings: dict[str, str] = {}
+        self._server_catalog = ServerCatalog()
+        self._servers_by_id: dict[str, ServerDefinition] = {}
+        self._server_credentials: dict[str, AuthCredentials] = {}
+        self._server_warnings: dict[str, str] = {}
         self._initial_bearer_token = initial_bearer_token
         self._syncing_auth_depth = 0
         self._suspend_connect_events = False
@@ -139,7 +139,7 @@ class ServerTab(Container):
     async def on_mount(self) -> None:
         self._suspend_connect_events = True
         live_view = self._get_live_view()
-        self._load_connection_catalog()
+        self._load_server_catalog()
         connect_view = self._get_connect_view()
         connect_view.set_auth_mode(ServerAuthMode.USE_CONNECTION_DEFAULT)
         self.state.auth_mode = connect_view.get_auth_mode()
@@ -187,38 +187,38 @@ class ServerTab(Container):
         if live_view is not None:
             live_view.messages_panel().add_log(line)
 
-    def _load_connection_catalog(self) -> None:
-        self._connection_catalog = load_connection_catalog()
-        self._connection_credentials = {}
-        self._connection_warnings = {}
-        self._connections_by_id = {}
+    def _load_server_catalog(self) -> None:
+        self._server_catalog = load_server_catalog()
+        self._server_credentials = {}
+        self._server_warnings = {}
+        self._servers_by_id = {}
 
-        configured_connections = (
-            *self._connection_catalog.repository_connections,
-            *self._connection_catalog.global_connections,
+        configured_servers = (
+            *self._server_catalog.repository_servers,
+            *self._server_catalog.global_servers,
         )
-        for connection_def in configured_connections:
-            self._connections_by_id[connection_def.connection_id] = connection_def
-            credentials, warning = resolve_connection_credentials(connection_def)
+        for server_def in configured_servers:
+            self._servers_by_id[server_def.server_id] = server_def
+            credentials, warning = resolve_server_credentials(server_def)
             if credentials:
-                self._connection_credentials[connection_def.connection_id] = credentials
+                self._server_credentials[server_def.server_id] = credentials
             if warning:
-                self._connection_warnings[connection_def.connection_id] = warning
-                logger.warning("Connection %s: %s", connection_def.label, warning)
+                self._server_warnings[server_def.server_id] = warning
+                logger.warning("Server %s: %s", server_def.label, warning)
 
-        configured_urls = self._connection_catalog.all_configured_urls()
-        recent_connections: list[ConnectionDefinition] = []
-        for agent_url in get_session_store().recent_agent_urls(RECENT_CONNECTION_LIMIT):
+        configured_urls = self._server_catalog.all_configured_urls()
+        recent_servers: list[ServerDefinition] = []
+        for agent_url in get_session_store().recent_agent_urls(RECENT_SERVER_LIMIT):
             if agent_url in configured_urls:
                 continue
-            recent_connection = build_recent_connection(agent_url)
-            recent_connections.append(recent_connection)
-            self._connections_by_id[recent_connection.connection_id] = recent_connection
+            recent_server = build_recent_server(agent_url)
+            recent_servers.append(recent_server)
+            self._servers_by_id[recent_server.server_id] = recent_server
 
-        self._get_connect_view().set_connection_catalog(
-            repository_connections=self._connection_catalog.repository_connections,
-            global_connections=self._connection_catalog.global_connections,
-            recent_connections=tuple(recent_connections),
+        self._get_connect_view().set_server_catalog(
+            repository_servers=self._server_catalog.repository_servers,
+            global_servers=self._server_catalog.global_servers,
+            recent_servers=tuple(recent_servers),
         )
 
     def _refresh_connect_selection(self) -> None:
@@ -229,26 +229,26 @@ class ServerTab(Container):
     def _refresh_connect_selection_summary(self) -> None:
         connect_view = self._get_connect_view()
         summary = build_selection_summary(
-            selected_connection=connect_view.get_selected_connection(),
+            selected_server=connect_view.get_selected_server(),
             active_source=connect_view.get_active_source(),
             agent_url=connect_view.get_url(),
         )
-        connect_view.set_selected_connection_summary(summary)
+        connect_view.set_selected_server_summary(summary)
 
-    def _resolve_connection_credentials(
+    def _resolve_server_credentials(
         self,
-        selected_connection: ConnectionDefinition | None,
-        active_source: ConnectionSource,
+        selected_server: ServerDefinition | None,
+        active_source: ServerSource,
         auth_mode: ServerAuthMode,
         override_credentials: AuthCredentials | None,
     ) -> tuple[AuthCredentials | None, str, str | None]:
         return resolve_workspace_credentials(
-            selected_connection=selected_connection,
+            selected_server=selected_server,
             active_source=active_source,
             auth_mode=auth_mode,
             override_credentials=override_credentials,
-            connection_credentials=self._connection_credentials,
-            connection_warnings=self._connection_warnings,
+            server_credentials=self._server_credentials,
+            server_warnings=self._server_warnings,
         )
 
     def _resolve_saved_conversation(
@@ -285,8 +285,8 @@ class ServerTab(Container):
             if auth_mode == ServerAuthMode.OVERRIDE
             else None
         )
-        _, source_description, warning = self._resolve_connection_credentials(
-            selected_connection=connect_view.get_selected_connection(),
+        _, source_description, warning = self._resolve_server_credentials(
+            selected_server=connect_view.get_selected_server(),
             active_source=connect_view.get_active_source(),
             auth_mode=auth_mode,
             override_credentials=override_credentials,
@@ -521,15 +521,15 @@ class ServerTab(Container):
     async def handle_connect_button(self) -> None:
         connect_view = self._get_connect_view()
         active_source = connect_view.get_active_source()
-        selected_connection = connect_view.get_selected_connection()
+        selected_server = connect_view.get_selected_server()
         agent_url = connect_view.get_url()
 
         if not agent_url:
-            if active_source == ConnectionSource.MANUAL:
+            if active_source == ServerSource.MANUAL:
                 connect_view.set_status("Please enter an agent URL", tone="warning")
             else:
                 connect_view.set_status(
-                    "Choose a connection or switch to Manual", tone="warning"
+                    "Choose a server or switch to Manual", tone="warning"
                 )
             return
 
@@ -552,8 +552,8 @@ class ServerTab(Container):
                 else None
             )
             credentials, source_description, warning = (
-                self._resolve_connection_credentials(
-                    selected_connection=selected_connection,
+                self._resolve_server_credentials(
+                    selected_server=selected_server,
                     active_source=active_source,
                     auth_mode=auth_mode,
                     override_credentials=override_credentials,
@@ -589,8 +589,8 @@ class ServerTab(Container):
             self.state.auth_mode = auth_mode
             self.state.launch_mode = launch_mode
             self.state.mode = ServerConnectionMode.CONNECTED
-            self.state.connection_summary = build_connection_summary(
-                selected_connection=selected_connection,
+            self.state.connection_summary = build_server_summary(
+                selected_server=selected_server,
                 active_source=active_source,
                 agent_url=agent_url,
             )

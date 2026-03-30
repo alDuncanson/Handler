@@ -9,11 +9,11 @@ from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
 from textual.widgets import RadioButton, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
-from a2a_handler.connections import (
-    ConnectionAuthConfig,
-    ConnectionCatalog,
-    ConnectionDefinition,
-    ConnectionSource,
+from a2a_handler.servers import (
+    ServerAuthConfig,
+    ServerCatalog,
+    ServerDefinition,
+    ServerSource,
 )
 from a2a_handler.session import AgentSession
 from a2a_handler.service import TaskResult
@@ -31,15 +31,15 @@ def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
     return [str(getattr(widget, "content", "")) for widget in chat.children]
 
 
-def _make_connection(
+def _make_server(
     *,
-    source: ConnectionSource,
+    source: ServerSource,
     name: str,
     agent_url: str,
-    auth: ConnectionAuthConfig | None = None,
-) -> ConnectionDefinition:
-    return ConnectionDefinition(
-        connection_id=f"{source.value}:{name}",
+    auth: ServerAuthConfig | None = None,
+) -> ServerDefinition:
+    return ServerDefinition(
+        server_id=f"{source.value}:{name}",
         source=source,
         name=name,
         agent_url=agent_url,
@@ -50,7 +50,7 @@ def _make_connection(
 
 @pytest.fixture(autouse=True)
 def patch_server_sources() -> Generator[Mock, None, None]:
-    """Keep TUI tests isolated from user connection and session files."""
+    """Keep TUI tests isolated from user server and session files."""
     session_store = Mock()
     session_store.find.return_value = None
     session_store.list_all.return_value = []
@@ -58,8 +58,8 @@ def patch_server_sources() -> Generator[Mock, None, None]:
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(),
         ),
         patch(
             "a2a_handler.tui.server_tab.get_session_store",
@@ -234,15 +234,15 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
 ):
     """Repository connections should be the primary default tab and selection."""
     app = HandlerTUI()
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="staging",
         agent_url="https://staging.example.com",
     )
 
     with patch(
-        "a2a_handler.tui.server_tab.load_connection_catalog",
-        return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        "a2a_handler.tui.server_tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -252,8 +252,8 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
 
             connect_view = workspace.query_one(ServerConnectView)
 
-            assert connect_view.get_active_source() == ConnectionSource.REPOSITORY
-            assert connect_view.get_selected_connection() == repo_connection
+            assert connect_view.get_active_source() == ServerSource.REPOSITORY
+            assert connect_view.get_selected_server() == repo_connection
             assert connect_view.get_url() == "https://staging.example.com"
 
 
@@ -274,12 +274,12 @@ async def test_recent_connections_are_loaded_from_session_recency(
         assert workspace is not None
 
         connect_view = workspace.query_one(ServerConnectView)
-        connect_view.activate_source(ConnectionSource.RECENT)
+        connect_view.activate_source(ServerSource.RECENT)
         workspace._refresh_connect_selection()
 
-        selected = connect_view.get_selected_connection()
+        selected = connect_view.get_selected_server()
         assert selected is not None
-        assert selected.source == ConnectionSource.RECENT
+        assert selected.source == ServerSource.RECENT
         assert selected.agent_url == "https://recent.example.com"
 
 
@@ -293,16 +293,16 @@ async def test_saved_session_defaults_matching_repository_connection_to_resume_m
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
     )
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="saved",
         agent_url="https://saved.example.com",
     )
     app = HandlerTUI()
 
     with patch(
-        "a2a_handler.tui.server_tab.load_connection_catalog",
-        return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        "a2a_handler.tui.server_tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -327,16 +327,16 @@ async def test_connect_view_selectors_and_auth_panel_remain_exclusive(
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
     )
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="saved",
         agent_url="https://saved.example.com",
     )
     app = HandlerTUI()
 
     with patch(
-        "a2a_handler.tui.server_tab.load_connection_catalog",
-        return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+        "a2a_handler.tui.server_tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -385,8 +385,8 @@ async def test_connect_resume_mode_reuses_saved_context(
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
     )
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="agent",
         agent_url="https://agent.example.com",
     )
@@ -398,8 +398,8 @@ async def test_connect_resume_mode_reuses_saved_context(
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
             "a2a_handler.tui.server_tab.build_http_client",
@@ -438,8 +438,8 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
     )
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="agent",
         agent_url="https://agent.example.com",
     )
@@ -472,8 +472,8 @@ async def test_connect_resume_mode_hydrates_saved_task_history(
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
             "a2a_handler.tui.server_tab.build_http_client",
@@ -519,8 +519,8 @@ async def test_connect_start_fresh_ignores_saved_context(
             task_id="task-saved-654321",
         )
     ]
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="agent",
         agent_url="https://agent.example.com",
     )
@@ -533,8 +533,8 @@ async def test_connect_start_fresh_ignores_saved_context(
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
             "a2a_handler.tui.server_tab.build_http_client",
@@ -569,11 +569,11 @@ async def test_connect_start_fresh_ignores_saved_context(
 @pytest.mark.asyncio
 async def test_connect_uses_selected_connection_default_auth() -> None:
     """Connect should use the selected connection's default auth when requested."""
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="staging",
         agent_url="https://staging.example.com",
-        auth=ConnectionAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
+        auth=ServerAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
@@ -583,8 +583,8 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
             "a2a_handler.tui.server_tab.build_http_client",
@@ -610,18 +610,18 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
             assert credentials.auth_type == AuthType.BEARER
             assert credentials.value == "profile-token"
             assert (
-                workspace.state.auth_source == "repository connection 'staging' default"
+                workspace.state.auth_source == "repository server 'staging' default"
             )
 
 
 @pytest.mark.asyncio
 async def test_connect_manual_override_uses_manual_credentials() -> None:
     """Explicit auth override should replace any connection default auth."""
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="staging",
         agent_url="https://staging.example.com",
-        auth=ConnectionAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
+        auth=ServerAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
@@ -631,8 +631,8 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
             "a2a_handler.tui.server_tab.build_http_client",
@@ -668,8 +668,8 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
     None
 ):
     """Successful connect should update the unified server view and tab title."""
-    repo_connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
         name="demo",
         agent_url="https://agent.example.com",
     )
@@ -681,8 +681,8 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_connection_catalog",
-            return_value=ConnectionCatalog(repository_connections=(repo_connection,)),
+            "a2a_handler.tui.server_tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
             "a2a_handler.tui.server_tab.build_http_client",
@@ -739,7 +739,7 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         assert workspace is not None
 
         connect_view = workspace.query_one(ServerConnectView)
-        connect_view.activate_source(ConnectionSource.MANUAL)
+        connect_view.activate_source(ServerSource.MANUAL)
         connect_view.query_one("#manual-agent-url").value = "not-a-url"
         workspace._refresh_connect_selection()
         await workspace.handle_connect_button()
@@ -750,38 +750,38 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         assert "valid http(s) URL" in str(status.content)
 
 
-def test_resolve_connection_credentials_uses_connection_default_auth() -> None:
+def test_resolve_server_credentials_uses_server_default_auth() -> None:
     server = ServerTab(server_id="server-test", title="Server Test")
-    connection = _make_connection(
-        source=ConnectionSource.REPOSITORY,
+    server_def = _make_server(
+        source=ServerSource.REPOSITORY,
         name="staging",
         agent_url="https://staging.example.com",
-        auth=ConnectionAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
+        auth=ServerAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
     )
-    server._connection_credentials = {
-        connection.connection_id: create_bearer_auth("profile-token")
+    server._server_credentials = {
+        server_def.server_id: create_bearer_auth("profile-token")
     }
 
-    credentials, source, warning = server._resolve_connection_credentials(
-        selected_connection=connection,
-        active_source=ConnectionSource.REPOSITORY,
+    credentials, source, warning = server._resolve_server_credentials(
+        selected_server=server_def,
+        active_source=ServerSource.REPOSITORY,
         auth_mode=ServerAuthMode.USE_CONNECTION_DEFAULT,
         override_credentials=None,
     )
 
     assert credentials is not None
     assert credentials.value == "profile-token"
-    assert source == "repository connection 'staging' default"
+    assert source == "repository server 'staging' default"
     assert warning is None
 
 
-def test_resolve_connection_credentials_uses_manual_override() -> None:
+def test_resolve_server_credentials_uses_manual_override() -> None:
     server = ServerTab(server_id="server-test", title="Server Test")
     manual = create_bearer_auth("manual-token")
 
-    credentials, source, warning = server._resolve_connection_credentials(
-        selected_connection=None,
-        active_source=ConnectionSource.MANUAL,
+    credentials, source, warning = server._resolve_server_credentials(
+        selected_server=None,
+        active_source=ServerSource.MANUAL,
         auth_mode=ServerAuthMode.OVERRIDE,
         override_credentials=manual,
     )

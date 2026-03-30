@@ -1,4 +1,4 @@
-"""Connection and live server view components."""
+"""Server connection and live server view components."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Select, Static
 
 from a2a_handler.auth import AuthCredentials
-from a2a_handler.connections import ConnectionDefinition, ConnectionSource
+from a2a_handler.servers import ServerDefinition, ServerSource
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
 from a2a_handler.tui.server_types import (
     AUTH_MODE_OPTIONS,
-    EMPTY_CONNECTION_ID,
+    EMPTY_SERVER_ID,
     EMPTY_SOURCE_LABELS,
     SAVED_SESSION_OPTIONS,
     SOURCE_OPTIONS,
@@ -31,16 +31,16 @@ class ServerConnectView(Container):
     def __init__(self, server_title: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._server_title = server_title
-        self._connections_by_id: dict[str, ConnectionDefinition] = {}
-        self._connections_by_source: dict[
-            ConnectionSource, tuple[ConnectionDefinition, ...]
+        self._servers_by_id: dict[str, ServerDefinition] = {}
+        self._servers_by_source: dict[
+            ServerSource, tuple[ServerDefinition, ...]
         ] = {
-            ConnectionSource.REPOSITORY: (),
-            ConnectionSource.GLOBAL: (),
-            ConnectionSource.RECENT: (),
+            ServerSource.REPOSITORY: (),
+            ServerSource.GLOBAL: (),
+            ServerSource.RECENT: (),
         }
-        self._selected_connection_ids: dict[ConnectionSource, str] = {}
-        self._active_source = ConnectionSource.REPOSITORY
+        self._selected_server_ids: dict[ServerSource, str] = {}
+        self._active_source = ServerSource.REPOSITORY
 
     def compose(self) -> ComposeResult:
         with Vertical(id="connection-shell"):
@@ -48,18 +48,18 @@ class ServerConnectView(Container):
                 yield Select(
                     SOURCE_OPTIONS,
                     allow_blank=False,
-                    value=ConnectionSource.REPOSITORY.value,
+                    value=ServerSource.REPOSITORY.value,
                     id="connection-source-select",
                 )
                 yield Select(
                     [
                         (
-                            EMPTY_SOURCE_LABELS[ConnectionSource.REPOSITORY],
-                            EMPTY_CONNECTION_ID,
+                            EMPTY_SOURCE_LABELS[ServerSource.REPOSITORY],
+                            EMPTY_SERVER_ID,
                         )
                     ],
                     allow_blank=False,
-                    value=EMPTY_CONNECTION_ID,
+                    value=EMPTY_SERVER_ID,
                     id="connection-target-select",
                 )
                 yield Input(
@@ -120,14 +120,14 @@ class ServerConnectView(Container):
     def sync_source_controls(self) -> None:
         """Keep the target dropdown and manual URL input in sync with the source."""
         source_value = self.query_one("#connection-source-select", Select).value
-        active_source = ConnectionSource(str(source_value))
+        active_source = ServerSource(str(source_value))
         if active_source != self._active_source:
             self._remember_active_selection()
             self._active_source = active_source
 
         target_select = self.query_one("#connection-target-select", Select)
         manual_input = self.query_one("#manual-agent-url", Input)
-        if active_source == ConnectionSource.MANUAL:
+        if active_source == ServerSource.MANUAL:
             target_select.add_class("hidden")
             manual_input.remove_class("hidden")
             return
@@ -137,58 +137,58 @@ class ServerConnectView(Container):
         self._set_target_options(active_source)
 
     def _remember_active_selection(self) -> None:
-        if self._active_source == ConnectionSource.MANUAL:
+        if self._active_source == ServerSource.MANUAL:
             return
         target_select = self.query_one("#connection-target-select", Select)
         if target_select.value == Select.BLANK:
             return
         selected_value = str(target_select.value)
-        if selected_value == EMPTY_CONNECTION_ID:
+        if selected_value == EMPTY_SERVER_ID:
             return
-        self._selected_connection_ids[self._active_source] = selected_value
+        self._selected_server_ids[self._active_source] = selected_value
 
-    def activate_source(self, source: ConnectionSource) -> None:
-        """Activate a connection source programmatically."""
+    def activate_source(self, source: ServerSource) -> None:
+        """Activate a server source programmatically."""
         with self.prevent(Select.Changed):
             self.query_one("#connection-source-select", Select).value = source.value
         self.sync_source_controls()
 
-    def get_active_source(self) -> ConnectionSource:
-        """Return the currently selected connection source."""
+    def get_active_source(self) -> ServerSource:
+        """Return the currently selected server source."""
         source_value = self.query_one("#connection-source-select", Select).value
-        return ConnectionSource(str(source_value))
+        return ServerSource(str(source_value))
 
-    def set_connection_catalog(
+    def set_server_catalog(
         self,
-        repository_connections: tuple[ConnectionDefinition, ...],
-        global_connections: tuple[ConnectionDefinition, ...],
-        recent_connections: tuple[ConnectionDefinition, ...],
+        repository_servers: tuple[ServerDefinition, ...],
+        global_servers: tuple[ServerDefinition, ...],
+        recent_servers: tuple[ServerDefinition, ...],
     ) -> None:
-        """Populate the bar with explicit connection options."""
-        self._connections_by_id = {
-            connection.connection_id: connection
-            for connection in (
-                *repository_connections,
-                *global_connections,
-                *recent_connections,
+        """Populate the bar with explicit server options."""
+        self._servers_by_id = {
+            server_def.server_id: server_def
+            for server_def in (
+                *repository_servers,
+                *global_servers,
+                *recent_servers,
             )
         }
-        self._connections_by_source = {
-            ConnectionSource.REPOSITORY: repository_connections,
-            ConnectionSource.GLOBAL: global_connections,
-            ConnectionSource.RECENT: recent_connections,
+        self._servers_by_source = {
+            ServerSource.REPOSITORY: repository_servers,
+            ServerSource.GLOBAL: global_servers,
+            ServerSource.RECENT: recent_servers,
         }
         self.sync_source_controls()
 
-    def _set_target_options(self, source: ConnectionSource) -> None:
-        connections = self._connections_by_source[source]
+    def _set_target_options(self, source: ServerSource) -> None:
+        servers = self._servers_by_source[source]
         select = self.query_one("#connection-target-select", Select)
         options = (
-            [(connection.label, connection.connection_id) for connection in connections]
-            if connections
-            else [(EMPTY_SOURCE_LABELS[source], EMPTY_CONNECTION_ID)]
+            [(server_def.label, server_def.server_id) for server_def in servers]
+            if servers
+            else [(EMPTY_SOURCE_LABELS[source], EMPTY_SERVER_ID)]
         )
-        next_value = self._selected_connection_ids.get(source, options[0][1])
+        next_value = self._selected_server_ids.get(source, options[0][1])
         if not any(option_value == next_value for _, option_value in options):
             next_value = options[0][1]
         select.set_options(options)
@@ -210,8 +210,8 @@ class ServerConnectView(Container):
         if tone in {"info", "success", "warning", "error"}:
             badge.add_class(f"status-{tone}")
 
-    def set_selected_connection_summary(self, summary: str) -> None:
-        """Update the connection badge shown below the bar."""
+    def set_selected_server_summary(self, summary: str) -> None:
+        """Update the server badge shown below the bar."""
         self._set_badge("connection-selection-status", summary)
 
     def set_auth_source_status(
@@ -294,27 +294,27 @@ class ServerConnectView(Container):
             message = f"{message} · {summarize_identifier(context_id)}"
         self.set_status(message, tone="success")
 
-    def get_selected_connection(self) -> ConnectionDefinition | None:
-        """Return the currently selected configured connection, if any."""
+    def get_selected_server(self) -> ServerDefinition | None:
+        """Return the currently selected configured server, if any."""
         source = self.get_active_source()
-        if source == ConnectionSource.MANUAL:
+        if source == ServerSource.MANUAL:
             return None
 
         select = self.query_one("#connection-target-select", Select)
         if select.value == Select.BLANK:
             return None
         selected_value = str(select.value)
-        if selected_value == EMPTY_CONNECTION_ID:
+        if selected_value == EMPTY_SERVER_ID:
             return None
-        return self._connections_by_id.get(selected_value)
+        return self._servers_by_id.get(selected_value)
 
     def get_url(self) -> str:
         """Get the current agent URL from the active source selection."""
         active_source = self.get_active_source()
-        if active_source == ConnectionSource.MANUAL:
+        if active_source == ServerSource.MANUAL:
             return self.query_one("#manual-agent-url", Input).value.strip()
-        connection = self.get_selected_connection()
-        return connection.agent_url if connection else ""
+        server_def = self.get_selected_server()
+        return server_def.agent_url if server_def else ""
 
     def get_auth_credentials(self) -> AuthCredentials | None:
         return self._messages_panel().get_auth_credentials()

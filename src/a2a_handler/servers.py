@@ -1,7 +1,7 @@
-"""Connection definition loading and auth resolution.
+"""Server definition loading and auth resolution.
 
-Connections are defined in ``~/.handler/connections.toml`` and optionally in a
-repository-local ``.handler/connections.toml`` file at the git root.
+Servers are defined in ``~/.handler/servers.toml`` and optionally in a
+repository-local ``.handler/servers.toml`` file at the git root.
 """
 
 from __future__ import annotations
@@ -30,14 +30,14 @@ from a2a_handler.common.input_validation import (
 
 logger = get_logger(__name__)
 
-DEFAULT_CONNECTION_DIRECTORY = Path.home() / ".handler"
-CONNECTIONS_FILENAME = "connections.toml"
-CONNECTION_SCHEMA_VERSION = 1
+DEFAULT_SERVER_DIRECTORY = Path.home() / ".handler"
+SERVERS_FILENAME = "servers.toml"
+SERVER_SCHEMA_VERSION = 1
 _ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-class ConnectionSource(str, Enum):
-    """Origin of a connection definition shown to the user."""
+class ServerSource(str, Enum):
+    """Origin of a server definition shown to the user."""
 
     REPOSITORY = "repository"
     GLOBAL = "global"
@@ -46,8 +46,8 @@ class ConnectionSource(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class ConnectionAuthConfig:
-    """Authentication config for a named connection definition."""
+class ServerAuthConfig:
+    """Authentication config for a named server definition."""
 
     auth_type: AuthType
     env_var: str | None = None
@@ -59,14 +59,14 @@ class ConnectionAuthConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class ConnectionDefinition:
-    """A selectable connection option."""
+class ServerDefinition:
+    """A selectable server option."""
 
-    connection_id: str
-    source: ConnectionSource
+    server_id: str
+    source: ServerSource
     name: str | None
     agent_url: str
-    auth: ConnectionAuthConfig | None = None
+    auth: ServerAuthConfig | None = None
     origin_label: str = ""
 
     @property
@@ -76,123 +76,123 @@ class ConnectionDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class ConnectionCatalog:
-    """Configured repository and global connection definitions."""
+class ServerCatalog:
+    """Configured repository and global server definitions."""
 
-    repository_connections: tuple[ConnectionDefinition, ...] = ()
-    global_connections: tuple[ConnectionDefinition, ...] = ()
+    repository_servers: tuple[ServerDefinition, ...] = ()
+    global_servers: tuple[ServerDefinition, ...] = ()
 
     def all_configured_urls(self) -> set[str]:
         """Return all configured URLs across repository and global sources."""
         return {
-            connection.agent_url
-            for connection in (
-                *self.repository_connections,
-                *self.global_connections,
+            server_def.agent_url
+            for server_def in (
+                *self.repository_servers,
+                *self.global_servers,
             )
         }
 
 
-class ConnectionConfigError(ValueError):
-    """Raised when connection configuration is malformed."""
+class ServerConfigError(ValueError):
+    """Raised when server configuration is malformed."""
 
 
-def connection_source_label(source: ConnectionSource) -> str:
-    """Human-readable label for a connection source."""
+def server_source_label(source: ServerSource) -> str:
+    """Human-readable label for a server source."""
     labels = {
-        ConnectionSource.REPOSITORY: "Repository",
-        ConnectionSource.GLOBAL: "Global",
-        ConnectionSource.RECENT: "Recent",
-        ConnectionSource.MANUAL: "Manual",
+        ServerSource.REPOSITORY: "Repository",
+        ServerSource.GLOBAL: "Global",
+        ServerSource.RECENT: "Recent",
+        ServerSource.MANUAL: "Manual",
     }
     return labels[source]
 
 
-def connection_file_path(connection_directory: Path | None = None) -> Path:
-    """Get path to the connection TOML file."""
-    directory = connection_directory or DEFAULT_CONNECTION_DIRECTORY
-    return directory / CONNECTIONS_FILENAME
+def server_file_path(server_directory: Path | None = None) -> Path:
+    """Get path to the server TOML file."""
+    directory = server_directory or DEFAULT_SERVER_DIRECTORY
+    return directory / SERVERS_FILENAME
 
 
-def load_connections(
-    connection_directory: Path | None,
-    source: ConnectionSource,
-) -> list[ConnectionDefinition]:
-    """Load and validate connection definitions from disk.
+def load_servers(
+    server_directory: Path | None,
+    source: ServerSource,
+) -> list[ServerDefinition]:
+    """Load and validate server definitions from disk.
 
-    Invalid connections are skipped with warnings so one broken connection does
+    Invalid servers are skipped with warnings so one broken server does
     not prevent loading the others.
     """
 
-    path = connection_file_path(connection_directory)
+    path = server_file_path(server_directory)
     if not path.exists():
         return []
 
     try:
-        with open(path, "rb") as connection_file:
-            raw = tomllib.load(connection_file)
+        with open(path, "rb") as server_file:
+            raw = tomllib.load(server_file)
     except tomllib.TOMLDecodeError as error:
-        logger.warning("Failed to parse connection file %s: %s", path, error)
+        logger.warning("Failed to parse server file %s: %s", path, error)
         return []
     except OSError as error:
-        logger.warning("Failed to read connection file %s: %s", path, error)
+        logger.warning("Failed to read server file %s: %s", path, error)
         return []
 
     try:
         raw_table = _coerce_str_key_table(raw, "root")
-    except ConnectionConfigError:
-        logger.warning("Ignoring connection file %s: root must be a TOML table", path)
+    except ServerConfigError:
+        logger.warning("Ignoring server file %s: root must be a TOML table", path)
         return []
 
-    raw_version = raw_table.get("version", CONNECTION_SCHEMA_VERSION)
-    if raw_version != CONNECTION_SCHEMA_VERSION:
+    raw_version = raw_table.get("version", SERVER_SCHEMA_VERSION)
+    if raw_version != SERVER_SCHEMA_VERSION:
         logger.warning(
-            "Ignoring connection file %s: unsupported version %r (expected %d)",
+            "Ignoring server file %s: unsupported version %r (expected %d)",
             path,
             raw_version,
-            CONNECTION_SCHEMA_VERSION,
+            SERVER_SCHEMA_VERSION,
         )
         return []
 
-    raw_connections_value = raw_table.get("connections")
-    if raw_connections_value is None:
+    raw_servers_value = raw_table.get("servers")
+    if raw_servers_value is None:
         return []
 
     try:
-        raw_connections = _coerce_str_key_table(raw_connections_value, "connections")
-    except ConnectionConfigError:
+        raw_servers = _coerce_str_key_table(raw_servers_value, "servers")
+    except ServerConfigError:
         logger.warning(
-            "Ignoring connection file %s: 'connections' must be a TOML table", path
+            "Ignoring server file %s: 'servers' must be a TOML table", path
         )
         return []
 
-    loaded: list[ConnectionDefinition] = []
-    for name, connection_data in sorted(raw_connections.items()):
+    loaded: list[ServerDefinition] = []
+    for name, server_data in sorted(raw_servers.items()):
         try:
-            loaded_connection = _parse_connection(name, connection_data, source)
-        except ConnectionConfigError as error:
-            logger.warning("Skipping invalid connection %s: %s", name, error)
+            loaded_server = _parse_server(name, server_data, source)
+        except ServerConfigError as error:
+            logger.warning("Skipping invalid server %s: %s", name, error)
             continue
-        loaded.append(loaded_connection)
+        loaded.append(loaded_server)
 
     return loaded
 
 
-def resolve_connection_credentials(
-    connection: ConnectionDefinition,
+def resolve_server_credentials(
+    server_def: ServerDefinition,
 ) -> tuple[AuthCredentials | None, str | None]:
-    """Resolve runtime credentials for a configured connection."""
-    if connection.auth is None:
+    """Resolve runtime credentials for a configured server."""
+    if server_def.auth is None:
         return None, None
 
-    auth = connection.auth
-    connection_name = connection.name or connection.agent_url
+    auth = server_def.auth
+    server_name = server_def.name or server_def.agent_url
 
     if auth.auth_type == AuthType.MTLS:
         if not auth.cert_path or not auth.key_path:
             return (
                 None,
-                f"Connection '{connection_name}' mTLS auth requires cert and key paths",
+                f"Server '{server_name}' mTLS auth requires cert and key paths",
             )
         try:
             return create_mtls_auth(
@@ -201,7 +201,7 @@ def resolve_connection_credentials(
                 auth.ca_cert_path,
             ), None
         except FileNotFoundError as error:
-            return None, f"Connection '{connection_name}': {error}"
+            return None, f"Server '{server_name}': {error}"
 
     value: str | None = None
     if auth.env_var:
@@ -212,7 +212,7 @@ def resolve_connection_credentials(
             return (
                 None,
                 (
-                    f"Connection '{connection_name}' expects environment variable "
+                    f"Server '{server_name}' expects environment variable "
                     f"{auth.env_var} for authentication"
                 ),
             )
@@ -223,16 +223,16 @@ def resolve_connection_credentials(
     if not value:
         return (
             None,
-            f"Connection '{connection_name}' has no non-empty auth value to use",
+            f"Server '{server_name}' has no non-empty auth value to use",
         )
 
     try:
-        reject_control_chars(value, f"connections.{connection_name}.auth")
+        reject_control_chars(value, f"servers.{server_name}.auth")
     except InputValidationError:
         return (
             None,
             (
-                f"Connection '{connection_name}' auth value contains unsupported "
+                f"Server '{server_name}' auth value contains unsupported "
                 "control characters"
             ),
         )
@@ -255,104 +255,104 @@ def find_git_root() -> Path | None:
     return None
 
 
-def load_connection_catalog(
-    connection_directory: Path | None = None,
-) -> ConnectionCatalog:
-    """Load global and repository-local connection definitions."""
-    global_connections = tuple(
-        load_connections(connection_directory, ConnectionSource.GLOBAL)
+def load_server_catalog(
+    server_directory: Path | None = None,
+) -> ServerCatalog:
+    """Load global and repository-local server definitions."""
+    global_servers = tuple(
+        load_servers(server_directory, ServerSource.GLOBAL)
     )
 
-    repository_connections: tuple[ConnectionDefinition, ...] = ()
+    repository_servers: tuple[ServerDefinition, ...] = ()
     git_root = find_git_root()
     if git_root is not None:
-        local_connection_dir = git_root / ".handler"
-        if local_connection_dir != (
-            connection_directory or DEFAULT_CONNECTION_DIRECTORY
+        local_server_dir = git_root / ".handler"
+        if local_server_dir != (
+            server_directory or DEFAULT_SERVER_DIRECTORY
         ):
-            repository_connections = tuple(
-                load_connections(local_connection_dir, ConnectionSource.REPOSITORY)
+            repository_servers = tuple(
+                load_servers(local_server_dir, ServerSource.REPOSITORY)
             )
 
-    return ConnectionCatalog(
-        repository_connections=repository_connections,
-        global_connections=global_connections,
+    return ServerCatalog(
+        repository_servers=repository_servers,
+        global_servers=global_servers,
     )
 
 
-def _parse_connection(
+def _parse_server(
     name: object,
-    connection_data: object,
-    source: ConnectionSource,
-) -> ConnectionDefinition:
+    server_data: object,
+    source: ServerSource,
+) -> ServerDefinition:
     if not isinstance(name, str) or not name:
-        raise ConnectionConfigError("connection names must be non-empty strings")
+        raise ServerConfigError("server names must be non-empty strings")
     try:
-        reject_control_chars(name, "connection_name")
+        reject_control_chars(name, "server_name")
     except InputValidationError as error:
-        raise ConnectionConfigError(error.message) from error
+        raise ServerConfigError(error.message) from error
 
-    connection_table = _coerce_str_key_table(connection_data, f"connections.{name}")
+    server_table = _coerce_str_key_table(server_data, f"servers.{name}")
 
-    raw_url = connection_table.get("url")
+    raw_url = server_table.get("url")
     if not isinstance(raw_url, str) or not raw_url:
-        raise ConnectionConfigError("url must be a non-empty string")
+        raise ServerConfigError("url must be a non-empty string")
     try:
         validate_agent_url(raw_url)
     except InputValidationError as error:
-        raise ConnectionConfigError(error.message) from error
+        raise ServerConfigError(error.message) from error
 
-    auth: ConnectionAuthConfig | None = None
-    if "auth" in connection_table:
-        auth = _parse_connection_auth(connection_table.get("auth"))
+    auth: ServerAuthConfig | None = None
+    if "auth" in server_table:
+        auth = _parse_server_auth(server_table.get("auth"))
 
-    return ConnectionDefinition(
-        connection_id=f"{source.value}:{name}",
+    return ServerDefinition(
+        server_id=f"{source.value}:{name}",
         source=source,
         name=name,
         agent_url=raw_url,
         auth=auth,
-        origin_label=connection_source_label(source),
+        origin_label=server_source_label(source),
     )
 
 
-def _parse_connection_auth(auth_data: object) -> ConnectionAuthConfig:
+def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
     auth_table = _coerce_str_key_table(auth_data, "auth")
 
     raw_auth_type = auth_table.get("type")
     if not isinstance(raw_auth_type, str) or not raw_auth_type:
-        raise ConnectionConfigError("auth.type must be a non-empty string")
+        raise ServerConfigError("auth.type must be a non-empty string")
 
     normalized_auth_type = raw_auth_type.lower().replace("-", "_")
     try:
         auth_type = AuthType(normalized_auth_type)
     except ValueError as error:
-        raise ConnectionConfigError(
+        raise ServerConfigError(
             "auth.type must be one of: bearer, api_key, mtls"
         ) from error
 
     if auth_type == AuthType.MTLS:
         for forbidden in ("env", "value", "header"):
             if forbidden in auth_table:
-                raise ConnectionConfigError(
+                raise ServerConfigError(
                     f"auth.{forbidden} is not valid for mtls auth"
                 )
         cert = _parse_optional_str(auth_table, "cert")
         key = _parse_optional_str(auth_table, "key")
         if cert is None or key is None:
-            raise ConnectionConfigError("mtls auth requires cert and key fields")
+            raise ServerConfigError("mtls auth requires cert and key fields")
         try:
             reject_control_chars(cert, "auth.cert")
             reject_control_chars(key, "auth.key")
         except InputValidationError as error:
-            raise ConnectionConfigError(error.message) from error
+            raise ServerConfigError(error.message) from error
         ca_cert = _parse_optional_str(auth_table, "ca_cert")
         if ca_cert is not None:
             try:
                 reject_control_chars(ca_cert, "auth.ca_cert")
             except InputValidationError as error:
-                raise ConnectionConfigError(error.message) from error
-        return ConnectionAuthConfig(
+                raise ServerConfigError(error.message) from error
+        return ServerAuthConfig(
             auth_type=auth_type,
             cert_path=cert,
             key_path=key,
@@ -363,15 +363,15 @@ def _parse_connection_auth(auth_data: object) -> ConnectionAuthConfig:
     literal_value = _parse_optional_str(auth_table, "value")
 
     if env_var is None and literal_value is None:
-        raise ConnectionConfigError("auth must define env or value")
+        raise ServerConfigError("auth must define env or value")
 
     if env_var is not None:
         try:
             reject_control_chars(env_var, "auth.env")
         except InputValidationError as error:
-            raise ConnectionConfigError(error.message) from error
+            raise ServerConfigError(error.message) from error
         if not _ENV_NAME_PATTERN.match(env_var):
-            raise ConnectionConfigError(
+            raise ServerConfigError(
                 "auth.env must be a valid environment variable name"
             )
 
@@ -379,22 +379,22 @@ def _parse_connection_auth(auth_data: object) -> ConnectionAuthConfig:
         try:
             reject_control_chars(literal_value, "auth.value")
         except InputValidationError as error:
-            raise ConnectionConfigError(error.message) from error
+            raise ServerConfigError(error.message) from error
 
     header_name = "X-API-Key"
     if auth_type == AuthType.API_KEY:
         raw_header_name = auth_table.get("header", "X-API-Key")
         if not isinstance(raw_header_name, str) or not raw_header_name:
-            raise ConnectionConfigError("auth.header must be a non-empty string")
+            raise ServerConfigError("auth.header must be a non-empty string")
         try:
             reject_control_chars(raw_header_name, "auth.header")
         except InputValidationError as error:
-            raise ConnectionConfigError(error.message) from error
+            raise ServerConfigError(error.message) from error
         header_name = raw_header_name
     elif "header" in auth_table:
-        raise ConnectionConfigError("auth.header is only valid for api_key auth")
+        raise ServerConfigError("auth.header is only valid for api_key auth")
 
-    return ConnectionAuthConfig(
+    return ServerAuthConfig(
         auth_type=auth_type,
         env_var=env_var,
         value=literal_value,
@@ -407,18 +407,18 @@ def _parse_optional_str(data: Mapping[str, object], field: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise ConnectionConfigError(f"auth.{field} must be a string")
+        raise ServerConfigError(f"auth.{field} must be a string")
     return value
 
 
 def _coerce_str_key_table(value: object, field_name: str) -> dict[str, object]:
     """Validate and coerce a TOML table to ``dict[str, object]``."""
     if not isinstance(value, dict):
-        raise ConnectionConfigError(f"{field_name} must be a TOML table")
+        raise ServerConfigError(f"{field_name} must be a TOML table")
 
     table: dict[str, object] = {}
     for key, item in value.items():
         if not isinstance(key, str):
-            raise ConnectionConfigError(f"{field_name} keys must be strings")
+            raise ServerConfigError(f"{field_name} keys must be strings")
         table[key] = item
     return table

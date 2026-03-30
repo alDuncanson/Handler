@@ -5,7 +5,7 @@ Provides commands for interacting with A2A agents:
 - task get/cancel/resubscribe: Manage tasks
 - task notification set: Configure push notifications
 - card get/validate: Agent card operations
-- connection list/show/validate/path: Manage configured connections
+- connection list/show/validate/path: Manage configured servers
 - server agent/push: Run local servers
 - session list/show/clear: Manage saved conversation sessions
 """

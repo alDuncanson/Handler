@@ -1,80 +1,80 @@
-"""Connection commands for managing configured connection definitions."""
+"""Connection commands for managing configured server definitions."""
 
 from __future__ import annotations
 
 import rich_click as click
 
 from a2a_handler.common import Output
-from a2a_handler.connections import (
-    ConnectionCatalog,
-    ConnectionDefinition,
-    ConnectionSource,
-    connection_file_path,
-    connection_source_label,
+from a2a_handler.servers import (
+    ServerCatalog,
+    ServerDefinition,
+    ServerSource,
     find_git_root,
-    load_connection_catalog,
-    resolve_connection_credentials,
+    load_server_catalog,
+    resolve_server_credentials,
+    server_file_path,
+    server_source_label,
 )
 
 
 @click.group(name="connection")
 def connection() -> None:
-    """Manage configured connections."""
+    """Manage configured servers."""
     pass
 
 
-def _render_connection(output: Output, connection_def: ConnectionDefinition) -> None:
-    output.field("Source", connection_source_label(connection_def.source))
-    if connection_def.name:
-        output.field("Name", connection_def.name)
-    output.field("URL", connection_def.agent_url)
-    if connection_def.auth:
-        output.field("Auth Type", connection_def.auth.auth_type.value)
-        if connection_def.auth.env_var:
-            output.field("Env Var", connection_def.auth.env_var)
-        if connection_def.auth.auth_type.value == "api_key":
-            output.field("Header", connection_def.auth.header_name)
-        if connection_def.auth.cert_path:
-            output.field("Certificate", connection_def.auth.cert_path)
-        if connection_def.auth.key_path:
-            output.field("Private Key", connection_def.auth.key_path)
-        if connection_def.auth.ca_cert_path:
-            output.field("CA Certificate", connection_def.auth.ca_cert_path)
+def _render_server(output: Output, server_def: ServerDefinition) -> None:
+    output.field("Source", server_source_label(server_def.source))
+    if server_def.name:
+        output.field("Name", server_def.name)
+    output.field("URL", server_def.agent_url)
+    if server_def.auth:
+        output.field("Auth Type", server_def.auth.auth_type.value)
+        if server_def.auth.env_var:
+            output.field("Env Var", server_def.auth.env_var)
+        if server_def.auth.auth_type.value == "api_key":
+            output.field("Header", server_def.auth.header_name)
+        if server_def.auth.cert_path:
+            output.field("Certificate", server_def.auth.cert_path)
+        if server_def.auth.key_path:
+            output.field("Private Key", server_def.auth.key_path)
+        if server_def.auth.ca_cert_path:
+            output.field("CA Certificate", server_def.auth.ca_cert_path)
     else:
         output.field("Auth", "none", dim_value=True)
 
 
 def _iter_catalog_sections(
-    catalog: ConnectionCatalog,
-) -> list[tuple[ConnectionSource, tuple[ConnectionDefinition, ...]]]:
+    catalog: ServerCatalog,
+) -> list[tuple[ServerSource, tuple[ServerDefinition, ...]]]:
     return [
-        (ConnectionSource.REPOSITORY, catalog.repository_connections),
-        (ConnectionSource.GLOBAL, catalog.global_connections),
+        (ServerSource.REPOSITORY, catalog.repository_servers),
+        (ServerSource.GLOBAL, catalog.global_servers),
     ]
 
 
 @connection.command("list")
 def connection_list() -> None:
-    """List configured repository and global connections."""
+    """List configured repository and global servers."""
     output = Output()
-    catalog = load_connection_catalog()
+    catalog = load_server_catalog()
 
-    total = len(catalog.repository_connections) + len(catalog.global_connections)
+    total = len(catalog.repository_servers) + len(catalog.global_servers)
     if total == 0:
-        output.dim("No connections configured")
-        output.dim(f"Create global connections in {connection_file_path()}")
+        output.dim("No servers configured")
+        output.dim(f"Create global servers in {server_file_path()}")
         return
 
-    for source, connections in _iter_catalog_sections(catalog):
-        if not connections:
+    for source, servers in _iter_catalog_sections(catalog):
+        if not servers:
             continue
         output.header(
-            f"{connection_source_label(source)} Connections ({len(connections)})"
+            f"{server_source_label(source)} Servers ({len(servers)})"
         )
-        for connection_def in connections:
+        for server_def in servers:
             output.blank()
-            output.subheader(connection_def.label)
-            _render_connection(output, connection_def)
+            output.subheader(server_def.label)
+            _render_server(output, server_def)
 
 
 @connection.command("show")
@@ -82,38 +82,38 @@ def connection_list() -> None:
 @click.option(
     "--source",
     type=click.Choice(["repository", "global"]),
-    help="Restrict lookup to a specific connection source",
+    help="Restrict lookup to a specific server source",
 )
 def connection_show(name: str, source: str | None) -> None:
-    """Show details for a configured connection."""
+    """Show details for a configured server."""
     output = Output()
-    catalog = load_connection_catalog()
+    catalog = load_server_catalog()
 
-    matches: list[ConnectionDefinition] = []
-    for connection_source, connections in _iter_catalog_sections(catalog):
-        if source and connection_source.value != source:
+    matches: list[ServerDefinition] = []
+    for server_source, servers in _iter_catalog_sections(catalog):
+        if source and server_source.value != source:
             continue
         matches.extend(
-            connection_def
-            for connection_def in connections
-            if connection_def.name == name
+            server_def
+            for server_def in servers
+            if server_def.name == name
         )
 
     if not matches:
-        output.error(f"Connection '{name}' not found")
+        output.error(f"Server '{name}' not found")
         return
 
     if len(matches) > 1:
         output.error(
-            f"Connection '{name}' exists in multiple sources; re-run with --source"
+            f"Server '{name}' exists in multiple sources; re-run with --source"
         )
         return
 
-    connection_def = matches[0]
-    output.header(f"Connection: {connection_def.label}")
-    _render_connection(output, connection_def)
+    server_def = matches[0]
+    output.header(f"Server: {server_def.label}")
+    _render_server(output, server_def)
 
-    credentials, warning = resolve_connection_credentials(connection_def)
+    credentials, warning = resolve_server_credentials(server_def)
     output.blank()
     if credentials:
         output.field("Status", "resolved", value_style="green")
@@ -126,31 +126,31 @@ def connection_show(name: str, source: str | None) -> None:
 
 @connection.command("validate")
 def connection_validate() -> None:
-    """Validate configured connections and default auth resolution."""
+    """Validate configured servers and default auth resolution."""
     output = Output()
-    catalog = load_connection_catalog()
+    catalog = load_server_catalog()
 
-    total = len(catalog.repository_connections) + len(catalog.global_connections)
+    total = len(catalog.repository_servers) + len(catalog.global_servers)
     if total == 0:
-        output.dim("No connections to validate")
+        output.dim("No servers to validate")
         return
 
-    output.header("Connection Validation")
+    output.header("Server Validation")
     has_issues = False
 
-    for source, connections in _iter_catalog_sections(catalog):
-        for connection_def in connections:
+    for source, servers in _iter_catalog_sections(catalog):
+        for server_def in servers:
             output.blank()
             output.subheader(
-                f"{connection_source_label(source)}: {connection_def.label}"
+                f"{server_source_label(source)}: {server_def.label}"
             )
-            output.field("URL", connection_def.agent_url)
-            if not connection_def.auth:
+            output.field("URL", server_def.agent_url)
+            if not server_def.auth:
                 output.field("Auth", "none", dim_value=True)
                 continue
 
-            output.field("Auth Type", connection_def.auth.auth_type.value)
-            credentials, warning = resolve_connection_credentials(connection_def)
+            output.field("Auth Type", server_def.auth.auth_type.value)
+            credentials, warning = resolve_server_credentials(server_def)
             if credentials:
                 output.field("Status", "ok", value_style="green")
             else:
@@ -161,22 +161,22 @@ def connection_validate() -> None:
 
     output.blank()
     if has_issues:
-        output.warning("Some connections have issues")
+        output.warning("Some servers have issues")
     else:
-        output.success("All connections valid")
+        output.success("All servers valid")
 
 
 @connection.command("path")
 def connection_path() -> None:
-    """Show the configured connection file paths."""
+    """Show the configured server file paths."""
     output = Output()
 
-    global_path = connection_file_path()
+    global_path = server_file_path()
     output.field("Global", str(global_path))
 
     git_root = find_git_root()
     if git_root:
-        local_path = git_root / ".handler" / "connections.toml"
+        local_path = git_root / ".handler" / "servers.toml"
         output.field("Repository", str(local_path))
     else:
         output.field("Repository", "not in a git repository", dim_value=True)

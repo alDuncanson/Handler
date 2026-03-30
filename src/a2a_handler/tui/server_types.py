@@ -9,32 +9,32 @@ import httpx
 from a2a.types import AgentCard
 
 from a2a_handler.auth import AuthCredentials, AuthType
-from a2a_handler.connections import (
-    ConnectionDefinition,
-    ConnectionSource,
-    connection_source_label,
+from a2a_handler.servers import (
+    ServerDefinition,
+    ServerSource,
+    server_source_label,
 )
 
 DEFAULT_HTTP_TIMEOUT_SECONDS = 120
 SHORT_ID_LENGTH = 12
 RESUME_HISTORY_LENGTH = 100
-RECENT_CONNECTION_LIMIT = 12
-EMPTY_CONNECTION_ID = "__empty__"
+RECENT_SERVER_LIMIT = 12
+EMPTY_SERVER_ID = "__empty__"
 
-CONFIGURED_CONNECTION_SOURCES = (
-    ConnectionSource.REPOSITORY,
-    ConnectionSource.GLOBAL,
-    ConnectionSource.RECENT,
+CONFIGURED_SERVER_SOURCES = (
+    ServerSource.REPOSITORY,
+    ServerSource.GLOBAL,
+    ServerSource.RECENT,
 )
-CONNECTION_SOURCE_ORDER = (*CONFIGURED_CONNECTION_SOURCES, ConnectionSource.MANUAL)
+SERVER_SOURCE_ORDER = (*CONFIGURED_SERVER_SOURCES, ServerSource.MANUAL)
 EMPTY_SOURCE_LABELS = {
-    ConnectionSource.REPOSITORY: "No repository connections configured",
-    ConnectionSource.GLOBAL: "No global connections configured",
-    ConnectionSource.RECENT: "No recent connections yet",
+    ServerSource.REPOSITORY: "No repository servers configured",
+    ServerSource.GLOBAL: "No global servers configured",
+    ServerSource.RECENT: "No recent servers yet",
 }
 SOURCE_OPTIONS = [
-    (connection_source_label(source), source.value)
-    for source in CONNECTION_SOURCE_ORDER
+    (server_source_label(source), source.value)
+    for source in SERVER_SOURCE_ORDER
 ]
 AUTH_MODE_OPTIONS = [
     ("Default auth", "use_connection_default"),
@@ -110,12 +110,12 @@ def build_http_client(
     return httpx.AsyncClient(timeout=timeout_seconds)
 
 
-def build_recent_connection(agent_url: str) -> ConnectionDefinition:
-    """Create a runtime-only connection option for recent usage."""
-    return ConnectionDefinition(
-        connection_id=f"recent:{agent_url}",
-        source=ConnectionSource.RECENT,
+def build_recent_server(agent_url: str) -> ServerDefinition:
+    """Create a runtime-only server option for recent usage."""
+    return ServerDefinition(
+        server_id=f"recent:{agent_url}",
+        source=ServerSource.RECENT,
         name=None,
         agent_url=agent_url,
-        origin_label=connection_source_label(ConnectionSource.RECENT),
+        origin_label=server_source_label(ServerSource.RECENT),
     )
