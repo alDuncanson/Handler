@@ -20,23 +20,26 @@ from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
     validate_agent_url,
-    validate_resource_id,
 )
 from a2a_handler.connections import (
     ConnectionCatalog,
     ConnectionDefinition,
     ConnectionSource,
-    connection_source_label,
     load_connection_catalog,
     resolve_connection_credentials,
 )
 from a2a_handler.service import A2AService, SendResult, extract_text_from_message_parts
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
+from a2a_handler.tui.connection_resolution import (
+    build_connection_summary,
+    build_selection_summary,
+    resolve_saved_conversation,
+    resolve_workspace_credentials,
+)
 from a2a_handler.tui.workspace_types import (
     RECENT_CONNECTION_LIMIT,
     RESUME_HISTORY_LENGTH,
-    SavedConversation,
     WorkspaceAuthMode,
     WorkspaceConnectionMode,
     WorkspaceLaunchMode,
@@ -225,34 +228,12 @@ class RemoteWorkspace(Container):
 
     def _refresh_connect_selection_summary(self) -> None:
         connect_view = self._get_connect_view()
-        active_source = connect_view.get_active_source()
-        selected_connection = connect_view.get_selected_connection()
-        agent_url = connect_view.get_url()
-        source_label = connection_source_label(active_source)
-
-        if selected_connection is not None:
-            summary = f"{source_label} · {selected_connection.label}"
-        elif active_source == ConnectionSource.MANUAL:
-            if agent_url:
-                summary = "Manual URL"
-            else:
-                summary = "Manual URL · URL not set"
-        else:
-            summary = f"{source_label} · unavailable"
-
+        summary = build_selection_summary(
+            selected_connection=connect_view.get_selected_connection(),
+            active_source=connect_view.get_active_source(),
+            agent_url=connect_view.get_url(),
+        )
         connect_view.set_selected_connection_summary(summary)
-
-    def _build_connection_summary(
-        self,
-        selected_connection: ConnectionDefinition | None,
-        active_source: ConnectionSource,
-        agent_url: str,
-    ) -> str:
-        if selected_connection is not None:
-            return f"{selected_connection.origin_label} · {selected_connection.label}"
-        if active_source == ConnectionSource.MANUAL:
-            return f"Manual URL · {agent_url}"
-        return connection_source_label(active_source)
 
     def _resolve_connection_credentials(
         self,
@@ -261,84 +242,21 @@ class RemoteWorkspace(Container):
         auth_mode: WorkspaceAuthMode,
         override_credentials: AuthCredentials | None,
     ) -> tuple[AuthCredentials | None, str, str | None]:
-        """Resolve connect-time credentials from explicit source selection."""
-        if auth_mode == WorkspaceAuthMode.OVERRIDE:
-            if override_credentials is not None:
-                return override_credentials, "manual override", None
-            return None, "manual override (none)", None
-
-        if selected_connection is None:
-            if active_source == ConnectionSource.MANUAL:
-                return None, "manual URL (no default auth)", None
-            return (
-                None,
-                f"{connection_source_label(active_source)} connection unavailable",
-                None,
-            )
-
-        credentials = self._connection_credentials.get(
-            selected_connection.connection_id
-        )
-        if credentials is not None:
-            return (
-                credentials,
-                (
-                    f"{selected_connection.origin_label.lower()} connection "
-                    f"'{selected_connection.label}' default"
-                ),
-                None,
-            )
-
-        warning = self._connection_warnings.get(selected_connection.connection_id)
-        if warning:
-            return (
-                None,
-                (
-                    f"{selected_connection.origin_label.lower()} connection "
-                    f"'{selected_connection.label}' default unavailable"
-                ),
-                warning,
-            )
-
-        return (
-            None,
-            (
-                f"{selected_connection.origin_label.lower()} connection "
-                f"'{selected_connection.label}' (no default auth)"
-            ),
-            None,
+        return resolve_workspace_credentials(
+            selected_connection=selected_connection,
+            active_source=active_source,
+            auth_mode=auth_mode,
+            override_credentials=override_credentials,
+            connection_credentials=self._connection_credentials,
+            connection_warnings=self._connection_warnings,
         )
 
     def _resolve_saved_conversation(
         self,
         agent_url: str,
-    ) -> tuple[SavedConversation | None, str | None]:
+    ) -> tuple[..., ...]:
         session = get_session_store().find(agent_url)
-        if session is None or not session.context_id:
-            return None, None
-
-        try:
-            validate_resource_id(session.context_id, "context_id")
-        except InputValidationError as error:
-            logger.warning(
-                "Ignoring saved context for %s: %s", agent_url, error.message
-            )
-            return (
-                None,
-                f"saved session ignored: {self._build_connect_error_message(error)}",
-            )
-
-        task_id = session.task_id
-        if task_id:
-            try:
-                validate_resource_id(task_id, "task_id")
-            except InputValidationError as error:
-                logger.warning(
-                    "Ignoring saved task ID for %s: %s", agent_url, error.message
-                )
-                task_id = None
-
-        return SavedConversation(context_id=session.context_id, task_id=task_id), None
+        return resolve_saved_conversation(session, agent_url)
 
     def _refresh_connect_saved_conversation(self) -> None:
         connect_view = self._get_connect_view()
@@ -671,7 +589,7 @@ class RemoteWorkspace(Container):
             self.state.auth_mode = auth_mode
             self.state.launch_mode = launch_mode
             self.state.mode = WorkspaceConnectionMode.CONNECTED
-            self.state.connection_summary = self._build_connection_summary(
+            self.state.connection_summary = build_connection_summary(
                 selected_connection=selected_connection,
                 active_source=active_source,
                 agent_url=agent_url,
