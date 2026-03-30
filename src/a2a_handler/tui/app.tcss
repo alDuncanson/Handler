@@ -445,6 +445,11 @@ Select:focus SelectCurrent {
     margin-left: 1;
 }
 
+#connect-btn:focus {
+    background: $accent;
+    color: $text;
+}
+
 #messages-tabs {
     height: 1fr;
 }
