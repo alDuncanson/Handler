@@ -620,8 +620,8 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
             assert first_tab.label_text == "Demo Agent"
             assert messages_panel
             assert len(list(live_view.query("#server-summary"))) == 0
-            assert "Connected" in str(status.content)
             assert "Demo Agent" in str(status.content)
+            assert "agent.example.com" in str(status.content)
             assert status.has_class("status-success")
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(

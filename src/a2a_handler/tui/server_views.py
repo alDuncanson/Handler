@@ -151,13 +151,17 @@ class ServerConnectView(Container):
     def set_connected_status(
         self,
         agent_name: str,
+        agent_url: str,
+        auth_source: str = "none",
         context_id: str | None = None,
+        resumed: bool = False,
     ) -> None:
-        """Show the currently live connection state in the status row."""
-        message = f"Connected · {agent_name}"
+        """Show the connected status as a single combined line."""
+        parts = [agent_name, agent_url, auth_source]
         if context_id:
-            message = f"{message} · {summarize_identifier(context_id)}"
-        self.set_status(message, tone="success")
+            prefix = "Resuming" if resumed else "Session"
+            parts.append(f"{prefix} {summarize_identifier(context_id)}")
+        self.set_status(" · ".join(parts), tone="success")
 
     def set_status_line(self, text: str) -> None:
         """Set the single status row text."""
