@@ -55,6 +55,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "ty>=0.0.1a27",
+    "pytest-cov>=7.1.0",
 ]
 
 [project.urls]
@@ -73,6 +74,21 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = "src"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["a2a_handler"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "src/a2a_handler/cli/__init__.py" = ["E402"]

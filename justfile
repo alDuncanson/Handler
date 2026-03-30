@@ -16,6 +16,10 @@ run *args="tui":
 test:
     uv run pytest
 
+# Run tests with coverage report
+coverage:
+    uv run pytest --cov --cov-report=term-missing
+
 # Run all code quality checks (lint, format, typecheck)
 check:
     @echo "Running linter..."
