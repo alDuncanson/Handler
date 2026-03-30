@@ -1,4 +1,4 @@
-"""Per-remote workspace controller."""
+"""Per-server tab controller."""
 
 from __future__ import annotations
 
@@ -37,43 +37,43 @@ from a2a_handler.tui.connection_resolution import (
     resolve_saved_conversation,
     resolve_workspace_credentials,
 )
-from a2a_handler.tui.workspace_types import (
+from a2a_handler.tui.server_types import (
     RECENT_CONNECTION_LIMIT,
     RESUME_HISTORY_LENGTH,
-    WorkspaceAuthMode,
-    WorkspaceConnectionMode,
-    WorkspaceLaunchMode,
-    WorkspaceState,
+    ServerAuthMode,
+    ServerConnectionMode,
+    ServerLaunchMode,
+    ServerState,
     build_http_client,
     build_recent_connection,
 )
-from a2a_handler.tui.workspace_views import RemoteConnectView, RemoteLiveView
+from a2a_handler.tui.server_views import ServerConnectView, ServerLiveView
 
 logger = get_logger(__name__)
 
 
-class RemoteWorkspace(Container):
-    """A single remote workspace tab with its own connection state."""
+class ServerTab(Container):
+    """A single server tab with its own connection state."""
 
     class TitleChanged(TextualMessage):
-        """Posted when the workspace tab title should change."""
+        """Posted when the server tab title should change."""
 
-        def __init__(self, workspace_id: str, title: str) -> None:
+        def __init__(self, server_id: str, title: str) -> None:
             super().__init__()
-            self.workspace_id = workspace_id
+            self.server_id = server_id
             self.title = title
 
     def __init__(
         self,
-        workspace_id: str,
+        server_id: str,
         title: str,
         initial_bearer_token: str | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(id=workspace_id, **kwargs)
-        self.workspace_id = workspace_id
+        super().__init__(id=server_id, **kwargs)
+        self.server_id = server_id
         self.title = title
-        self.state = WorkspaceState()
+        self.state = ServerState()
         self.http_client: httpx.AsyncClient | None = None
         self._agent_service: A2AService | None = None
         self._connection_catalog = ConnectionCatalog()
@@ -118,11 +118,11 @@ class RemoteWorkspace(Container):
         self.state.current_task_id = value
 
     def compose(self) -> ComposeResult:
-        yield RemoteLiveView(self.title)
+        yield ServerLiveView(self.title)
 
     @property
     def is_connected(self) -> bool:
-        return self.state.mode == WorkspaceConnectionMode.CONNECTED
+        return self.state.mode == ServerConnectionMode.CONNECTED
 
     @contextlib.contextmanager
     def _suppressing_auth_events(self) -> Generator[None, None, None]:
@@ -141,11 +141,11 @@ class RemoteWorkspace(Container):
         live_view = self._get_live_view()
         self._load_connection_catalog()
         connect_view = self._get_connect_view()
-        connect_view.set_auth_mode(WorkspaceAuthMode.USE_CONNECTION_DEFAULT)
+        connect_view.set_auth_mode(ServerAuthMode.USE_CONNECTION_DEFAULT)
         self.state.auth_mode = connect_view.get_auth_mode()
 
         if self._initial_bearer_token:
-            connect_view.set_auth_mode(WorkspaceAuthMode.OVERRIDE)
+            connect_view.set_auth_mode(ServerAuthMode.OVERRIDE)
             with self._suppressing_auth_events():
                 live_view.messages_panel().set_auth_credentials(
                     AuthCredentials(
@@ -153,7 +153,7 @@ class RemoteWorkspace(Container):
                         value=self._initial_bearer_token,
                     )
                 )
-            self.state.auth_mode = WorkspaceAuthMode.OVERRIDE
+            self.state.auth_mode = ServerAuthMode.OVERRIDE
 
         live_view.show_disconnected_state()
         self._refresh_connect_selection()
@@ -163,15 +163,15 @@ class RemoteWorkspace(Container):
         if self.http_client:
             await self.http_client.aclose()
 
-    def _get_live_view(self) -> RemoteLiveView:
-        return self.query_one(RemoteLiveView)
+    def _get_live_view(self) -> ServerLiveView:
+        return self.query_one(ServerLiveView)
 
-    def _get_connect_view(self) -> RemoteConnectView:
+    def _get_connect_view(self) -> ServerConnectView:
         return self._get_live_view().connect_view()
 
-    def _try_get_live_view(self) -> RemoteLiveView | None:
+    def _try_get_live_view(self) -> ServerLiveView | None:
         try:
-            return self.query_one(RemoteLiveView)
+            return self.query_one(ServerLiveView)
         except Exception:
             return None
 
@@ -239,7 +239,7 @@ class RemoteWorkspace(Container):
         self,
         selected_connection: ConnectionDefinition | None,
         active_source: ConnectionSource,
-        auth_mode: WorkspaceAuthMode,
+        auth_mode: ServerAuthMode,
         override_credentials: AuthCredentials | None,
     ) -> tuple[AuthCredentials | None, str, str | None]:
         return resolve_workspace_credentials(
@@ -263,7 +263,7 @@ class RemoteWorkspace(Container):
         agent_url = connect_view.get_url()
         if not agent_url:
             self.state.saved_conversation = None
-            self.state.launch_mode = WorkspaceLaunchMode.START_FRESH
+            self.state.launch_mode = ServerLaunchMode.START_FRESH
             connect_view.set_saved_conversation(None)
             return
 
@@ -282,7 +282,7 @@ class RemoteWorkspace(Container):
         auth_mode = connect_view.get_auth_mode()
         override_credentials = (
             connect_view.get_auth_credentials()
-            if auth_mode == WorkspaceAuthMode.OVERRIDE
+            if auth_mode == ServerAuthMode.OVERRIDE
             else None
         )
         _, source_description, warning = self._resolve_connection_credentials(
@@ -311,9 +311,9 @@ class RemoteWorkspace(Container):
         )
 
     def _conversation_summary(self) -> str:
-        if self.state.launch_mode == WorkspaceLaunchMode.RESUME_SESSION:
+        if self.state.launch_mode == ServerLaunchMode.RESUME_SESSION:
             return "resumed saved context"
-        return "fresh workspace context"
+        return "fresh server context"
 
     def _persist_session_state(self) -> None:
         if self.current_agent_url is None:
@@ -324,7 +324,7 @@ class RemoteWorkspace(Container):
             self.current_task_id,
         )
 
-    def _load_task_into_live_view(self, live_view: RemoteLiveView, task: Task) -> None:
+    def _load_task_into_live_view(self, live_view: ServerLiveView, task: Task) -> None:
         messages_panel = live_view.messages_panel()
         seen_message_ids: set[str] = set()
 
@@ -371,8 +371,8 @@ class RemoteWorkspace(Container):
 
         messages_panel.add_message("system", text)
 
-    async def _hydrate_resumed_history(self, live_view: RemoteLiveView) -> None:
-        if self.state.launch_mode != WorkspaceLaunchMode.RESUME_SESSION:
+    async def _hydrate_resumed_history(self, live_view: ServerLiveView) -> None:
+        if self.state.launch_mode != ServerLaunchMode.RESUME_SESSION:
             return
 
         saved_conversation = self.state.saved_conversation
@@ -390,7 +390,7 @@ class RemoteWorkspace(Container):
         except Exception as error:
             logger.warning(
                 "Failed to load resumed task history for %s (%s): %s",
-                self.workspace_id,
+                self.server_id,
                 saved_conversation.task_id,
                 error,
                 exc_info=True,
@@ -415,7 +415,7 @@ class RemoteWorkspace(Container):
         previous_http_client = self.http_client
         previous_service = self._agent_service
         next_http_client = build_http_client(credentials=credentials)
-        logger.info("Connecting workspace %s to %s", self.workspace_id, agent_url)
+        logger.info("Connecting server %s to %s", self.server_id, agent_url)
         next_service = A2AService(
             next_http_client,
             agent_url,
@@ -443,7 +443,7 @@ class RemoteWorkspace(Container):
         await live_view.prepare_for_connection()
         live_view.agent_card_panel().update_card(agent_card)
         with self._suppressing_auth_events():
-            if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
+            if self.state.auth_mode == ServerAuthMode.OVERRIDE:
                 live_view.messages_panel().set_auth_credentials(
                     self.state.connected_credentials
                 )
@@ -506,15 +506,15 @@ class RemoteWorkspace(Container):
             return
 
         connect_view = self._get_connect_view()
-        if connect_view.get_auth_mode() != WorkspaceAuthMode.OVERRIDE:
-            connect_view.set_auth_mode(WorkspaceAuthMode.OVERRIDE)
+        if connect_view.get_auth_mode() != ServerAuthMode.OVERRIDE:
+            connect_view.set_auth_mode(ServerAuthMode.OVERRIDE)
         if self.is_connected:
-            self.state.auth_mode = WorkspaceAuthMode.OVERRIDE
+            self.state.auth_mode = ServerAuthMode.OVERRIDE
             self._refresh_connect_auth_source_status()
             self._refresh_live_summary()
             return
 
-        self.state.auth_mode = WorkspaceAuthMode.OVERRIDE
+        self.state.auth_mode = ServerAuthMode.OVERRIDE
         self._refresh_connect_auth_source_status()
 
     @on(Button.Pressed, "#connect-btn")
@@ -548,7 +548,7 @@ class RemoteWorkspace(Container):
             auth_mode = connect_view.get_auth_mode()
             override_credentials = (
                 connect_view.get_auth_credentials()
-                if auth_mode == WorkspaceAuthMode.OVERRIDE
+                if auth_mode == ServerAuthMode.OVERRIDE
                 else None
             )
             credentials, source_description, warning = (
@@ -570,7 +570,7 @@ class RemoteWorkspace(Container):
             launch_mode = connect_view.get_launch_mode()
             context_id = str(uuid.uuid4())
             if (
-                launch_mode == WorkspaceLaunchMode.RESUME_SESSION
+                launch_mode == ServerLaunchMode.RESUME_SESSION
                 and saved_conversation is not None
             ):
                 context_id = saved_conversation.context_id
@@ -580,7 +580,7 @@ class RemoteWorkspace(Container):
             self.current_context_id = context_id
             self.current_task_id = (
                 saved_conversation.task_id
-                if launch_mode == WorkspaceLaunchMode.RESUME_SESSION
+                if launch_mode == ServerLaunchMode.RESUME_SESSION
                 and saved_conversation is not None
                 else None
             )
@@ -588,7 +588,7 @@ class RemoteWorkspace(Container):
             self.state.auth_source = source_description
             self.state.auth_mode = auth_mode
             self.state.launch_mode = launch_mode
-            self.state.mode = WorkspaceConnectionMode.CONNECTED
+            self.state.mode = ServerConnectionMode.CONNECTED
             self.state.connection_summary = build_connection_summary(
                 selected_connection=selected_connection,
                 active_source=active_source,
@@ -597,11 +597,11 @@ class RemoteWorkspace(Container):
             self._persist_session_state()
 
             await self._show_live_view(warning)
-            self.post_message(self.TitleChanged(self.workspace_id, agent_card.name))
+            self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 
         except Exception as error:
             logger.error(
-                "Connection failed for %s: %s", self.workspace_id, error, exc_info=True
+                "Connection failed for %s: %s", self.server_id, error, exc_info=True
             )
             connect_view.set_status(f"Connection failed: {error!s}", tone="error")
 
@@ -635,7 +635,7 @@ class RemoteWorkspace(Container):
         messages_panel.add_message("user", message_text)
 
         try:
-            if self.state.auth_mode == WorkspaceAuthMode.OVERRIDE:
+            if self.state.auth_mode == ServerAuthMode.OVERRIDE:
                 credentials = messages_panel.get_auth_credentials()
                 if credentials is not None:
                     self._agent_service.set_credentials(credentials)
@@ -675,7 +675,7 @@ class RemoteWorkspace(Container):
         except Exception as error:
             logger.error(
                 "Error sending message from %s: %s",
-                self.workspace_id,
+                self.server_id,
                 error,
                 exc_info=True,
             )

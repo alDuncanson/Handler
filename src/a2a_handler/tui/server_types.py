@@ -1,4 +1,4 @@
-"""Shared types and constants for workspace modules."""
+"""Shared types and constants for server modules."""
 
 from __future__ import annotations
 
@@ -44,22 +44,22 @@ START_FRESH_OPTION = [("Fresh", "start_fresh")]
 SAVED_SESSION_OPTIONS = [("Resume", "resume_session"), *START_FRESH_OPTION]
 
 
-class WorkspaceConnectionMode(str, Enum):
-    """High-level lifecycle mode for a remote workspace."""
+class ServerConnectionMode(str, Enum):
+    """High-level lifecycle mode for a server."""
 
     DISCONNECTED = "disconnected"
     CONNECTED = "connected"
 
 
-class WorkspaceLaunchMode(str, Enum):
-    """How a workspace should initialize its conversation state."""
+class ServerLaunchMode(str, Enum):
+    """How a server should initialize its conversation state."""
 
     START_FRESH = "start_fresh"
     RESUME_SESSION = "resume_session"
 
 
-class WorkspaceAuthMode(str, Enum):
-    """How connect-time auth should be chosen for a workspace."""
+class ServerAuthMode(str, Enum):
+    """How connect-time auth should be chosen for a server."""
 
     USE_CONNECTION_DEFAULT = "use_connection_default"
     OVERRIDE = "override"
@@ -74,18 +74,18 @@ class SavedConversation:
 
 
 @dataclass(slots=True)
-class WorkspaceState:
-    """Explicit per-workspace runtime state."""
+class ServerState:
+    """Explicit per-server runtime state."""
 
-    mode: WorkspaceConnectionMode = WorkspaceConnectionMode.DISCONNECTED
+    mode: ServerConnectionMode = ServerConnectionMode.DISCONNECTED
     agent_card: AgentCard | None = None
     agent_url: str | None = None
     current_context_id: str | None = None
     current_task_id: str | None = None
     connected_credentials: AuthCredentials | None = None
     auth_source: str = "none"
-    auth_mode: WorkspaceAuthMode = WorkspaceAuthMode.USE_CONNECTION_DEFAULT
-    launch_mode: WorkspaceLaunchMode = WorkspaceLaunchMode.START_FRESH
+    auth_mode: ServerAuthMode = ServerAuthMode.USE_CONNECTION_DEFAULT
+    launch_mode: ServerLaunchMode = ServerLaunchMode.START_FRESH
     saved_conversation: SavedConversation | None = None
     connection_summary: str = "Manual URL"
 

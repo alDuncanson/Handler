@@ -1,4 +1,4 @@
-"""Pure connection and session resolution logic for the TUI workspace."""
+"""Pure connection and session resolution logic for the TUI server."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from a2a_handler.connections import (
     connection_source_label,
 )
 from a2a_handler.session import AgentSession
-from a2a_handler.tui.workspace_types import SavedConversation, WorkspaceAuthMode
+from a2a_handler.tui.server_types import SavedConversation, ServerAuthMode
 
 logger = get_logger(__name__)
 
@@ -22,13 +22,13 @@ logger = get_logger(__name__)
 def resolve_workspace_credentials(
     selected_connection: ConnectionDefinition | None,
     active_source: ConnectionSource,
-    auth_mode: WorkspaceAuthMode,
+    auth_mode: ServerAuthMode,
     override_credentials: AuthCredentials | None,
     connection_credentials: dict[str, AuthCredentials],
     connection_warnings: dict[str, str],
 ) -> tuple[AuthCredentials | None, str, str | None]:
     """Resolve connect-time credentials from explicit source selection."""
-    if auth_mode == WorkspaceAuthMode.OVERRIDE:
+    if auth_mode == ServerAuthMode.OVERRIDE:
         if override_credentials is not None:
             return override_credentials, "manual override", None
         return None, "manual override (none)", None

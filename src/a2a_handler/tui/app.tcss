@@ -11,69 +11,69 @@ Screen {
     scrollbar-size-vertical: 1;
 }
 
-#workspace-shell {
+#server-shell {
     layout: vertical;
     height: 1fr;
 }
 
-#workspace-tab-row {
+#server-tab-row {
     height: 2;
     margin-bottom: 0;
     align: left middle;
 }
 
-#workspace-tabs {
+#server-tabs {
     width: 1fr;
     height: 2;
 }
 
-#workspace-tabs Tab {
+#server-tabs Tab {
     background: transparent;
     color: $text-muted;
     padding: 0 1;
 }
 
-#workspace-tabs Tab.-active {
+#server-tabs Tab.-active {
     background: transparent;
     color: $text;
     text-style: bold;
 }
 
-#workspace-tabs Underline > .underline--bar {
+#server-tabs Underline > .underline--bar {
     color: $accent;
     background: $surface;
 }
 
-#new-workspace-btn {
+#new-server-btn {
     width: auto;
     min-width: 12;
     margin-left: 1;
 }
 
-#workspace-content {
+#server-content {
     height: 1fr;
     min-height: 1;
     padding: 0;
     background: $background;
 }
 
-RemoteWorkspace,
-RemoteLiveView {
+ServerTab,
+ServerLiveView {
     width: 1fr;
     height: 1fr;
 }
 
-RemoteConnectView {
+ServerConnectView {
     width: 1fr;
     height: auto;
 }
 
-#workspace-content > RemoteWorkspace {
+#server-content > ServerTab {
     width: 1fr;
     height: 1fr;
 }
 
-#workspace-stage {
+#server-stage {
     layout: vertical;
     height: 1fr;
 }
@@ -265,16 +265,16 @@ RemoteConnectView {
     margin-top: 0;
 }
 
-.workspace-live-layout {
+.server-live-layout {
     layout: horizontal;
 }
 
-#workspace-meta {
+#server-meta {
     width: 1fr;
     height: 1fr;
 }
 
-#workspace-main {
+#server-main {
     width: 2fr;
     height: 1fr;
     margin-left: 1;

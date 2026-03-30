@@ -1,4 +1,4 @@
-"""Connection and live workspace view components."""
+"""Connection and live server view components."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from textual.widgets import Button, Input, Select, Static
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.connections import ConnectionDefinition, ConnectionSource
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
-from a2a_handler.tui.workspace_types import (
+from a2a_handler.tui.server_types import (
     AUTH_MODE_OPTIONS,
     EMPTY_CONNECTION_ID,
     EMPTY_SOURCE_LABELS,
@@ -19,18 +19,18 @@ from a2a_handler.tui.workspace_types import (
     SOURCE_OPTIONS,
     START_FRESH_OPTION,
     SavedConversation,
-    WorkspaceAuthMode,
-    WorkspaceLaunchMode,
+    ServerAuthMode,
+    ServerLaunchMode,
     summarize_identifier,
 )
 
 
-class RemoteConnectView(Container):
-    """Compact connection bar for selecting and opening a workspace."""
+class ServerConnectView(Container):
+    """Compact connection bar for selecting and opening a server."""
 
-    def __init__(self, workspace_title: str, **kwargs: Any) -> None:
+    def __init__(self, server_title: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._workspace_title = workspace_title
+        self._server_title = server_title
         self._connections_by_id: dict[str, ConnectionDefinition] = {}
         self._connections_by_source: dict[
             ConnectionSource, tuple[ConnectionDefinition, ...]
@@ -71,13 +71,13 @@ class RemoteConnectView(Container):
                 yield Select(
                     START_FRESH_OPTION,
                     allow_blank=False,
-                    value=WorkspaceLaunchMode.START_FRESH.value,
+                    value=ServerLaunchMode.START_FRESH.value,
                     id="launch-mode-select",
                 )
                 yield Select(
                     AUTH_MODE_OPTIONS,
                     allow_blank=False,
-                    value=WorkspaceAuthMode.USE_CONNECTION_DEFAULT.value,
+                    value=ServerAuthMode.USE_CONNECTION_DEFAULT.value,
                     id="auth-mode-select",
                 )
                 yield Button("CONNECT", id="connect-btn")
@@ -113,9 +113,9 @@ class RemoteConnectView(Container):
 
     def _messages_panel(self) -> TabbedMessagesPanel:
         for ancestor in self.ancestors:
-            if isinstance(ancestor, RemoteLiveView):
+            if isinstance(ancestor, ServerLiveView):
                 return ancestor.messages_panel()
-        raise LookupError("Connection bar is not mounted inside a workspace view")
+        raise LookupError("Connection bar is not mounted inside a server view")
 
     def sync_source_controls(self) -> None:
         """Keep the target dropdown and manual URL input in sync with the source."""
@@ -220,27 +220,27 @@ class RemoteConnectView(Container):
         """Update the auth-source badge shown below the bar."""
         self._set_badge("auth-source-status", f"Auth · {source_description}", tone)
 
-    def get_launch_mode(self) -> WorkspaceLaunchMode:
+    def get_launch_mode(self) -> ServerLaunchMode:
         launch_value = self.query_one("#launch-mode-select", Select).value
-        if str(launch_value) == WorkspaceLaunchMode.RESUME_SESSION.value:
-            return WorkspaceLaunchMode.RESUME_SESSION
-        return WorkspaceLaunchMode.START_FRESH
+        if str(launch_value) == ServerLaunchMode.RESUME_SESSION.value:
+            return ServerLaunchMode.RESUME_SESSION
+        return ServerLaunchMode.START_FRESH
 
-    def set_launch_mode(self, launch_mode: WorkspaceLaunchMode) -> None:
+    def set_launch_mode(self, launch_mode: ServerLaunchMode) -> None:
         launch_select = self.query_one("#launch-mode-select", Select)
         with self.prevent(Select.Changed):
             try:
                 launch_select.value = launch_mode.value
             except Exception:
-                launch_select.value = WorkspaceLaunchMode.START_FRESH.value
+                launch_select.value = ServerLaunchMode.START_FRESH.value
 
-    def get_auth_mode(self) -> WorkspaceAuthMode:
+    def get_auth_mode(self) -> ServerAuthMode:
         auth_value = self.query_one("#auth-mode-select", Select).value
-        if str(auth_value) == WorkspaceAuthMode.OVERRIDE.value:
-            return WorkspaceAuthMode.OVERRIDE
-        return WorkspaceAuthMode.USE_CONNECTION_DEFAULT
+        if str(auth_value) == ServerAuthMode.OVERRIDE.value:
+            return ServerAuthMode.OVERRIDE
+        return ServerAuthMode.USE_CONNECTION_DEFAULT
 
-    def set_auth_mode(self, auth_mode: WorkspaceAuthMode) -> None:
+    def set_auth_mode(self, auth_mode: ServerAuthMode) -> None:
         with self.prevent(Select.Changed):
             self.query_one("#auth-mode-select", Select).value = auth_mode.value
 
@@ -253,13 +253,13 @@ class RemoteConnectView(Container):
 
         if warning:
             launch_select.set_options(START_FRESH_OPTION)
-            self.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
+            self.set_launch_mode(ServerLaunchMode.START_FRESH)
             self._set_badge("conversation-status", warning, tone="warning")
             return
 
         if conversation is None:
             launch_select.set_options(START_FRESH_OPTION)
-            self.set_launch_mode(WorkspaceLaunchMode.START_FRESH)
+            self.set_launch_mode(ServerLaunchMode.START_FRESH)
             self._set_badge("conversation-status", "Fresh only")
             return
 
@@ -273,8 +273,8 @@ class RemoteConnectView(Container):
             f"{summarize_identifier(conversation.context_id)}{task_suffix}",
             tone="info",
         )
-        if self.get_launch_mode() == WorkspaceLaunchMode.START_FRESH:
-            self.set_launch_mode(WorkspaceLaunchMode.RESUME_SESSION)
+        if self.get_launch_mode() == ServerLaunchMode.START_FRESH:
+            self.set_launch_mode(ServerLaunchMode.RESUME_SESSION)
 
     def set_status(self, message: str, tone: str | None = None) -> None:
         """Update the live connection badge."""
@@ -323,21 +323,21 @@ class RemoteConnectView(Container):
         self._messages_panel().set_auth_credentials(credentials)
 
 
-class RemoteLiveView(Container):
-    """Always-mounted workspace view with a compact connection bar."""
+class ServerLiveView(Container):
+    """Always-mounted server view with a compact connection bar."""
 
-    def __init__(self, workspace_title: str, **kwargs: Any) -> None:
+    def __init__(self, server_title: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._workspace_title = workspace_title
+        self._server_title = server_title
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="workspace-stage"):
-            yield RemoteConnectView(self._workspace_title)
-            with Container(id="live-stage", classes="workspace-live-layout"):
-                with Vertical(id="workspace-meta"):
+        with Vertical(id="server-stage"):
+            yield ServerConnectView(self._server_title)
+            with Container(id="live-stage", classes="server-live-layout"):
+                with Vertical(id="server-meta"):
                     yield AgentCardPanel(id="agent-card-container", classes="panel")
 
-                with Vertical(id="workspace-main"):
+                with Vertical(id="server-main"):
                     yield TabbedMessagesPanel(id="messages-container", classes="panel")
                     yield InputPanel(id="input-container", classes="panel")
 
@@ -352,8 +352,8 @@ class RemoteLiveView(Container):
         self.input_panel().set_enabled(False)
         self.show_disconnected_state()
 
-    def connect_view(self) -> RemoteConnectView:
-        return self.query_one(RemoteConnectView)
+    def connect_view(self) -> ServerConnectView:
+        return self.query_one(ServerConnectView)
 
     def agent_card_panel(self) -> AgentCardPanel:
         return self.query_one("#agent-card-container", AgentCardPanel)

@@ -14,7 +14,7 @@ from textual.widgets import Footer, Tabs
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
-from a2a_handler.tui.workspace_tabs import WorkspaceTabs
+from a2a_handler.tui.server_tabs import ServerTabs
 
 logging.basicConfig(
     level="NOTSET",
@@ -41,25 +41,25 @@ class HandlerTUI(App[Any]):
         Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
         Binding(
             "ctrl+b",
-            "previous_workspace",
-            "Prev Remote",
+            "previous_server",
+            "Prev Server",
             show=True,
             key_display="Ctrl+B",
         ),
         Binding(
             "ctrl+t",
-            "next_workspace",
-            "Next Remote",
+            "next_server",
+            "Next Server",
             show=True,
             key_display="Ctrl+T",
         ),
         Binding(
-            "ctrl+n", "new_workspace", "New Remote", show=True, key_display="Ctrl+N"
+            "ctrl+n", "new_server", "New Server", show=True, key_display="Ctrl+N"
         ),
         Binding(
             "ctrl+w",
-            "close_workspace",
-            "Close Remote",
+            "close_server",
+            "Close Server",
             show=True,
             key_display="Ctrl+W",
         ),
@@ -87,7 +87,7 @@ class HandlerTUI(App[Any]):
         self._tui_log_handler: TUILogHandler | None = None
 
     def compose(self) -> ComposeResult:
-        yield WorkspaceTabs(initial_bearer_token=self._initial_bearer_token)
+        yield ServerTabs(initial_bearer_token=self._initial_bearer_token)
         yield Footer(show_command_palette=False)
 
     async def on_mount(self) -> None:
@@ -96,23 +96,23 @@ class HandlerTUI(App[Any]):
         self._tui_log_handler = install_tui_log_handler(level=logging.DEBUG)
         self._tui_log_handler.set_callback(self._on_log_line)
 
-        workspace_tabs = self.query_one(WorkspaceTabs)
-        for workspace in workspace_tabs.iter_workspaces():
-            workspace.load_logs(self._tui_log_handler.get_lines())
+        server_tabs = self.query_one(ServerTabs)
+        for server in server_tabs.iter_servers():
+            server.load_logs(self._tui_log_handler.get_lines())
 
     def _on_log_line(self, line: str) -> None:
         try:
-            workspace_tabs = self.query_one(WorkspaceTabs)
+            server_tabs = self.query_one(ServerTabs)
         except Exception:
             return
-        for workspace in workspace_tabs.iter_workspaces():
-            workspace.add_log(line)
+        for server in server_tabs.iter_servers():
+            server.add_log(line)
 
-    @on(WorkspaceTabs.WorkspaceAdded)
-    def _handle_workspace_added(self, event: WorkspaceTabs.WorkspaceAdded) -> None:
+    @on(ServerTabs.ServerAdded)
+    def _handle_server_added(self, event: ServerTabs.ServerAdded) -> None:
         if self._tui_log_handler is None:
             return
-        event.workspace.load_logs(self._tui_log_handler.get_lines())
+        event.server.load_logs(self._tui_log_handler.get_lines())
 
     def watch_theme(self, new_theme: str) -> None:
         """Called when the app theme changes."""
@@ -138,27 +138,27 @@ class HandlerTUI(App[Any]):
                 self._is_maximized = True
                 return
 
-    def action_previous_workspace(self) -> None:
-        """Activate the previous remote workspace tab."""
-        self.query_one(WorkspaceTabs).action_previous_workspace()
+    def action_previous_server(self) -> None:
+        """Activate the previous server tab."""
+        self.query_one(ServerTabs).action_previous_server()
 
-    def action_next_workspace(self) -> None:
-        """Activate the next remote workspace tab."""
-        self.query_one(WorkspaceTabs).action_next_workspace()
+    def action_next_server(self) -> None:
+        """Activate the next server tab."""
+        self.query_one(ServerTabs).action_next_server()
 
-    async def action_new_workspace(self) -> None:
-        """Create and activate a new remote workspace tab."""
-        await self.query_one(WorkspaceTabs).create_workspace()
+    async def action_new_server(self) -> None:
+        """Create and activate a new server tab."""
+        await self.query_one(ServerTabs).create_server()
 
-    async def action_close_workspace(self) -> None:
-        """Close the active remote workspace tab."""
-        await self.query_one(WorkspaceTabs).close_workspace()
+    async def action_close_server(self) -> None:
+        """Close the active server tab."""
+        await self.query_one(ServerTabs).close_server()
 
-    async def action_connect_workspace(self) -> None:
-        """Trigger the connect button on the active workspace."""
-        workspace = self.query_one(WorkspaceTabs).get_active_workspace()
-        if workspace is not None and not workspace.is_connected:
-            await workspace.handle_connect_button()
+    async def action_connect_server(self) -> None:
+        """Trigger the connect button on the active server."""
+        server = self.query_one(ServerTabs).get_active_server()
+        if server is not None and not server.is_connected:
+            await server.handle_connect_button()
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         """Provide custom commands and filter out maximize/minimize."""
@@ -167,40 +167,40 @@ class HandlerTUI(App[Any]):
                 continue
             yield command
 
-        workspace_tabs = self.query_one(WorkspaceTabs)
-        active = workspace_tabs.get_active_workspace()
+        server_tabs = self.query_one(ServerTabs)
+        active = server_tabs.get_active_server()
 
         if active is not None and not active.is_connected:
             yield SystemCommand(
                 "Connect",
-                "Connect the active remote to an A2A agent",
-                self.action_connect_workspace,
+                "Connect the active server to an A2A agent",
+                self.action_connect_server,
             )
 
-        if active is not None and len(workspace_tabs.iter_workspaces()) > 1:
+        if active is not None and len(server_tabs.iter_servers()) > 1:
             yield SystemCommand(
                 f"Close {active.title}",
-                "Close the active remote workspace tab",
-                self.action_close_workspace,
+                "Close the active server tab",
+                self.action_close_server,
             )
 
-        for workspace in workspace_tabs.iter_workspaces():
-            if active is not None and workspace is active:
+        for server in server_tabs.iter_servers():
+            if active is not None and server is active:
                 continue
-            title = workspace.title
+            title = server.title
             yield SystemCommand(
                 f"Switch to {title}",
-                f"Activate the {title} workspace tab",
-                self._switch_to_workspace(workspace.workspace_id),
+                f"Activate the {title} server tab",
+                self._switch_to_server(server.server_id),
             )
 
-    def _switch_to_workspace(self, workspace_id: str) -> callable:
-        """Return a callback that activates the given workspace tab."""
+    def _switch_to_server(self, server_id: str) -> callable:
+        """Return a callback that activates the given server tab."""
         def callback() -> None:
-            workspace_tabs = self.query_one(WorkspaceTabs)
-            tab_id = workspace_tabs._tab_ids_by_workspace_id.get(workspace_id)
+            server_tabs = self.query_one(ServerTabs)
+            tab_id = server_tabs._tab_ids_by_server_id.get(server_id)
             if tab_id is not None:
-                tabs = workspace_tabs.query_one("#workspace-tabs", Tabs)
+                tabs = server_tabs.query_one("#server-tabs", Tabs)
                 tabs.active = tab_id
 
         return callback
