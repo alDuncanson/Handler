@@ -78,50 +78,49 @@ This provides Python, uv, and just with all commands ready to use.
 For usage documentation, see the
 [Handler docs](https://alduncanson.github.io/Handler/).
 
-## Connection Profiles (TOML)
+## Connections (TOML)
 
-Handler supports optional named connection profiles in
-`~/.handler/profiles.toml`.
+Handler supports optional named connections in
+`~/.handler/connections.toml` and repository-local `.handler/connections.toml`.
 
-The TUI shows these profiles in a selector alongside URLs you've previously
-connected to. Auth resolution order is:
+The TUI shows configured connections alongside recently used URLs in a
+connection source selector. Auth resolution order is:
 
-1. Auth entered in the TUI Auth tab.
-2. Auth from the selected profile.
-3. Saved credentials for the current URL from `handler auth set`.
+1. Auth override entered in the TUI Auth tab.
+2. Default auth from the selected connection definition.
 
 Example:
 
 ```toml
 version = 1
 
-[profiles.local]
+[connections.local]
 url = "http://localhost:8000"
 
-[profiles.local.auth]
+[connections.local.auth]
 type = "bearer"
 env = "HANDLER_LOCAL_TOKEN"
 
-[profiles.staging]
+[connections.staging]
 url = "https://staging.example.com"
 
-[profiles.staging.auth]
+[connections.staging.auth]
 type = "api_key"
 env = "HANDLER_STAGING_API_KEY"
 header = "X-API-Key"
 
-[profiles.secure]
+[connections.secure]
 url = "https://secure.example.com"
 
-[profiles.secure.auth]
+[connections.secure.auth]
 type = "mtls"
 cert = "/path/to/client.crt"
 key = "/path/to/client.key"
 ca_cert = "/path/to/ca.crt"  # optional
 ```
 
-For profile auth, use environment variables where possible. Literal `value`
-fallbacks are supported for local development. mTLS profiles use file paths
+For connection auth, use environment variables where possible. Literal `value`
+fallbacks are supported for local development. mTLS connections use file paths
 for client certificates instead of environment variables.
 
 ## Contributing
