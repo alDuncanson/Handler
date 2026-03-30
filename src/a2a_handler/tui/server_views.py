@@ -102,9 +102,12 @@ class ServerConnectView(Container):
         select = self.query_one("#server-select", Select)
         select.set_options(options)
 
-        if len(options) > 1:
-            with self.prevent(Select.Changed):
+        with self.prevent(Select.Changed):
+            if len(options) == 1:
+                select.value = MANUAL_SERVER_ID
+            else:
                 select.value = options[0][1]
+        self._sync_manual_input()
 
     def _is_manual_selected(self) -> bool:
         select = self.query_one("#server-select", Select)

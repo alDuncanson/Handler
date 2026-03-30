@@ -41,6 +41,7 @@ log = get_logger(__name__)
 
 
 @click.group()
+@click.version_option(version=__version__, prog_name="handler")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 @click.option("--debug", "-d", is_flag=True, help="Enable debug logging")
 @click.option(
