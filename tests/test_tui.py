@@ -656,9 +656,9 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         await workspace.handle_connect_button()
         await pilot.pause()
 
-        status = connect_view.query_one("#server-status-row", Static)
-
-        assert "valid http(s) URL" in str(status.content)
+        messages_panel = workspace.query_one(TabbedMessagesPanel)
+        texts = _chat_texts(messages_panel)
+        assert any("valid http(s) URL" in t for t in texts)
 
 
 def test_resolve_server_credentials_uses_server_default_auth() -> None:

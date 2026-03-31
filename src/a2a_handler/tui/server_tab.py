@@ -470,21 +470,22 @@ class ServerTab(Container):
         selected_server = connect_view.get_selected_server()
         agent_url = connect_view.get_url()
 
+        messages_panel = self._get_live_view().messages_panel()
+
         if not agent_url:
             if connect_view._is_manual_selected():
-                connect_view.set_status("Please enter an agent URL", tone="warning")
+                messages_panel.add_system_message("Please enter an agent URL")
             else:
-                connect_view.set_status(
-                    "Choose a server or switch to Manual", tone="warning"
+                messages_panel.add_system_message(
+                    "Choose a server or switch to Manual"
                 )
             return
 
         try:
             validate_agent_url(agent_url)
         except InputValidationError as error:
-            connect_view.set_status(
-                self._build_connect_error_message(error),
-                tone="error",
+            messages_panel.add_system_message(
+                self._build_connect_error_message(error)
             )
             return
 
@@ -547,7 +548,7 @@ class ServerTab(Container):
             logger.error(
                 "Connection failed for %s: %s", self.server_id, error, exc_info=True
             )
-            connect_view.set_status(f"Connection failed: {error!s}", tone="error")
+            messages_panel.add_system_message(f"Connection failed: {error!s}")
 
     @on(Input.Submitted, "#message-input")
     def handle_message_submit(self) -> None:
