@@ -10,11 +10,6 @@ import json as json_module
 import sys
 from typing import Any, Literal
 
-TERMINAL_STATES = {"completed", "failed", "canceled", "rejected"}
-SUCCESS_STATES = {"completed"}
-ERROR_STATES = {"failed", "rejected"}
-WARNING_STATES = {"canceled"}
-
 OutputFormat = Literal["json", "ndjson"]
 
 _DEFAULT_OUTPUT_FORMAT: OutputFormat = "json"

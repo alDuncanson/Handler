@@ -365,10 +365,11 @@ async def test_set_task_notification_success() -> None:
             webhook_url="https://hooks.example.com/notify",
         )
 
-    assert resp["task_id"] == "task-1"
-    assert resp["url"] == "https://hooks.example.com/notify"
-    assert resp["token"] == "secret-token-value-h..."
-    assert resp["config_id"] == "cfg-1"
+    assert resp["taskId"] == "task-1"
+    pnc = resp["pushNotificationConfig"]
+    assert pnc["url"] == "https://hooks.example.com/notify"
+    assert pnc["token"] == "secret-token-value-here-long"
+    assert pnc["id"] == "cfg-1"
 
 
 # ---------------------------------------------------------------------------
@@ -399,10 +400,11 @@ async def test_get_task_notification_success() -> None:
     ):
         resp = await fn(agent_url="http://localhost:8000", task_id="task-1")
 
-    assert resp["task_id"] == "task-1"
-    assert resp["url"] == "https://hooks.example.com/notify"
-    assert resp["token"] == "abcdefghij1234567890..."
-    assert resp["config_id"] == "cfg-2"
+    assert resp["taskId"] == "task-1"
+    pnc = resp["pushNotificationConfig"]
+    assert pnc["url"] == "https://hooks.example.com/notify"
+    assert pnc["token"] == "abcdefghij1234567890xyz"
+    assert pnc["id"] == "cfg-2"
 
 
 # ---------------------------------------------------------------------------

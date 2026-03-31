@@ -2,40 +2,7 @@
 
 import json
 
-import pytest
-
-from a2a_handler.common.output import (
-    Output,
-    configure_output,
-    TERMINAL_STATES,
-    SUCCESS_STATES,
-    ERROR_STATES,
-    WARNING_STATES,
-)
-
-
-class TestStateConstants:
-    """Tests for state constant sets."""
-
-    def test_terminal_states(self):
-        """Test terminal states include expected values."""
-        assert "completed" in TERMINAL_STATES
-        assert "failed" in TERMINAL_STATES
-        assert "canceled" in TERMINAL_STATES
-        assert "rejected" in TERMINAL_STATES
-
-    def test_success_states(self):
-        """Test success states."""
-        assert "completed" in SUCCESS_STATES
-
-    def test_error_states(self):
-        """Test error states."""
-        assert "failed" in ERROR_STATES
-        assert "rejected" in ERROR_STATES
-
-    def test_warning_states(self):
-        """Test warning states."""
-        assert "canceled" in WARNING_STATES
+from a2a_handler.common.output import Output
 
 
 class TestOutput:

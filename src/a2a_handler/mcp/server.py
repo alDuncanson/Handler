@@ -468,16 +468,7 @@ def create_mcp_server() -> FastMCP:
             service = A2AService(http_client, agent_url, credentials=credentials)
             config = await service.set_push_config(task_id, webhook_url, webhook_token)
 
-            result: dict = {"task_id": config.task_id}
-            if config.push_notification_config:
-                pnc = config.push_notification_config
-                result["url"] = pnc.url
-                if pnc.token:
-                    result["token"] = f"{pnc.token[:20]}..."
-                if pnc.id:
-                    result["config_id"] = pnc.id
-
-            return result
+            return config.model_dump(mode="json", exclude_none=True)
 
     @mcp.tool()
     async def get_task_notification(
@@ -536,16 +527,7 @@ def create_mcp_server() -> FastMCP:
             service = A2AService(http_client, agent_url, credentials=credentials)
             config = await service.get_push_config(task_id, config_id)
 
-            result: dict = {"task_id": config.task_id}
-            if config.push_notification_config:
-                pnc = config.push_notification_config
-                result["url"] = pnc.url
-                if pnc.token:
-                    result["token"] = f"{pnc.token[:20]}..."
-                if pnc.id:
-                    result["config_id"] = pnc.id
-
-            return result
+            return config.model_dump(mode="json", exclude_none=True)
 
     @mcp.tool()
     async def list_sessions() -> dict:

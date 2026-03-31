@@ -454,7 +454,7 @@ class TestTaskNotificationSet:
             )
 
             assert result.exit_code == 0
-            assert '"task_id"' in result.output
+            assert '"taskId"' in result.output
 
     def test_notification_set_with_token(self, runner):
         """Test notification set with authentication token."""

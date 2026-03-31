@@ -322,16 +322,7 @@ def notification_set(
                 )
 
                 config = await service.set_push_config(task_id, webhook_url, token)
-
-                data: dict[str, object] = {"task_id": config.task_id}
-                if config.push_notification_config:
-                    pnc = config.push_notification_config
-                    data["url"] = pnc.url
-                    if pnc.token:
-                        data["token"] = pnc.token
-                    if pnc.id:
-                        data["config_id"] = pnc.id
-                output.json(data)
+                output.json(config.model_dump(mode="json", exclude_none=True))
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -393,16 +384,7 @@ def notification_get(
                 )
 
                 config = await service.get_push_config(task_id, config_id)
-
-                data: dict[str, object] = {"task_id": config.task_id}
-                if config.push_notification_config:
-                    pnc = config.push_notification_config
-                    data["url"] = pnc.url
-                    if pnc.token:
-                        data["token"] = pnc.token
-                    if pnc.id:
-                        data["config_id"] = pnc.id
-                output.json(data)
+                output.json(config.model_dump(mode="json", exclude_none=True))
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
