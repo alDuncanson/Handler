@@ -667,38 +667,40 @@ AgentMessage {
 
 #auth-panel {
     height: auto;
-    padding: 0 1 1 1;
+    padding: 1;
 }
 
 #auth-panel Label {
-    margin-bottom: 0;
+    margin: 1 0 0 0;
+}
+
+#auth-panel Label:first-child {
+    margin-top: 0;
 }
 
 #auth-panel RadioSet {
     height: auto;
-    margin-bottom: 0;
-}
-
-#auth-panel Input {
-    margin-bottom: 0;
 }
 
 #headers-panel {
     height: auto;
-    padding: 0 1 1 1;
+    padding: 1;
 }
 
 #headers-panel Label {
-    margin-bottom: 0;
+    margin: 1 0 0 0;
 }
 
-#headers-panel Input {
-    margin-bottom: 0;
+#headers-panel Label:first-child {
+    margin-top: 0;
 }
 
 .auth-fields {
     height: auto;
-    margin-top: 0;
+}
+
+.auth-fields Label:first-child {
+    margin-top: 1;
 }
 
 .auth-fields.hidden {
