@@ -1,5 +1,7 @@
 """Tests for the Output class and related utilities."""
 
+import json
+
 import pytest
 
 from a2a_handler.common.output import (
@@ -39,180 +41,77 @@ class TestStateConstants:
 class TestOutput:
     """Tests for Output class."""
 
-    @pytest.fixture
-    def output(self):
-        """Create an Output instance for testing."""
-        return Output(output_format="text")
-
-    @pytest.fixture
-    def captured_output(self, output):
-        """Create output capture context."""
-        captured = []
-
-        def capture_print(text):
-            captured.append(text)
-
-        output._print = capture_print
-        output._print_err = capture_print
-        return captured
-
-    def test_line_basic(self, output, captured_output):
-        """Test basic line output."""
-        output.line("Hello, world!")
-        assert captured_output == ["Hello, world!"]
-
-    def test_field_basic(self, output, captured_output):
-        """Test basic field output."""
-        output.field("Name", "Value")
-        assert captured_output == ["Name: Value"]
-
-    def test_field_with_none_value(self, output, captured_output):
-        """Test field with None value."""
-        output.field("Name", None)
-        assert captured_output == ["Name: none"]
-
-    def test_header(self, output, captured_output):
-        """Test header output."""
-        output.header("Section Title")
-        assert captured_output == ["\nSection Title"]
-
-    def test_subheader(self, output, captured_output):
-        """Test subheader output."""
-        output.subheader("Sub Section")
-        assert captured_output == ["Sub Section"]
-
-    def test_blank(self, output, captured_output):
-        """Test blank line output."""
-        output.blank()
-        assert captured_output == [""]
-
-    def test_state_completed(self, output, captured_output):
-        """Test state output for completed."""
-        output.state("Status", "completed")
-        assert captured_output == ["Status: completed"]
-
-    def test_state_failed(self, output, captured_output):
-        """Test state output for failed."""
-        output.state("Status", "failed")
-        assert captured_output == ["Status: failed"]
-
-    def test_state_canceled(self, output, captured_output):
-        """Test state output for canceled."""
-        output.state("Status", "canceled")
-        assert captured_output == ["Status: canceled"]
-
-    def test_state_working(self, output, captured_output):
-        """Test state output for working."""
-        output.state("Status", "working")
-        assert captured_output == ["Status: working"]
-
-    def test_success(self, output, captured_output):
-        """Test success message."""
-        output.success("Operation successful!")
-        assert captured_output == ["Operation successful!"]
-
-    def test_error(self, output, captured_output):
-        """Test error message."""
-        output.error("Something went wrong!")
-        assert captured_output == ["Something went wrong!"]
-
-    def test_warning(self, output, captured_output):
-        """Test warning message."""
-        output.warning("Be careful!")
-        assert captured_output == ["Be careful!"]
-
-    def test_dim(self, output, captured_output):
-        """Test dim message."""
-        output.dim("Muted text")
-        assert captured_output == ["Muted text"]
-
-    def test_json(self, output, captured_output):
+    def test_json(self, capsys):
         """Test JSON output."""
+        output = Output()
         output.json({"key": "value"})
-        assert len(captured_output) == 1
-        assert '"key"' in captured_output[0]
-        assert '"value"' in captured_output[0]
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data == {"key": "value"}
 
-    def test_json_with_non_serializable(self, output, captured_output):
+    def test_json_with_non_serializable(self, capsys):
         """Test JSON output with non-serializable type (uses default=str)."""
         from datetime import datetime
 
+        output = Output()
         now = datetime.now()
         output.json({"time": now})
-        assert len(captured_output) == 1
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "time" in data
 
-    def test_markdown(self, output, captured_output):
-        """Test markdown output."""
-        output.markdown("# Header\n\nParagraph text")
-        assert captured_output == ["# Header\n\nParagraph text"]
+    def test_error(self, capsys):
+        """Test error output."""
+        output = Output()
+        output.error(code="test_error", message="Something went wrong")
+        captured = capsys.readouterr()
+        data = json.loads(captured.err)
+        assert data["type"] == "error"
+        assert data["code"] == "test_error"
+        assert data["message"] == "Something went wrong"
 
-    def test_list_item(self, output, captured_output):
-        """Test list item output."""
-        output.list_item("First item")
-        assert "•" in captured_output[0]
-        assert "First item" in captured_output[0]
+    def test_error_with_details(self, capsys):
+        """Test error output with details and suggestion."""
+        output = Output()
+        output.error(
+            code="test_error",
+            message="Something went wrong",
+            details={"url": "http://localhost"},
+            suggestion="Try again",
+        )
+        captured = capsys.readouterr()
+        data = json.loads(captured.err)
+        assert data["details"] == {"url": "http://localhost"}
+        assert data["suggestion"] == "Try again"
 
-    def test_list_item_custom_bullet(self, output, captured_output):
-        """Test list item with custom bullet."""
-        output.list_item("Item", bullet="→")
-        assert "→" in captured_output[0]
-        assert "Item" in captured_output[0]
+    def test_quiet_mode_suppresses_json(self, capsys):
+        """Test quiet mode suppresses json output."""
+        output = Output(quiet=True)
+        output.json({"key": "value"})
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_quiet_mode_does_not_suppress_errors(self, capsys):
+        """Test quiet mode does not suppress error output."""
+        output = Output(quiet=True)
+        output.error(code="x", message="bad")
+        captured = capsys.readouterr()
+        assert captured.err != ""
 
 
-class TestStructuredOutput:
-    """Tests for json/ndjson output modes."""
+class TestNdjsonOutput:
+    """Tests for NDJSON output mode."""
 
-    def test_display_methods_are_noop_in_structured_mode(self):
-        """Display methods (line, field, header, etc.) emit nothing in json mode."""
-        output = Output(output_format="json")
-        captured: list[str] = []
-        setattr(output, "_print", captured.append)
-
-        output.line("hello")
-        output.field("Name", "value")
-        output.header("Title")
-        output.blank()
-
-        assert captured == []
-
-    def test_json_emits_domain_data(self):
-        """json() emits raw domain data without wrapper envelope."""
-        output = Output(output_format="json")
-        captured: list[str] = []
-        setattr(output, "_print", captured.append)
-
-        output.json({"name": "test", "url": "http://localhost"})
-
-        assert len(captured) == 1
-        assert '"name": "test"' in captured[0]
-        assert '"type"' not in captured[0]
-
-    def test_ndjson_emits_compact_domain_data(self):
+    def test_json_emits_compact(self, capsys):
         """json() in ndjson mode emits compact single-line JSON."""
         output = Output(output_format="ndjson")
-        captured: list[str] = []
-        setattr(output, "_print", captured.append)
-
         output.json({"name": "test"})
+        captured = capsys.readouterr()
+        assert captured.out.strip() == '{"name": "test"}'
 
-        assert captured == ['{"name": "test"}']
-
-    def test_ndjson_error_obj(self):
+    def test_error_emits_compact(self, capsys):
+        """error() in ndjson mode emits compact single-line JSON."""
         output = Output(output_format="ndjson")
-        captured: list[str] = []
-        setattr(output, "_print", captured.append)
-
-        output.error_obj(code="x", message="bad")
-
-        assert captured == ['{"type": "error", "code": "x", "message": "bad"}']
-
-    def test_quiet_mode_suppresses_non_errors(self):
-        output = Output(output_format="text", quiet=True)
-        captured: list[str] = []
-        setattr(output, "_print", captured.append)
-        setattr(output, "_print_err", captured.append)
-
-        output.line("hidden")
-        output.error("visible")
-
-        assert captured == ["visible"]
+        output.error(code="x", message="bad")
+        captured = capsys.readouterr()
+        assert captured.err.strip() == '{"type": "error", "code": "x", "message": "bad"}'

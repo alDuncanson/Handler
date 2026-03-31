@@ -356,41 +356,39 @@ class TestFormatResponse:
             TaskState.completed, context_id="ctx-123", text="Response text here"
         )
         output = MagicMock(spec=Output)
-        output.is_structured = False
 
         _format_response(mock_task, output)
 
-        output.field.assert_any_call("Context ID", "ctx-123")
-        output.state.assert_called_with("State", "completed")
-        output.markdown.assert_called_with("Response text here")
+        call_data = output.json.call_args[0][0]
+        assert call_data["contextId"] == "ctx-123"
+        assert call_data["status"]["state"] == "completed"
 
     def test_format_auth_required_result(self):
         """Test formatting an auth_required result."""
         mock_task = _make_task(TaskState.auth_required)
         output = MagicMock(spec=Output)
-        output.is_structured = False
 
         _format_response(mock_task, output)
 
-        output.warning.assert_called_with("Authentication required")
+        call_data = output.json.call_args[0][0]
+        assert call_data["status"]["state"] == "auth-required"
 
     def test_format_no_text_result(self):
         """Test formatting a result without text."""
         mock_task = _make_task(TaskState.completed)
         output = MagicMock(spec=Output)
-        output.is_structured = False
 
         _format_response(mock_task, output)
 
-        output.dim.assert_called_with("No text content in response")
+        output.json.assert_called_once()
 
 
 class TestStreamMessage:
     """Tests for _stream_message helper."""
 
     @pytest.mark.asyncio
-    async def test_stream_message_collects_text(self):
-        """Test _stream_message collects and outputs text."""
+    async def test_stream_message_collects_response(self):
+        """Test _stream_message emits JSON for last response."""
         mock_task = _make_task(TaskState.completed)
 
         async def mock_stream(*args, **kwargs):
@@ -409,7 +407,6 @@ class TestStreamMessage:
         mock_service.stream = mock_stream
 
         output = MagicMock(spec=Output)
-        output.is_structured = False
 
         with patch("a2a_handler.cli.message.update_session"):
             await _stream_message(
@@ -421,11 +418,11 @@ class TestStreamMessage:
                 output,
             )
 
-        assert output.line.call_count == 2
+        output.json.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stream_message_shows_auth_warning(self):
-        """Test _stream_message shows auth warning when needed."""
+    async def test_stream_message_auth_required(self):
+        """Test _stream_message emits JSON for auth-required response."""
         mock_task = _make_task(TaskState.auth_required)
 
         async def mock_stream(*args, **kwargs):
@@ -438,110 +435,6 @@ class TestStreamMessage:
         mock_service.stream = mock_stream
 
         output = MagicMock(spec=Output)
-        output.is_structured = False
-
-        with patch("a2a_handler.cli.message.update_session"):
-            await _stream_message(
-                mock_service,
-                "Hello",
-                None,
-                None,
-                "http://localhost:8000",
-                output,
-            )
-
-        output.warning.assert_called_with("Authentication required")
-
-
-class TestFormatResponseStructured:
-    """Tests for _format_response in structured output mode."""
-
-    def test_structured_completed_result(self):
-        """Test structured output for a completed result with text."""
-        mock_task = _make_task(
-            TaskState.completed, context_id="ctx-123", text="Response text here"
-        )
-        output = MagicMock(spec=Output)
-        output.is_structured = True
-
-        _format_response(mock_task, output)
-
-        call_data = output.json.call_args[0][0]
-        assert call_data["contextId"] == "ctx-123"
-        assert call_data["id"] == mock_task.id
-        assert call_data["status"]["state"] == "completed"
-        output.field.assert_not_called()
-
-    def test_structured_auth_required_result(self):
-        """Test structured output for an auth_required result."""
-        mock_task = _make_task(TaskState.auth_required)
-        output = MagicMock(spec=Output)
-        output.is_structured = True
-
-        _format_response(mock_task, output)
-
-        call_data = output.json.call_args[0][0]
-        assert call_data["status"]["state"] == "auth-required"
-        output.warning.assert_not_called()
-
-
-class TestStreamMessageStructured:
-    """Tests for _stream_message in structured output mode."""
-
-    @pytest.mark.asyncio
-    async def test_structured_stream_collects_text(self):
-        """Test structured output collects streamed text."""
-        mock_task = _make_task(TaskState.completed, text="First chunk")
-
-        async def mock_stream(*args, **kwargs):
-            yield StreamEvent(
-                event_type="artifact",
-                text="First chunk",
-                task=mock_task,
-            )
-            yield StreamEvent(
-                event_type="artifact",
-                text="Second chunk",
-                task=mock_task,
-            )
-
-        mock_service = MagicMock()
-        mock_service.stream = mock_stream
-
-        output = MagicMock(spec=Output)
-        output.is_structured = True
-
-        with patch("a2a_handler.cli.message.update_session"):
-            await _stream_message(
-                mock_service,
-                "Hello",
-                None,
-                None,
-                "http://localhost:8000",
-                output,
-            )
-
-        call_data = output.json.call_args[0][0]
-        assert call_data["status"]["state"] == "completed"
-        assert call_data["contextId"] == "ctx-123"
-        output.field.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_structured_stream_auth_required(self):
-        """Test structured output for auth-required stream."""
-        mock_task = _make_task(TaskState.auth_required)
-
-        async def mock_stream(*args, **kwargs):
-            yield StreamEvent(
-                event_type="status",
-                task=mock_task,
-            )
-
-        mock_service = MagicMock()
-        mock_service.stream = mock_stream
-
-        output = MagicMock(spec=Output)
-        output.is_structured = True
 
         with patch("a2a_handler.cli.message.update_session"):
             await _stream_message(
@@ -555,4 +448,28 @@ class TestStreamMessageStructured:
 
         call_data = output.json.call_args[0][0]
         assert call_data["status"]["state"] == "auth-required"
-        output.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stream_message_no_response(self):
+        """Test _stream_message emits error when no response received."""
+
+        async def mock_stream(*args, **kwargs):
+            return
+            yield  # make it an async generator
+
+        mock_service = MagicMock()
+        mock_service.stream = mock_stream
+
+        output = MagicMock(spec=Output)
+
+        with patch("a2a_handler.cli.message.update_session"):
+            await _stream_message(
+                mock_service,
+                "Hello",
+                None,
+                None,
+                "http://localhost:8000",
+                output,
+            )
+
+        output.error.assert_called_once()

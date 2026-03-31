@@ -162,32 +162,17 @@ def card_validate(
 
 def _format_validation_result(result: ValidationResult, output: Output) -> None:
     """Format and display validation result."""
-    if output.is_structured:
-        data: dict[str, object] = {
-            "valid": result.valid,
-            "source": result.source,
-        }
-        if result.agent_name:
-            data["agent_name"] = result.agent_name
-        if result.protocol_version:
-            data["protocol_version"] = result.protocol_version
-        if result.issues:
-            data["issues"] = [
-                {"field": issue.field_name, "message": issue.message}
-                for issue in result.issues
-            ]
-        output.json(data)
-        return
-
-    if result.valid:
-        output.success("Valid Agent Card")
-        output.field("Agent", result.agent_name)
-        output.field("Protocol Version", result.protocol_version)
-        output.field("Source", result.source)
-    else:
-        output.error("Invalid Agent Card")
-        output.field("Source", result.source)
-        output.blank()
-        output.line(f"Errors ({len(result.issues)}):")
-        for issue in result.issues:
-            output.list_item(f"{issue.field_name}: {issue.message}", bullet="✗")
+    data: dict[str, object] = {
+        "valid": result.valid,
+        "source": result.source,
+    }
+    if result.agent_name:
+        data["agent_name"] = result.agent_name
+    if result.protocol_version:
+        data["protocol_version"] = result.protocol_version
+    if result.issues:
+        data["issues"] = [
+            {"field": issue.field_name, "message": issue.message}
+            for issue in result.issues
+        ]
+    output.json(data)

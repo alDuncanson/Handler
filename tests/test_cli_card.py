@@ -188,7 +188,7 @@ class TestCardValidate:
             result = runner.invoke(card, ["validate", "--file", f.name])
 
             assert result.exit_code == 0
-            assert "Valid" in result.output
+            assert '"valid": true' in result.output
 
             Path(f.name).unlink()
 
@@ -203,7 +203,7 @@ class TestCardValidate:
             result = runner.invoke(card, ["validate", "--file", f.name])
 
             assert result.exit_code == 1
-            assert "Invalid" in result.output
+            assert '"valid": false' in result.output
 
             Path(f.name).unlink()
 
@@ -240,7 +240,7 @@ class TestCardValidate:
             )
 
             assert result.exit_code == 0
-            assert "Valid" in result.output
+            assert '"valid": true' in result.output
 
     def test_validate_rejects_invalid_url(self, runner):
         """Test validating malformed URL source fails with validation envelope."""
@@ -287,12 +287,13 @@ class TestFormatValidationResult:
             agent_card=_make_agent_card(),
         )
         output = MagicMock(spec=Output)
-        output.is_structured = False
 
         _format_validation_result(mock_result, output)
 
-        output.success.assert_called_once_with("Valid Agent Card")
-        output.field.assert_any_call("Agent", "Test Agent")
+        output.json.assert_called_once()
+        call_args = output.json.call_args[0][0]
+        assert call_args["valid"] is True
+        assert call_args["agent_name"] == "Test Agent"
 
     def test_format_invalid_result(self):
         """Test formatting an invalid result."""
@@ -309,9 +310,10 @@ class TestFormatValidationResult:
             ],
         )
         output = MagicMock(spec=Output)
-        output.is_structured = False
 
         _format_validation_result(mock_result, output)
 
-        output.error.assert_called_once_with("Invalid Agent Card")
-        output.list_item.assert_called()
+        output.json.assert_called_once()
+        call_args = output.json.call_args[0][0]
+        assert call_args["valid"] is False
+        assert len(call_args["issues"]) == 1

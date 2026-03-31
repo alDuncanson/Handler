@@ -1,5 +1,7 @@
 """Shared utilities for CLI commands."""
 
+import sys
+
 import httpx
 import click
 from a2a.client.errors import (
@@ -87,14 +89,14 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         error_code = "unexpected_error"
 
     if output:
-        output.error_obj(
+        output.error(
             code=error_code,
             message=message,
             details=details,
             suggestion=suggestion,
         )
     else:
-        click.echo(f"Error [{error_code}]: {message}", err=True)
+        print(f"Error [{error_code}]: {message}", file=sys.stderr)
 
 
 def resolve_agent_target(
@@ -140,7 +142,7 @@ def resolve_agent_target(
 
 def handle_validation_error(error: InputValidationError, output: Output) -> None:
     """Render input validation errors in the standard envelope."""
-    output.error_obj(
+    output.error(
         code=error.code,
         message=error.message,
         details=error.details,

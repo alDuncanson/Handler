@@ -39,27 +39,6 @@ def server() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render_server(output: Output, server_def: ServerDefinition) -> None:
-    output.field("Source", server_source_label(server_def.source))
-    if server_def.name:
-        output.field("Name", server_def.name)
-    output.field("URL", server_def.agent_url)
-    if server_def.auth:
-        output.field("Auth Type", server_def.auth.auth_type.value)
-        if server_def.auth.env_var:
-            output.field("Env Var", server_def.auth.env_var)
-        if server_def.auth.auth_type.value == "api_key":
-            output.field("Header", server_def.auth.header_name)
-        if server_def.auth.cert_path:
-            output.field("Certificate", server_def.auth.cert_path)
-        if server_def.auth.key_path:
-            output.field("Private Key", server_def.auth.key_path)
-        if server_def.auth.ca_cert_path:
-            output.field("CA Certificate", server_def.auth.ca_cert_path)
-    else:
-        output.field("Auth", "none")
-
-
 def _server_to_dict(server_def: ServerDefinition) -> dict[str, object]:
     data: dict[str, object] = {
         "name": server_def.name,
@@ -188,28 +167,9 @@ def server_list() -> None:
     output = Output()
     catalog = load_server_catalog()
 
-    total = len(catalog.repository_servers) + len(catalog.global_servers)
-    if total == 0:
-        output.dim("No servers configured")
-        output.dim(f"Create global servers in {server_file_path()}")
-        return
-
-    if output.is_structured:
-        for source, servers in _iter_catalog_sections(catalog):
-            for server_def in servers:
-                output.json(_server_to_dict(server_def))
-        return
-
     for source, servers in _iter_catalog_sections(catalog):
-        if not servers:
-            continue
-        output.header(
-            f"{server_source_label(source)} Servers ({len(servers)})"
-        )
         for server_def in servers:
-            output.blank()
-            output.subheader(server_def.label)
-            _render_server(output, server_def)
+            output.json(_server_to_dict(server_def))
 
 
 @server.command("show")
@@ -241,38 +201,24 @@ def server_show(name: str, source: str | None) -> None:
         )
 
     if not matches:
-        output.error(f"Server '{name}' not found")
+        output.error(code="not_found", message=f"Server '{name}' not found")
         return
 
     if len(matches) > 1:
         output.error(
-            f"Server '{name}' exists in multiple sources; re-run with --source"
+            code="ambiguous_server",
+            message=f"Server '{name}' exists in multiple sources; re-run with --source",
         )
         return
 
     server_def = matches[0]
 
-    if output.is_structured:
-        result = _server_to_dict(server_def)
-        credentials, warning = resolve_server_credentials(server_def)
-        result["credentials_status"] = "resolved" if credentials else ("unavailable" if warning else "none")
-        if warning:
-            result["credentials_warning"] = warning
-        output.json(result)
-        return
-
-    output.header(f"Server: {server_def.label}")
-    _render_server(output, server_def)
-
+    result = _server_to_dict(server_def)
     credentials, warning = resolve_server_credentials(server_def)
-    output.blank()
-    if credentials:
-        output.field("Status", "resolved")
-    elif warning:
-        output.field("Status", "unavailable")
-        output.warning(warning)
-    else:
-        output.field("Status", "no default auth configured")
+    result["credentials_status"] = "resolved" if credentials else ("unavailable" if warning else "none")
+    if warning:
+        result["credentials_warning"] = warning
+    output.json(result)
 
 
 @server.command("add")
@@ -328,7 +274,7 @@ def server_add(
     data = _read_toml(path)
     servers = data.get("servers", {})
     if isinstance(servers, dict) and name in servers:
-        output.error(f"Server '{name}' already exists in {path}")
+        output.error(code="already_exists", message=f"Server '{name}' already exists in {path}")
         return
 
     block = _build_toml_block(
@@ -349,11 +295,7 @@ def server_add(
         with open(path, "a") as f:
             f.write(f"\n{block}")
 
-    if output.is_structured:
-        output.json({"name": name, "url": url, "path": str(path)})
-        return
-
-    output.success(f"Added server '{name}' to {path}")
+    output.json({"name": name, "url": url, "path": str(path)})
 
 
 @server.command("remove")
@@ -383,23 +325,19 @@ def server_remove(name: str, use_global: bool, use_repository: bool) -> None:
     path = _resolve_servers_path(use_repository)
 
     if not path.exists():
-        output.error(f"No server file found at {path}")
+        output.error(code="not_found", message=f"No server file found at {path}")
         return
 
     data = _read_toml(path)
     servers = data.get("servers")
     if not isinstance(servers, dict) or name not in servers:
-        output.error(f"Server '{name}' not found in {path}")
+        output.error(code="not_found", message=f"Server '{name}' not found in {path}")
         return
 
     del servers[name]
     _write_toml_from_data(path, data)
 
-    if output.is_structured:
-        output.json({"name": name, "path": str(path)})
-        return
-
-    output.success(f"Removed server '{name}' from {path}")
+    output.json({"name": name, "path": str(path)})
 
 
 @server.command("validate")
@@ -413,54 +351,17 @@ def server_validate() -> None:
     output = Output()
     catalog = load_server_catalog()
 
-    total = len(catalog.repository_servers) + len(catalog.global_servers)
-    if total == 0:
-        output.dim("No servers to validate")
-        return
-
-    if output.is_structured:
-        results = []
-        for source, servers in _iter_catalog_sections(catalog):
-            for server_def in servers:
-                entry = _server_to_dict(server_def)
-                if server_def.auth:
-                    credentials, warning = resolve_server_credentials(server_def)
-                    entry["credentials_status"] = "ok" if credentials else "error"
-                    if warning:
-                        entry["credentials_warning"] = warning
-                results.append(entry)
-        output.json(results)
-        return
-
-    output.header("Server Validation")
-    has_issues = False
-
+    results = []
     for source, servers in _iter_catalog_sections(catalog):
         for server_def in servers:
-            output.blank()
-            output.subheader(
-                f"{server_source_label(source)}: {server_def.label}"
-            )
-            output.field("URL", server_def.agent_url)
-            if not server_def.auth:
-                output.field("Auth", "none")
-                continue
-
-            output.field("Auth Type", server_def.auth.auth_type.value)
-            credentials, warning = resolve_server_credentials(server_def)
-            if credentials:
-                output.field("Status", "ok")
-            else:
-                has_issues = True
-                output.field("Status", "error")
+            entry = _server_to_dict(server_def)
+            if server_def.auth:
+                credentials, warning = resolve_server_credentials(server_def)
+                entry["credentials_status"] = "ok" if credentials else "error"
                 if warning:
-                    output.warning(warning)
-
-    output.blank()
-    if has_issues:
-        output.warning("Some servers have issues")
-    else:
-        output.success("All servers valid")
+                    entry["credentials_warning"] = warning
+            results.append(entry)
+    output.json(results)
 
 
 # ---------------------------------------------------------------------------

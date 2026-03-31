@@ -30,31 +30,17 @@ def session_list() -> None:
     sessions = store.list_all()
 
     if not sessions:
-        output.dim("No saved sessions")
         return
 
-    if output.is_structured:
-        for session_entry in sessions:
-            data: dict[str, object] = {"agent_url": session_entry.agent_url}
-            if session_entry.context_id:
-                data["context_id"] = session_entry.context_id
-            if session_entry.task_id:
-                data["task_id"] = session_entry.task_id
-            if session_entry.last_used_at:
-                data["last_used_at"] = session_entry.last_used_at
-            output.json(data)
-        return
-
-    output.header(f"Saved Sessions ({len(sessions)})")
     for session_entry in sessions:
-        output.blank()
-        output.subheader(session_entry.agent_url)
+        data: dict[str, object] = {"agent_url": session_entry.agent_url}
         if session_entry.context_id:
-            output.field("Context ID", session_entry.context_id)
+            data["context_id"] = session_entry.context_id
         if session_entry.task_id:
-            output.field("Task ID", session_entry.task_id)
+            data["task_id"] = session_entry.task_id
         if session_entry.last_used_at:
-            output.field("Last Used", session_entry.last_used_at)
+            data["last_used_at"] = session_entry.last_used_at
+        output.json(data)
 
 
 @session.command("show")
@@ -86,28 +72,12 @@ def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
 
     session_entry = get_session(agent_url)
 
-    if output.is_structured:
-        output.json({
-            "agent_url": agent_url,
-            "context_id": session_entry.context_id,
-            "task_id": session_entry.task_id,
-            "last_used_at": session_entry.last_used_at,
-        })
-        return
-
-    output.header(f"Session for {agent_url}")
-    output.field(
-        "Context ID",
-        session_entry.context_id or "none",
-    )
-    output.field(
-        "Task ID",
-        session_entry.task_id or "none",
-    )
-    output.field(
-        "Last Used",
-        session_entry.last_used_at or "none",
-    )
+    output.json({
+        "agent_url": agent_url,
+        "context_id": session_entry.context_id,
+        "task_id": session_entry.task_id,
+        "last_used_at": session_entry.last_used_at,
+    })
 
 
 @session.command("clear")
@@ -130,20 +100,14 @@ def session_clear(
     output = Output()
     if clear_all:
         clear_session()
-        if output.is_structured:
-            output.json({"cleared": "all"})
-            return
-        output.success("Cleared all sessions")
+        output.json({"cleared": "all"})
     elif server_name:
         from ._helpers import resolve_agent_target
 
         resolved_url, _ = resolve_agent_target(agent_url, server_name)
         agent_url = resolved_url
         clear_session(agent_url)
-        if output.is_structured:
-            output.json({"cleared": agent_url})
-            return
-        output.success(f"Cleared session for {agent_url}")
+        output.json({"cleared": agent_url})
     elif agent_url:
         try:
             validate_agent_url(agent_url)
@@ -152,9 +116,6 @@ def session_clear(
             raise click.Abort() from error
 
         clear_session(agent_url)
-        if output.is_structured:
-            output.json({"cleared": agent_url})
-            return
-        output.success(f"Cleared session for {agent_url}")
+        output.json({"cleared": agent_url})
     else:
-        output.warning("Provide --url or --server, or use --all to clear sessions")
+        output.error(code="missing_target", message="Provide --url or --server, or use --all to clear sessions")

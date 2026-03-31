@@ -46,10 +46,10 @@ log = get_logger(__name__)
 @click.option(
     "--output",
     "output_format",
-    type=click.Choice(["text", "json", "ndjson"]),
-    default="text",
+    type=click.Choice(["json", "ndjson"]),
+    default="json",
     show_default=True,
-    help="Output format for command results",
+    help="Output format",
 )
 @click.option(
     "--quiet",
@@ -89,21 +89,15 @@ cli.add_command(describe)
 
 
 @cli.command()
-@click.pass_context
-def version(ctx: click.Context) -> None:
+def version() -> None:
     """Display the current version.
 
     \b
     Examples:
       $ handler version
-      $ handler --output json version
     """
     output = Output()
-    output_format = (ctx.obj or {}).get("output_format", "text")
-    if output_format == "text":
-        output.line(__version__)
-    else:
-        output.json({"version": __version__})
+    output.json({"version": __version__})
 
 
 @cli.command()

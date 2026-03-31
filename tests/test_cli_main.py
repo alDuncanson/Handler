@@ -37,18 +37,9 @@ def test_version_flag(runner: CliRunner) -> None:
     assert "version" in result.output.lower()
 
 
-def test_version_plain_text_default(runner: CliRunner) -> None:
-    """Version command defaults to text output."""
+def test_version_output(runner: CliRunner) -> None:
+    """Version command emits JSON output."""
     result = runner.invoke(cli, ["version"])
-
-    assert result.exit_code == 0
-    assert result.output.strip()
-    assert "version" not in result.output.lower()
-
-
-def test_version_json_output(runner: CliRunner) -> None:
-    """Version command supports global json output mode."""
-    result = runner.invoke(cli, ["--output", "json", "version"])
 
     assert result.exit_code == 0
     assert '"version"' in result.output

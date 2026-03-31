@@ -297,7 +297,7 @@ class TestTaskCancel:
             )
 
             assert result.exit_code == 0
-            assert "canceled" in result.output.lower()
+            assert '"canceled"' in result.output
 
     def test_task_cancel_with_bearer(self, runner):
         """Test task cancel with bearer token."""
@@ -454,7 +454,7 @@ class TestTaskNotificationSet:
             )
 
             assert result.exit_code == 0
-            assert "Push notification config set" in result.output
+            assert '"task_id"' in result.output
 
     def test_notification_set_with_token(self, runner):
         """Test notification set with authentication token."""
@@ -614,7 +614,7 @@ class TestFormatTask:
     """Tests for _format_task helper."""
 
     def test_format_task_completed(self):
-        """Test formatting a completed task."""
+        """Test formatting a completed task emits JSON."""
         from a2a_handler.cli.task import _format_task
         from a2a_handler.common import Output
         from unittest.mock import MagicMock
@@ -634,15 +634,15 @@ class TestFormatTask:
         )
 
         output = MagicMock(spec=Output)
-        output.is_structured = False
         _format_task(mock_task, output)
 
-        output.field.assert_any_call("Task ID", "task-123")
-        output.state.assert_called_with("State", "completed")
-        output.markdown.assert_called_with("Output text here")
+        output.json.assert_called_once()
+        call_data = output.json.call_args[0][0]
+        assert call_data["id"] == "task-123"
+        assert call_data["status"]["state"] == "completed"
 
     def test_format_task_no_text(self):
-        """Test formatting a task without text."""
+        """Test formatting a task without text emits JSON."""
         from a2a_handler.cli.task import _format_task
         from a2a_handler.common import Output
         from unittest.mock import MagicMock
@@ -650,7 +650,6 @@ class TestFormatTask:
         mock_task = _make_task(TaskState.working)
 
         output = MagicMock(spec=Output)
-        output.is_structured = False
         _format_task(mock_task, output)
 
-        output.markdown.assert_not_called()
+        output.json.assert_called_once()

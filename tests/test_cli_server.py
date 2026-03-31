@@ -60,7 +60,6 @@ class TestServerList:
             result = runner.invoke(server, ["list"])
 
         assert result.exit_code == 0
-        assert "No servers configured" in result.output
 
     def test_list_shows_configured_servers(
         self, runner: CliRunner, servers_dir: Path
@@ -144,7 +143,6 @@ class TestServerAdd:
             )
 
         assert result.exit_code == 0
-        assert "Added" in result.output
         assert path.exists()
 
         data = tomllib.loads(path.read_text())
@@ -262,7 +260,6 @@ class TestServerRemove:
             result = runner.invoke(server, ["remove", "beta"])
 
         assert result.exit_code == 0
-        assert "Removed" in result.output
 
         data = tomllib.loads(servers_file.read_text())
         assert "beta" not in data.get("servers", {})
@@ -313,7 +310,6 @@ class TestServerValidate:
             result = runner.invoke(server, ["validate"])
 
         assert result.exit_code == 0
-        assert "No servers to validate" in result.output
 
     def test_validate_all_ok(
         self, runner: CliRunner, servers_dir: Path

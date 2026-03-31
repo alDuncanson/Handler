@@ -29,7 +29,6 @@ class TestSessionList:
             result = runner.invoke(session, ["list"])
 
             assert result.exit_code == 0
-            assert "No saved sessions" in result.output
 
     def test_list_with_sessions(self, runner):
         """Test listing existing sessions."""
@@ -92,7 +91,7 @@ class TestSessionShow:
             )
 
             assert result.exit_code == 0
-            assert "none" in result.output.lower()
+            assert "null" in result.output.lower()
 
     def test_show_rejects_invalid_agent_url(self, runner):
         """Test show rejects malformed agent URL."""
@@ -113,7 +112,7 @@ class TestSessionClear:
             )
 
             assert result.exit_code == 0
-            assert "Cleared" in result.output
+            assert '"cleared"' in result.output
             mock_clear.assert_called_once_with("http://localhost:8000")
 
     def test_clear_all_sessions(self, runner):
@@ -122,15 +121,15 @@ class TestSessionClear:
             result = runner.invoke(session, ["clear", "--all"])
 
             assert result.exit_code == 0
-            assert "Cleared all" in result.output
+            assert '"cleared": "all"' in result.output
             mock_clear.assert_called_once_with()
 
-    def test_clear_without_args_shows_warning(self, runner):
-        """Test clearing without args shows warning."""
+    def test_clear_without_args_shows_error(self, runner):
+        """Test clearing without args shows error."""
         result = runner.invoke(session, ["clear"])
 
         assert result.exit_code == 0
-        assert "Provide" in result.output or "--all" in result.output
+        assert "missing_target" in result.output
 
     def test_clear_rejects_invalid_agent_url(self, runner):
         """Test clearing a malformed URL fails with validation error."""

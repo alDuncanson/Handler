@@ -112,7 +112,7 @@ def describe(ctx: click.Context, command_path: tuple[str, ...]) -> None:
 
     command = resolve_command(root, command_path)
     if command is None:
-        output.error_obj(
+        output.error(
             code="unknown_command_path",
             message=f"Unknown command path: {' '.join(command_path)}",
             suggestion="Use `handler schema` to list valid command paths",
