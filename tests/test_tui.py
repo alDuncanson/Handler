@@ -54,10 +54,15 @@ def patch_server_sources() -> Generator[Mock, None, None]:
     session_store.list_all.return_value = []
     session_store.recent_agent_urls.return_value = []
 
+    empty_catalog = ServerCatalog()
     with (
         patch(
             "a2a_handler.tui.server_tab.load_server_catalog",
-            return_value=ServerCatalog(),
+            return_value=empty_catalog,
+        ),
+        patch(
+            "a2a_handler.tui.server_tabs.load_server_catalog",
+            return_value=empty_catalog,
         ),
         patch(
             "a2a_handler.tui.server_tab.get_session_store",

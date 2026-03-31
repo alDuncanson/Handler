@@ -103,11 +103,11 @@ def version() -> None:
 @cli.command()
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token for agent auth")
 @click.option(
-    "--connect",
-    "-c",
+    "--server",
+    "-s",
     "connect_servers",
     multiple=True,
-    help="Named server to pre-connect on startup (repeatable)",
+    help="Named server to connect on startup (repeatable)",
 )
 @click.option("--url", help="URL to pre-connect on startup")
 def tui(
@@ -120,8 +120,8 @@ def tui(
     \b
     Examples:
       $ handler tui
-      $ handler tui --connect my_agent
-      $ handler tui --connect my_agent --connect other_agent
+      $ handler tui --server my_agent
+      $ handler tui --server my_agent --server other_agent
       $ handler tui --url http://localhost:8000
       $ handler tui --bearer TOKEN
     """
