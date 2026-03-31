@@ -548,6 +548,7 @@ class ServerTab(Container):
                 "Connection failed for %s: %s", self.server_id, error, exc_info=True
             )
             messages_panel.add_system_message(f"Connection failed: {error!s}")
+            self._refresh_live_summary()
 
     @on(Input.Submitted, "#message-input")
     def handle_message_submit(self) -> None:
