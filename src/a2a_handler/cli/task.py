@@ -238,14 +238,23 @@ def task_resubscribe(
 
                 output.dim(f"Resubscribing to task {task_id}...")
 
+                collected_text: list[str] = []
+                last_state: str | None = None
                 async for event in service.resubscribe(task_id):
                     if event.event_type == "status":
-                        output.state(
-                            "Status",
-                            event.state.value if event.state else "unknown",
-                        )
+                        last_state = event.state.value if event.state else "unknown"
+                        output.state("Status", last_state)
                     elif event.text:
                         output.line(event.text)
+                        collected_text.append(event.text)
+
+                if output.is_structured:
+                    data: dict[str, object] = {"task_id": task_id}
+                    if last_state:
+                        data["state"] = last_state
+                    if collected_text:
+                        data["text"] = "\n".join(collected_text)
+                    output.json(data)
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -256,6 +265,18 @@ def task_resubscribe(
 
 def _format_task_result(result: TaskResult, output: Output) -> None:
     """Format and display a task result."""
+    if output.is_structured:
+        data: dict[str, object] = {
+            "task_id": result.task_id,
+            "state": result.state.value,
+        }
+        if result.context_id:
+            data["context_id"] = result.context_id
+        if result.text:
+            data["text"] = result.text
+        output.json(data)
+        return
+
     output.blank()
     output.field("Task ID", result.task_id)
     output.state("State", result.state.value)
@@ -334,6 +355,18 @@ def notification_set(
 
                 config = await service.set_push_config(task_id, webhook_url, token)
 
+                if output.is_structured:
+                    data: dict[str, object] = {"task_id": config.task_id}
+                    if config.push_notification_config:
+                        pnc = config.push_notification_config
+                        data["url"] = pnc.url
+                        if pnc.token:
+                            data["token"] = pnc.token
+                        if pnc.id:
+                            data["config_id"] = pnc.id
+                    output.json(data)
+                    return
+
                 output.success("Push notification config set")
                 output.field("Task ID", config.task_id)
                 if config.push_notification_config:
@@ -404,6 +437,18 @@ def notification_get(
                 )
 
                 config = await service.get_push_config(task_id, config_id)
+
+                if output.is_structured:
+                    data: dict[str, object] = {"task_id": config.task_id}
+                    if config.push_notification_config:
+                        pnc = config.push_notification_config
+                        data["url"] = pnc.url
+                        if pnc.token:
+                            data["token"] = pnc.token
+                        if pnc.id:
+                            data["config_id"] = pnc.id
+                    output.json(data)
+                    return
 
                 output.field("Task ID", config.task_id)
                 if config.push_notification_config:

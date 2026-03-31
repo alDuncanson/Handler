@@ -60,6 +60,30 @@ def _render_server(output: Output, server_def: ServerDefinition) -> None:
         output.field("Auth", "none")
 
 
+def _server_to_dict(server_def: ServerDefinition) -> dict[str, object]:
+    data: dict[str, object] = {
+        "name": server_def.name,
+        "source": server_source_label(server_def.source).lower(),
+        "url": server_def.agent_url,
+    }
+    if server_def.auth:
+        auth: dict[str, object] = {"type": server_def.auth.auth_type.value}
+        if server_def.auth.env_var:
+            auth["env_var"] = server_def.auth.env_var
+        if server_def.auth.auth_type.value == "api_key":
+            auth["header"] = server_def.auth.header_name
+        if server_def.auth.cert_path:
+            auth["cert_path"] = server_def.auth.cert_path
+        if server_def.auth.key_path:
+            auth["key_path"] = server_def.auth.key_path
+        if server_def.auth.ca_cert_path:
+            auth["ca_cert_path"] = server_def.auth.ca_cert_path
+        data["auth"] = auth
+    else:
+        data["auth"] = None
+    return data
+
+
 def _iter_catalog_sections(
     catalog: ServerCatalog,
 ) -> list[tuple[ServerSource, tuple[ServerDefinition, ...]]]:
@@ -170,6 +194,12 @@ def server_list() -> None:
         output.dim(f"Create global servers in {server_file_path()}")
         return
 
+    if output.is_structured:
+        for source, servers in _iter_catalog_sections(catalog):
+            for server_def in servers:
+                output.json(_server_to_dict(server_def))
+        return
+
     for source, servers in _iter_catalog_sections(catalog):
         if not servers:
             continue
@@ -221,6 +251,16 @@ def server_show(name: str, source: str | None) -> None:
         return
 
     server_def = matches[0]
+
+    if output.is_structured:
+        result = _server_to_dict(server_def)
+        credentials, warning = resolve_server_credentials(server_def)
+        result["credentials_status"] = "resolved" if credentials else ("unavailable" if warning else "none")
+        if warning:
+            result["credentials_warning"] = warning
+        output.json(result)
+        return
+
     output.header(f"Server: {server_def.label}")
     _render_server(output, server_def)
 
@@ -309,6 +349,10 @@ def server_add(
         with open(path, "a") as f:
             f.write(f"\n{block}")
 
+    if output.is_structured:
+        output.json({"name": name, "url": url, "path": str(path)})
+        return
+
     output.success(f"Added server '{name}' to {path}")
 
 
@@ -350,6 +394,11 @@ def server_remove(name: str, use_global: bool, use_repository: bool) -> None:
 
     del servers[name]
     _write_toml_from_data(path, data)
+
+    if output.is_structured:
+        output.json({"name": name, "path": str(path)})
+        return
+
     output.success(f"Removed server '{name}' from {path}")
 
 
@@ -367,6 +416,20 @@ def server_validate() -> None:
     total = len(catalog.repository_servers) + len(catalog.global_servers)
     if total == 0:
         output.dim("No servers to validate")
+        return
+
+    if output.is_structured:
+        results = []
+        for source, servers in _iter_catalog_sections(catalog):
+            for server_def in servers:
+                entry = _server_to_dict(server_def)
+                if server_def.auth:
+                    credentials, warning = resolve_server_credentials(server_def)
+                    entry["credentials_status"] = "ok" if credentials else "error"
+                    if warning:
+                        entry["credentials_warning"] = warning
+                results.append(entry)
+        output.json(results)
         return
 
     output.header("Server Validation")

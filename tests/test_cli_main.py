@@ -51,5 +51,4 @@ def test_version_json_output(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["--output", "json", "version"])
 
     assert result.exit_code == 0
-    assert '"type": "data"' in result.output
     assert '"version"' in result.output

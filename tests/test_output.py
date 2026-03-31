@@ -12,12 +12,6 @@ from a2a_handler.common.output import (
 )
 
 
-@pytest.fixture(autouse=True)
-def reset_output_defaults() -> None:
-    """Reset global output defaults to avoid cross-test leakage."""
-    configure_output(output_format="text", quiet=False)
-
-
 class TestStateConstants:
     """Tests for state constant sets."""
 
@@ -59,6 +53,7 @@ class TestOutput:
             captured.append(text)
 
         output._print = capture_print
+        output._print_err = capture_print
         return captured
 
     def test_line_basic(self, output, captured_output):
@@ -167,18 +162,42 @@ class TestOutput:
 class TestStructuredOutput:
     """Tests for json/ndjson output modes."""
 
-    def test_json_mode_emits_structured_line(self):
+    def test_display_methods_are_noop_in_structured_mode(self):
+        """Display methods (line, field, header, etc.) emit nothing in json mode."""
         output = Output(output_format="json")
         captured: list[str] = []
         setattr(output, "_print", captured.append)
 
         output.line("hello")
+        output.field("Name", "value")
+        output.header("Title")
+        output.blank()
+
+        assert captured == []
+
+    def test_json_emits_domain_data(self):
+        """json() emits raw domain data without wrapper envelope."""
+        output = Output(output_format="json")
+        captured: list[str] = []
+        setattr(output, "_print", captured.append)
+
+        output.json({"name": "test", "url": "http://localhost"})
 
         assert len(captured) == 1
-        assert '"type": "line"' in captured[0]
-        assert '"text": "hello"' in captured[0]
+        assert '"name": "test"' in captured[0]
+        assert '"type"' not in captured[0]
 
-    def test_ndjson_mode_emits_single_line(self):
+    def test_ndjson_emits_compact_domain_data(self):
+        """json() in ndjson mode emits compact single-line JSON."""
+        output = Output(output_format="ndjson")
+        captured: list[str] = []
+        setattr(output, "_print", captured.append)
+
+        output.json({"name": "test"})
+
+        assert captured == ['{"name": "test"}']
+
+    def test_ndjson_error_obj(self):
         output = Output(output_format="ndjson")
         captured: list[str] = []
         setattr(output, "_print", captured.append)
@@ -191,6 +210,7 @@ class TestStructuredOutput:
         output = Output(output_format="text", quiet=True)
         captured: list[str] = []
         setattr(output, "_print", captured.append)
+        setattr(output, "_print_err", captured.append)
 
         output.line("hidden")
         output.error("visible")

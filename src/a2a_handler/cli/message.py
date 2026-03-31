@@ -331,6 +331,21 @@ async def _stream_message(
 
     update_session(agent_url, last_context_id, last_task_id)
 
+    if output.is_structured:
+        data: dict[str, object] = {}
+        if last_context_id:
+            data["context_id"] = last_context_id
+        if last_task_id:
+            data["task_id"] = last_task_id
+        if last_state:
+            data["state"] = last_state.value
+            if last_state.value == "auth-required":
+                data["needs_auth"] = True
+        if collected_text:
+            data["text"] = "\n".join(collected_text)
+        output.json(data)
+        return
+
     output.blank()
     if last_context_id:
         output.field("Context ID", last_context_id)
@@ -350,6 +365,21 @@ async def _stream_message(
 
 def _format_send_result(result: SendResult, output: Output) -> None:
     """Format and display a send result."""
+    if output.is_structured:
+        data: dict[str, object] = {}
+        if result.context_id:
+            data["context_id"] = result.context_id
+        if result.task_id:
+            data["task_id"] = result.task_id
+        if result.state:
+            data["state"] = result.state.value
+        if result.needs_auth:
+            data["needs_auth"] = True
+        elif result.text:
+            data["text"] = result.text
+        output.json(data)
+        return
+
     output.blank()
     if result.context_id:
         output.field("Context ID", result.context_id)

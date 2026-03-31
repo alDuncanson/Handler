@@ -609,6 +609,7 @@ class TestFormatTaskResult:
         result = TaskResult(task=mock_task, text="Output text here")
 
         output = MagicMock(spec=Output)
+        output.is_structured = False
         _format_task_result(result, output)
 
         output.field.assert_any_call("Task ID", "task-123")
@@ -625,6 +626,7 @@ class TestFormatTaskResult:
         result = TaskResult(task=mock_task, text="")
 
         output = MagicMock(spec=Output)
+        output.is_structured = False
         _format_task_result(result, output)
 
         output.markdown.assert_not_called()

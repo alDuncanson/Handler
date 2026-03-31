@@ -148,7 +148,6 @@ class TestCardGet:
             )
 
             assert result.exit_code == 0
-            assert '"type": "data"' in result.output
             assert '"name": "Test Agent"' in result.output
 
     def test_card_get_rejects_invalid_agent_url(self, runner):
@@ -288,6 +287,7 @@ class TestFormatValidationResult:
             agent_card=_make_agent_card(),
         )
         output = MagicMock(spec=Output)
+        output.is_structured = False
 
         _format_validation_result(mock_result, output)
 
@@ -309,6 +309,7 @@ class TestFormatValidationResult:
             ],
         )
         output = MagicMock(spec=Output)
+        output.is_structured = False
 
         _format_validation_result(mock_result, output)
 

@@ -33,6 +33,18 @@ def session_list() -> None:
         output.dim("No saved sessions")
         return
 
+    if output.is_structured:
+        for session_entry in sessions:
+            data: dict[str, object] = {"agent_url": session_entry.agent_url}
+            if session_entry.context_id:
+                data["context_id"] = session_entry.context_id
+            if session_entry.task_id:
+                data["task_id"] = session_entry.task_id
+            if session_entry.last_used_at:
+                data["last_used_at"] = session_entry.last_used_at
+            output.json(data)
+        return
+
     output.header(f"Saved Sessions ({len(sessions)})")
     for session_entry in sessions:
         output.blank()
@@ -73,6 +85,16 @@ def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
         raise click.Abort() from error
 
     session_entry = get_session(agent_url)
+
+    if output.is_structured:
+        output.json({
+            "agent_url": agent_url,
+            "context_id": session_entry.context_id,
+            "task_id": session_entry.task_id,
+            "last_used_at": session_entry.last_used_at,
+        })
+        return
+
     output.header(f"Session for {agent_url}")
     output.field(
         "Context ID",
@@ -108,6 +130,9 @@ def session_clear(
     output = Output()
     if clear_all:
         clear_session()
+        if output.is_structured:
+            output.json({"cleared": "all"})
+            return
         output.success("Cleared all sessions")
     elif server_name:
         from ._helpers import resolve_agent_target
@@ -115,6 +140,9 @@ def session_clear(
         resolved_url, _ = resolve_agent_target(agent_url, server_name)
         agent_url = resolved_url
         clear_session(agent_url)
+        if output.is_structured:
+            output.json({"cleared": agent_url})
+            return
         output.success(f"Cleared session for {agent_url}")
     elif agent_url:
         try:
@@ -124,6 +152,9 @@ def session_clear(
             raise click.Abort() from error
 
         clear_session(agent_url)
+        if output.is_structured:
+            output.json({"cleared": agent_url})
+            return
         output.success(f"Cleared session for {agent_url}")
     else:
         output.warning("Provide --url or --server, or use --all to clear sessions")
