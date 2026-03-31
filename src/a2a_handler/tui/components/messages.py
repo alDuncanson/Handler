@@ -287,6 +287,18 @@ class TabbedMessagesPanel(Container):
                 credentials.key_path,
                 credentials.ca_cert_path,
             )
+        elif (
+            credentials.auth_type == AuthType.OAUTH2
+            and credentials.token_url
+            and credentials.client_id
+            and credentials.client_secret
+        ):
+            auth_panel.set_oauth2(
+                credentials.token_url,
+                credentials.client_id,
+                credentials.client_secret,
+                credentials.scopes,
+            )
 
         auth_panel.set_custom_headers(credentials.custom_headers)
 

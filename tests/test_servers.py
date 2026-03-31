@@ -289,3 +289,135 @@ url = "http://local-only:9000"
         "global-only",
         "shared",
     ]
+
+
+def test_load_servers_parses_oauth2_entry(tmp_path: Path) -> None:
+    """OAuth2 server tables are loaded with token URL and env var names."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.apigee]
+url = "https://proxy.apigee.net/agent"
+
+[servers.apigee.auth]
+type = "oauth2"
+token_url = "https://proxy.apigee.net/oauth/token"
+client_id_env = "APIGEE_CLIENT_ID"
+client_secret_env = "APIGEE_CLIENT_SECRET"
+scopes = ["read", "write"]
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert len(servers) == 1
+    assert servers[0].auth is not None
+    assert servers[0].auth.auth_type == AuthType.OAUTH2
+    assert servers[0].auth.token_url == "https://proxy.apigee.net/oauth/token"
+    assert servers[0].auth.client_id_env == "APIGEE_CLIENT_ID"
+    assert servers[0].auth.client_secret_env == "APIGEE_CLIENT_SECRET"
+    assert servers[0].auth.scopes == ["read", "write"]
+
+
+def test_load_servers_parses_oauth2_without_scopes(tmp_path: Path) -> None:
+    """OAuth2 server without scopes is valid."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.simple]
+url = "https://proxy.example.com/agent"
+
+[servers.simple.auth]
+type = "oauth2"
+token_url = "https://proxy.example.com/oauth/token"
+client_id_env = "CLIENT_ID"
+client_secret_env = "CLIENT_SECRET"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert len(servers) == 1
+    assert servers[0].auth is not None
+    assert servers[0].auth.scopes is None
+
+
+def test_resolve_oauth2_server_credentials(tmp_path: Path, monkeypatch) -> None:
+    """OAuth2 server credentials resolve from env vars."""
+    monkeypatch.setenv("MY_CLIENT_ID", "resolved-id")
+    monkeypatch.setenv("MY_CLIENT_SECRET", "resolved-secret")
+
+    server_def = ServerDefinition(
+        server_id="global:oauth-test",
+        source=ServerSource.GLOBAL,
+        name="oauth-test",
+        agent_url="https://proxy.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://proxy.example.com/oauth/token",
+            client_id_env="MY_CLIENT_ID",
+            client_secret_env="MY_CLIENT_SECRET",
+            scopes=["read"],
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert warning is None
+    assert credentials is not None
+    assert credentials.auth_type == AuthType.OAUTH2
+    assert credentials.client_id == "resolved-id"
+    assert credentials.client_secret == "resolved-secret"
+    assert credentials.token_url == "https://proxy.example.com/oauth/token"
+    assert credentials.scopes == ["read"]
+
+
+def test_resolve_oauth2_warns_when_client_id_env_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Missing client_id env var reports warning."""
+    monkeypatch.delenv("MISSING_ID", raising=False)
+    monkeypatch.setenv("MY_SECRET", "secret")
+
+    server_def = ServerDefinition(
+        server_id="global:oauth-missing",
+        source=ServerSource.GLOBAL,
+        name="oauth-missing",
+        agent_url="https://proxy.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://proxy.example.com/oauth/token",
+            client_id_env="MISSING_ID",
+            client_secret_env="MY_SECRET",
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert credentials is None
+    assert warning is not None
+    assert "MISSING_ID" in warning
+
+
+def test_resolve_oauth2_warns_when_client_secret_env_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Missing client_secret env var reports warning."""
+    monkeypatch.setenv("MY_ID", "id-value")
+    monkeypatch.delenv("MISSING_SECRET", raising=False)
+
+    server_def = ServerDefinition(
+        server_id="global:oauth-missing-secret",
+        source=ServerSource.GLOBAL,
+        name="oauth-missing-secret",
+        agent_url="https://proxy.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://proxy.example.com/oauth/token",
+            client_id_env="MY_ID",
+            client_secret_env="MISSING_SECRET",
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert credentials is None
+    assert warning is not None
+    assert "MISSING_SECRET" in warning

@@ -244,10 +244,29 @@ class A2AService:
 
         if credentials.auth_type == AuthType.MTLS:
             logger.debug("mTLS credentials set (transport-level authentication)")
+        elif credentials.auth_type == AuthType.OAUTH2:
+            logger.debug("OAuth2 credentials set (token will be fetched on first request)")
         else:
             logger.debug(
                 "Applied authentication headers: %s", list(auth_headers.keys())
             )
+
+    async def ensure_oauth2_token(self) -> None:
+        """Fetch or refresh the OAuth2 access token if needed."""
+        if (
+            self.credentials is None
+            or self.credentials.auth_type != AuthType.OAUTH2
+        ):
+            return
+        if self.credentials.value:
+            return
+        logger.info("Fetching OAuth2 access token from %s", self.credentials.token_url)
+        await self.credentials.fetch_oauth2_token(self.http_client)
+        auth_headers = self.credentials.to_headers()
+        self.http_client.headers.update(auth_headers)
+        self._applied_auth_headers = set(auth_headers.keys())
+        self._cached_client = None
+        logger.info("OAuth2 access token applied")
 
     def clear_credentials(self) -> None:
         """Clear authentication credentials from the service and HTTP client."""
@@ -371,6 +390,7 @@ class A2AService:
 
         Returns the raw A2A protocol response (Task or Message).
         """
+        await self.ensure_oauth2_token()
         client = await self._get_or_create_client()
         user_message = self._build_user_message(message_text, context_id, task_id)
 
@@ -421,6 +441,7 @@ class A2AService:
         Yields:
             StreamEvent objects as they are received
         """
+        await self.ensure_oauth2_token()
         client = await self._get_or_create_client()
         user_message = self._build_user_message(message_text, context_id, task_id)
 

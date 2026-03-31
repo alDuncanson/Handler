@@ -22,6 +22,7 @@ from a2a_handler.auth import (
     create_api_key_auth,
     create_bearer_auth,
     create_mtls_auth,
+    create_oauth2_auth,
 )
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
@@ -58,6 +59,11 @@ class ServerAuthConfig:
     cert_path: str | None = None
     key_path: str | None = None
     ca_cert_path: str | None = None
+    # OAuth2 client credentials fields
+    token_url: str | None = None
+    client_id_env: str | None = None
+    client_secret_env: str | None = None
+    scopes: list[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +211,51 @@ def resolve_server_credentials(
         except FileNotFoundError as error:
             return None, f"Server '{server_name}': {error}"
 
+    if auth.auth_type == AuthType.OAUTH2:
+        if not auth.token_url or not auth.client_id_env or not auth.client_secret_env:
+            return (
+                None,
+                f"Server '{server_name}' OAuth2 auth requires token_url, "
+                "client_id_env, and client_secret_env",
+            )
+        client_id = os.getenv(auth.client_id_env)
+        if not client_id:
+            return (
+                None,
+                (
+                    f"Server '{server_name}' expects environment variable "
+                    f"{auth.client_id_env} for OAuth2 client ID"
+                ),
+            )
+        client_secret = os.getenv(auth.client_secret_env)
+        if not client_secret:
+            return (
+                None,
+                (
+                    f"Server '{server_name}' expects environment variable "
+                    f"{auth.client_secret_env} for OAuth2 client secret"
+                ),
+            )
+        try:
+            reject_control_chars(client_id, f"servers.{server_name}.auth.client_id")
+            reject_control_chars(
+                client_secret, f"servers.{server_name}.auth.client_secret"
+            )
+        except InputValidationError:
+            return (
+                None,
+                (
+                    f"Server '{server_name}' OAuth2 credentials contain "
+                    "unsupported control characters"
+                ),
+            )
+        return (
+            create_oauth2_auth(
+                auth.token_url, client_id, client_secret, auth.scopes
+            ),
+            None,
+        )
+
     value: str | None = None
     if auth.env_var:
         env_value = os.getenv(auth.env_var)
@@ -330,7 +381,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
         auth_type = AuthType(normalized_auth_type)
     except ValueError as error:
         raise ServerConfigError(
-            "auth.type must be one of: bearer, api_key, mtls"
+            "auth.type must be one of: bearer, api_key, mtls, oauth2"
         ) from error
 
     if auth_type == AuthType.MTLS:
@@ -359,6 +410,56 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
             cert_path=cert,
             key_path=key,
             ca_cert_path=ca_cert,
+        )
+
+    if auth_type == AuthType.OAUTH2:
+        for forbidden in ("env", "value", "header"):
+            if forbidden in auth_table:
+                raise ServerConfigError(
+                    f"auth.{forbidden} is not valid for oauth2 auth"
+                )
+        token_url = _parse_optional_str(auth_table, "token_url")
+        if not token_url:
+            raise ServerConfigError("oauth2 auth requires token_url")
+        try:
+            reject_control_chars(token_url, "auth.token_url")
+        except InputValidationError as error:
+            raise ServerConfigError(error.message) from error
+
+        client_id_env = _parse_optional_str(auth_table, "client_id_env")
+        client_secret_env = _parse_optional_str(auth_table, "client_secret_env")
+        if not client_id_env or not client_secret_env:
+            raise ServerConfigError(
+                "oauth2 auth requires client_id_env and client_secret_env"
+            )
+        for env_field, env_name in (
+            ("client_id_env", client_id_env),
+            ("client_secret_env", client_secret_env),
+        ):
+            try:
+                reject_control_chars(env_name, f"auth.{env_field}")
+            except InputValidationError as error:
+                raise ServerConfigError(error.message) from error
+            if not _ENV_NAME_PATTERN.match(env_name):
+                raise ServerConfigError(
+                    f"auth.{env_field} must be a valid environment variable name"
+                )
+
+        raw_scopes = auth_table.get("scopes")
+        scopes: list[str] | None = None
+        if raw_scopes is not None:
+            if not isinstance(raw_scopes, list) or not all(
+                isinstance(s, str) for s in raw_scopes
+            ):
+                raise ServerConfigError("auth.scopes must be a list of strings")
+            scopes = list(raw_scopes)
+
+        return ServerAuthConfig(
+            auth_type=auth_type,
+            token_url=token_url,
+            client_id_env=client_id_env,
+            client_secret_env=client_secret_env,
+            scopes=scopes,
         )
 
     env_var = _parse_optional_str(auth_table, "env")

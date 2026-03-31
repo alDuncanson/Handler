@@ -1,6 +1,7 @@
 """Tests for authentication module."""
 
 import tempfile
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,6 +11,7 @@ from a2a_handler.auth import (
     create_api_key_auth,
     create_bearer_auth,
     create_mtls_auth,
+    create_oauth2_auth,
     parse_header_string,
 )
 
@@ -164,6 +166,179 @@ class TestMTLSAuth:
         creds = AuthCredentials(auth_type=AuthType.MTLS)
         with pytest.raises(ValueError, match="cert_path and key_path"):
             creds.build_ssl_context()
+
+
+class TestOAuth2Auth:
+    def test_oauth2_to_headers_with_token(self) -> None:
+        """OAuth2 with a fetched token generates Bearer header."""
+        creds = AuthCredentials(
+            auth_type=AuthType.OAUTH2,
+            value="access-token-123",
+            token_url="https://example.com/oauth/token",
+            client_id="my-client",
+            client_secret="my-secret",
+        )
+        headers = creds.to_headers()
+        assert headers == {"Authorization": "Bearer access-token-123"}
+
+    def test_oauth2_to_headers_without_token(self) -> None:
+        """OAuth2 without a fetched token returns empty headers."""
+        creds = AuthCredentials(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://example.com/oauth/token",
+            client_id="my-client",
+            client_secret="my-secret",
+        )
+        headers = creds.to_headers()
+        assert headers == {}
+
+    def test_oauth2_to_dict_and_from_dict(self) -> None:
+        """OAuth2 credentials round-trip through serialization."""
+        original = AuthCredentials(
+            auth_type=AuthType.OAUTH2,
+            value="access-token",
+            token_url="https://example.com/oauth/token",
+            client_id="my-client",
+            client_secret="my-secret",
+            scopes=["read", "write"],
+        )
+        data = original.to_dict()
+        restored = AuthCredentials.from_dict(data)
+
+        assert restored.auth_type == AuthType.OAUTH2
+        assert restored.value == "access-token"
+        assert restored.token_url == "https://example.com/oauth/token"
+        assert restored.client_id == "my-client"
+        assert restored.client_secret == "my-secret"
+        assert restored.scopes == ["read", "write"]
+
+    def test_oauth2_to_dict_without_scopes(self) -> None:
+        """OAuth2 without scopes omits scopes from dict."""
+        creds = AuthCredentials(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://example.com/oauth/token",
+            client_id="my-client",
+            client_secret="my-secret",
+        )
+        data = creds.to_dict()
+        assert "scopes" not in data
+
+    def test_create_oauth2_auth(self) -> None:
+        """create_oauth2_auth creates correct credentials."""
+        creds = create_oauth2_auth(
+            "https://example.com/oauth/token",
+            "my-client",
+            "my-secret",
+            scopes=["read"],
+        )
+        assert creds.auth_type == AuthType.OAUTH2
+        assert creds.token_url == "https://example.com/oauth/token"
+        assert creds.client_id == "my-client"
+        assert creds.client_secret == "my-secret"
+        assert creds.scopes == ["read"]
+        assert creds.value == ""
+
+    def test_fetch_oauth2_token_rejects_non_oauth2(self) -> None:
+        """fetch_oauth2_token rejects non-OAuth2 credentials."""
+        creds = AuthCredentials(auth_type=AuthType.BEARER, value="token")
+        with pytest.raises(ValueError, match="OAuth2"):
+            import asyncio
+            asyncio.get_event_loop().run_until_complete(
+                creds.fetch_oauth2_token(None)  # type: ignore[arg-type]
+            )
+
+    async def test_fetch_oauth2_token_success(self) -> None:
+        """fetch_oauth2_token posts client credentials and stores token."""
+        from unittest.mock import MagicMock
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token",
+            "my-client-id",
+            "my-client-secret",
+            scopes=["read", "write"],
+        )
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": "fetched-token-abc"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        token = await creds.fetch_oauth2_token(mock_client)
+
+        assert token == "fetched-token-abc"
+        assert creds.value == "fetched-token-abc"
+        assert creds.to_headers() == {"Authorization": "Bearer fetched-token-abc"}
+
+        mock_client.post.assert_called_once_with(
+            "https://auth.example.com/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": "my-client-id",
+                "client_secret": "my-client-secret",
+                "scope": "read write",
+            },
+        )
+
+    async def test_fetch_oauth2_token_without_scopes(self) -> None:
+        """fetch_oauth2_token omits scope when no scopes configured."""
+        from unittest.mock import MagicMock
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token",
+            "my-client-id",
+            "my-client-secret",
+        )
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": "token-no-scopes"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        await creds.fetch_oauth2_token(mock_client)
+
+        mock_client.post.assert_called_once_with(
+            "https://auth.example.com/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": "my-client-id",
+                "client_secret": "my-client-secret",
+            },
+        )
+
+    async def test_fetch_oauth2_token_http_error_propagates(self) -> None:
+        """fetch_oauth2_token propagates HTTP errors from the token endpoint."""
+        from unittest.mock import MagicMock
+
+        import httpx
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token",
+            "my-client-id",
+            "my-client-secret",
+        )
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401 Unauthorized",
+            request=MagicMock(),
+            response=MagicMock(status_code=401),
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await creds.fetch_oauth2_token(mock_client)
+
+    async def test_fetch_oauth2_token_missing_fields(self) -> None:
+        """fetch_oauth2_token raises when OAuth2 fields are incomplete."""
+        creds = AuthCredentials(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://auth.example.com/oauth/token",
+        )
+        with pytest.raises(ValueError, match="token_url, client_id, and client_secret"):
+            await creds.fetch_oauth2_token(AsyncMock())
 
 
 class TestCustomHeaders:

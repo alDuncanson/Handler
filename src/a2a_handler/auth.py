@@ -1,13 +1,20 @@
 """Authentication support for A2A protocol.
 
 Handles credential storage and HTTP authentication header generation.
-Supports API key, HTTP bearer, and mTLS (mutual TLS) authentication schemes.
+Supports API key, HTTP bearer, mTLS (mutual TLS), and OAuth2 client credentials
+authentication schemes.
 """
+
+from __future__ import annotations
 
 import ssl
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class AuthType(str, Enum):
@@ -16,6 +23,7 @@ class AuthType(str, Enum):
     API_KEY = "api_key"
     BEARER = "bearer"
     MTLS = "mtls"
+    OAUTH2 = "oauth2"
 
 
 @dataclass
@@ -31,6 +39,10 @@ class AuthCredentials:
     cert_path: str | None = None  # For mTLS: client certificate path
     key_path: str | None = None  # For mTLS: client private key path
     ca_cert_path: str | None = None  # For mTLS: CA certificate path
+    token_url: str | None = None  # For OAuth2: token endpoint
+    client_id: str | None = None  # For OAuth2: client ID
+    client_secret: str | None = None  # For OAuth2: client secret
+    scopes: list[str] | None = None  # For OAuth2: optional scopes
     custom_headers: dict[str, str] | None = None  # Additional headers for any auth type
 
     def to_headers(self) -> dict[str, str]:
@@ -41,6 +53,8 @@ class AuthCredentials:
         """
         headers: dict[str, str] = {}
         if self.auth_type == AuthType.BEARER and self.value:
+            headers["Authorization"] = f"Bearer {self.value}"
+        elif self.auth_type == AuthType.OAUTH2 and self.value:
             headers["Authorization"] = f"Bearer {self.value}"
         elif self.auth_type == AuthType.API_KEY:
             header = self.header_name or "X-API-Key"
@@ -64,6 +78,30 @@ class AuthCredentials:
         ctx.load_cert_chain(certfile=self.cert_path, keyfile=self.key_path)
         return ctx
 
+    async def fetch_oauth2_token(self, http_client: httpx.AsyncClient) -> str:
+        """Fetch an access token using OAuth2 client credentials grant.
+
+        Updates self.value with the new token and returns it.
+        """
+        if self.auth_type != AuthType.OAUTH2:
+            raise ValueError("Token fetch is only valid for OAuth2 credentials")
+        if not self.token_url or not self.client_id or not self.client_secret:
+            raise ValueError("token_url, client_id, and client_secret are required")
+
+        data: dict[str, str] = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
+        if self.scopes:
+            data["scope"] = " ".join(self.scopes)
+
+        response = await http_client.post(self.token_url, data=data)
+        response.raise_for_status()
+        token_data = response.json()
+        self.value = token_data["access_token"]
+        return self.value
+
     def to_dict(self) -> dict:
         """Serialize credentials for storage."""
         data: dict = {
@@ -77,6 +115,14 @@ class AuthCredentials:
             data["key_path"] = self.key_path
         if self.ca_cert_path:
             data["ca_cert_path"] = self.ca_cert_path
+        if self.token_url:
+            data["token_url"] = self.token_url
+        if self.client_id:
+            data["client_id"] = self.client_id
+        if self.client_secret:
+            data["client_secret"] = self.client_secret
+        if self.scopes:
+            data["scopes"] = self.scopes
         if self.custom_headers:
             data["custom_headers"] = self.custom_headers
         return data
@@ -95,6 +141,10 @@ class AuthCredentials:
             cert_path=data.get("cert_path"),
             key_path=data.get("key_path"),
             ca_cert_path=data.get("ca_cert_path"),
+            token_url=data.get("token_url"),
+            client_id=data.get("client_id"),
+            client_secret=data.get("client_secret"),
+            scopes=data.get("scopes"),
             custom_headers=custom_headers,
         )
 
@@ -151,4 +201,22 @@ def create_mtls_auth(
         cert_path=cert_path,
         key_path=key_path,
         ca_cert_path=ca_cert_path,
+    )
+
+
+def create_oauth2_auth(
+    token_url: str,
+    client_id: str,
+    client_secret: str,
+    scopes: list[str] | None = None,
+    access_token: str = "",
+) -> AuthCredentials:
+    """Create OAuth2 client credentials authentication."""
+    return AuthCredentials(
+        auth_type=AuthType.OAUTH2,
+        value=access_token,
+        token_url=token_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=scopes,
     )
