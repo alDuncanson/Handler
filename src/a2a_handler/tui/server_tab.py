@@ -548,6 +548,8 @@ class ServerTab(Container):
                 "Connection failed for %s: %s", self.server_id, error, exc_info=True
             )
             messages_panel.add_system_message(f"Connection failed: {error!s}")
+            self.current_agent_card = None
+            self.current_agent_url = None
             self._refresh_live_summary()
 
     @on(Input.Submitted, "#message-input")
