@@ -94,9 +94,9 @@ async def test_app_starts_with_server_shell_and_initial_server() -> None:
         assert connect_view.query_one("#server-bar")
         assert len(list(live_view.query("#server-summary"))) == 0
 
-        status = connect_view.query_one("#server-status-row", Static)
-        assert str(status.content) == "Disconnected"
-        assert status.has_class("status-info")
+        status = connect_view.query_one("#badge-status", Static)
+        assert "Disconnected" in str(status.content)
+        assert status.has_class("badge-muted")
 
 
 def test_server_shell_does_not_hijack_tab_navigation() -> None:
@@ -617,16 +617,18 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
             live_view = workspace.query_one(ServerLiveView)
             messages_panel = live_view.query_one(TabbedMessagesPanel)
-            status = workspace.query_one("#server-status-row", Static)
             tabs = app.query_one("#server-tabs", Tabs)
             first_tab = tabs.query_one("#server-tab-1", Tab)
 
             assert first_tab.label_text == "Demo Agent"
             assert messages_panel
             assert len(list(live_view.query("#server-summary"))) == 0
-            assert "Demo Agent" in str(status.content)
-            assert "agent.example.com" in str(status.content)
-            assert status.has_class("status-success")
+
+            status_badge = workspace.query_one("#badge-status", Static)
+            agent_badge = workspace.query_one("#badge-agent", Static)
+            assert "Connected" in str(status_badge.content)
+            assert status_badge.has_class("badge-success")
+            assert "Demo Agent" in str(agent_badge.content)
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(
                 new_http_client,

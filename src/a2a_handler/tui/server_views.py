@@ -11,10 +11,7 @@ from textual.widgets import Button, Input, Select, Static
 from a2a_handler.auth import AuthCredentials
 from a2a_handler.servers import ServerDefinition, ServerSource, server_source_label
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
-from a2a_handler.tui.server_types import (
-    MANUAL_SERVER_ID,
-    summarize_identifier,
-)
+from a2a_handler.tui.server_types import MANUAL_SERVER_ID
 
 CONFIGURED_SERVER_SOURCES = (
     ServerSource.REPOSITORY,
@@ -46,15 +43,20 @@ class ServerConnectView(Container):
                     classes="hidden",
                 )
                 yield Button("CONNECT", id="connect-btn")
-            yield Static(
-                "Disconnected",
-                id="server-status-row",
-                classes="status-badge status-live",
-            )
+            with Horizontal(id="server-status-row"):
+                yield Static(
+                    "● Disconnected",
+                    id="badge-status",
+                    classes="conn-badge badge-muted",
+                )
+                yield Static("", id="badge-agent", classes="conn-badge hidden")
+                yield Static("", id="badge-auth", classes="conn-badge hidden")
+                yield Static("", id="badge-protocol", classes="conn-badge hidden")
+                yield Static("", id="badge-version", classes="conn-badge hidden")
 
     def on_mount(self) -> None:
-        status = self.query_one("#server-status-row", Static)
-        status.add_class("status-info")
+        for widget in self.query("#server-status-row"):
+            widget.can_focus = False
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Press connect when the URL input is submitted."""
@@ -137,38 +139,53 @@ class ServerConnectView(Container):
         server_def = self.get_selected_server()
         return server_def.agent_url if server_def else ""
 
+    def _set_badge(
+        self, badge_id: str, text: str, css_class: str | None = None
+    ) -> None:
+        """Show a badge with text and style, or hide it if text is empty."""
+        badge = self.query_one(f"#{badge_id}", Static)
+        if not text:
+            badge.add_class("hidden")
+            return
+        badge.update(text)
+        badge.remove_class("hidden", "badge-muted", "badge-success")
+        if css_class:
+            badge.add_class(css_class)
+
     def set_status(self, message: str, tone: str | None = None) -> None:
-        """Update the status row."""
-        display_message = message or "Disconnected"
-        badge = self.query_one("#server-status-row", Static)
-        badge.update(display_message)
-        badge.remove_class("status-info")
-        badge.remove_class("status-success")
-        badge.remove_class("status-warning")
-        badge.remove_class("status-error")
-        if display_message == "Disconnected" and tone is None:
-            tone = "info"
-        if tone in {"info", "success", "warning", "error"}:
-            badge.add_class(f"status-{tone}")
+        """Update the status badge text (used for transient messages)."""
+        status = self.query_one("#badge-status", Static)
+        status.update(message or "● Disconnected")
+        status.remove_class("badge-accent", "badge-muted", "badge-success")
+        status.add_class("badge-muted" if tone is None else "badge-accent")
 
     def set_connected_status(
         self,
         agent_name: str,
-        agent_url: str,
         auth_source: str = "none",
-        context_id: str | None = None,
-        resumed: bool = False,
+        protocol_version: str | None = None,
+        agent_version: str | None = None,
     ) -> None:
-        """Show the connected status as a single combined line."""
-        parts = [agent_name, agent_url, auth_source]
-        if context_id:
-            prefix = "Resuming" if resumed else "Session"
-            parts.append(f"{prefix} {summarize_identifier(context_id)}")
-        self.set_status(" · ".join(parts), tone="success")
+        """Show connection info as individual badges."""
+        self._set_badge("badge-status", "● Connected", "badge-success")
+        self._set_badge("badge-agent", agent_name)
+        self._set_badge("badge-auth", auth_source)
+        self._set_badge(
+            "badge-protocol",
+            f"A2A {protocol_version}" if protocol_version else "",
+        )
+        self._set_badge(
+            "badge-version",
+            f"v{agent_version}" if agent_version else "",
+        )
 
-    def set_status_line(self, text: str) -> None:
-        """Set the single status row text."""
-        self.query_one("#server-status-row", Static).update(text)
+    def show_disconnected_badges(self) -> None:
+        """Reset badges to disconnected state."""
+        self._set_badge("badge-status", "● Disconnected", "badge-muted")
+        self._set_badge("badge-agent", "")
+        self._set_badge("badge-auth", "")
+        self._set_badge("badge-protocol", "")
+        self._set_badge("badge-version", "")
 
     def get_auth_credentials(self) -> AuthCredentials | None:
         return self._messages_panel().get_auth_credentials()
@@ -219,7 +236,7 @@ class ServerLiveView(Container):
         return self.query_one("#input-container", InputPanel)
 
     def show_disconnected_state(self) -> None:
-        self.connect_view().set_status("Disconnected", tone="info")
+        self.connect_view().show_disconnected_badges()
         self.agent_card_panel().update_card(None)
         self.input_panel().set_enabled(False)
 

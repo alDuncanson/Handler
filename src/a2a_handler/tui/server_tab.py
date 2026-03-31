@@ -282,10 +282,9 @@ class ServerTab(Container):
 
         live_view.connect_view().set_connected_status(
             agent_name=self.current_agent_card.name,
-            agent_url=self.current_agent_url,
             auth_source=self.state.auth_source,
-            context_id=self.current_context_id,
-            resumed=self.state.resumed,
+            protocol_version=self.current_agent_card.protocol_version,
+            agent_version=self.current_agent_card.version,
         )
 
     def _conversation_summary(self) -> str:

@@ -1,5 +1,5 @@
 Screen {
-    padding: 0 1;
+    padding: 1;
     background: $background;
 }
 
@@ -108,32 +108,45 @@ ServerConnectView {
 
 #server-status-row {
     height: auto;
-    width: auto;
+    width: 1fr;
     margin-top: 1;
+}
+
+.conn-badge {
+    height: auto;
+    width: auto;
     padding: 0 1;
-    background: $surface;
-    color: $text-muted;
+    margin-right: 1;
     text-style: bold;
-    min-width: 18;
 }
 
-.status-badge.status-info {
-    background: $accent 24%;
-    color: $text;
-}
-
-.status-badge.status-success {
+.badge-success {
     background: $success 24%;
     color: $text;
 }
 
-.status-badge.status-warning {
-    background: $warning 24%;
-    color: $background;
+.badge-muted {
+    background: $surface;
+    color: $text-muted;
 }
 
-.status-badge.status-error {
-    background: $error 24%;
+#badge-agent {
+    background: $primary 24%;
+    color: $text;
+}
+
+#badge-auth {
+    background: $accent 24%;
+    color: $text;
+}
+
+#badge-protocol {
+    background: $secondary 24%;
+    color: $text;
+}
+
+#badge-version {
+    background: $warning 24%;
     color: $text;
 }
 
@@ -680,6 +693,7 @@ AgentMessage {
 
 #auth-panel RadioSet {
     height: auto;
+    margin-bottom: 1;
 }
 
 #headers-panel {
