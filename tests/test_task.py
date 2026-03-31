@@ -611,7 +611,7 @@ class TestFormatTaskResult:
         output = MagicMock(spec=Output)
         _format_task_result(result, output)
 
-        output.field.assert_any_call("Task ID", "task-123", dim_value=True)
+        output.field.assert_any_call("Task ID", "task-123")
         output.state.assert_called_with("State", "completed")
         output.markdown.assert_called_with("Output text here")
 

@@ -257,10 +257,10 @@ def task_resubscribe(
 def _format_task_result(result: TaskResult, output: Output) -> None:
     """Format and display a task result."""
     output.blank()
-    output.field("Task ID", result.task_id, dim_value=True)
+    output.field("Task ID", result.task_id)
     output.state("State", result.state.value)
     if result.context_id:
-        output.field("Context ID", result.context_id, dim_value=True)
+        output.field("Context ID", result.context_id)
 
     if result.text:
         output.blank()

@@ -352,7 +352,7 @@ class TestFormatSendResult:
 
         _format_send_result(result, output)
 
-        output.field.assert_any_call("Context ID", "ctx-123", dim_value=True)
+        output.field.assert_any_call("Context ID", "ctx-123")
         output.state.assert_called_with("State", "completed")
         output.markdown.assert_called_with("Response text here")
 

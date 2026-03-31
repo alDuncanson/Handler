@@ -1,12 +1,9 @@
 """Tests for the Output class and related utilities."""
 
-from io import StringIO
-
 import pytest
 
 from a2a_handler.common.output import (
     Output,
-    _supports_color,
     configure_output,
     TERMINAL_STATES,
     SUCCESS_STATES,
@@ -19,39 +16,6 @@ from a2a_handler.common.output import (
 def reset_output_defaults() -> None:
     """Reset global output defaults to avoid cross-test leakage."""
     configure_output(output_format="text", quiet=False)
-
-
-class TestSupportsColor:
-    """Tests for _supports_color function."""
-
-    def test_supports_color_with_tty(self):
-        """Test that _supports_color returns True for TTY."""
-
-        class MockTTYStream(StringIO):
-            def isatty(self) -> bool:
-                return True
-
-        result = _supports_color(MockTTYStream())  # type: ignore[arg-type]
-        assert result is True
-
-    def test_supports_color_without_tty(self):
-        """Test that _supports_color returns False for non-TTY."""
-
-        class MockNonTTYStream(StringIO):
-            def isatty(self) -> bool:
-                return False
-
-        result = _supports_color(MockNonTTYStream())  # type: ignore[arg-type]
-        assert result is False
-
-    def test_supports_color_no_isatty_method(self):
-        """Test that _supports_color returns False when isatty is missing."""
-
-        class NoIsatty:
-            pass
-
-        result = _supports_color(NoIsatty())  # type: ignore[arg-type]
-        assert result is False
 
 
 class TestStateConstants:
@@ -84,9 +48,7 @@ class TestOutput:
     @pytest.fixture
     def output(self):
         """Create an Output instance for testing."""
-        output = Output(output_format="text")
-        output._use_color = False
-        return output
+        return Output(output_format="text")
 
     @pytest.fixture
     def captured_output(self, output):
@@ -104,28 +66,20 @@ class TestOutput:
         output.line("Hello, world!")
         assert captured_output == ["Hello, world!"]
 
-    def test_line_with_style(self, output, captured_output):
-        """Test line output with style (no color mode)."""
-        output.line("Styled text", style="green")
-        assert captured_output == ["Styled text"]
-
     def test_field_basic(self, output, captured_output):
         """Test basic field output."""
         output.field("Name", "Value")
-        assert len(captured_output) == 1
-        assert "Name:" in captured_output[0]
-        assert "Value" in captured_output[0]
+        assert captured_output == ["Name: Value"]
 
     def test_field_with_none_value(self, output, captured_output):
         """Test field with None value."""
         output.field("Name", None)
-        assert "none" in captured_output[0]
+        assert captured_output == ["Name: none"]
 
     def test_header(self, output, captured_output):
         """Test header output."""
         output.header("Section Title")
-        assert len(captured_output) == 1
-        assert "Section Title" in captured_output[0]
+        assert captured_output == ["\nSection Title"]
 
     def test_subheader(self, output, captured_output):
         """Test subheader output."""
@@ -140,24 +94,22 @@ class TestOutput:
     def test_state_completed(self, output, captured_output):
         """Test state output for completed."""
         output.state("Status", "completed")
-        assert len(captured_output) == 1
-        assert "Status:" in captured_output[0]
-        assert "completed" in captured_output[0]
+        assert captured_output == ["Status: completed"]
 
     def test_state_failed(self, output, captured_output):
         """Test state output for failed."""
         output.state("Status", "failed")
-        assert "failed" in captured_output[0]
+        assert captured_output == ["Status: failed"]
 
     def test_state_canceled(self, output, captured_output):
         """Test state output for canceled."""
         output.state("Status", "canceled")
-        assert "canceled" in captured_output[0]
+        assert captured_output == ["Status: canceled"]
 
     def test_state_working(self, output, captured_output):
         """Test state output for working."""
         output.state("Status", "working")
-        assert "working" in captured_output[0]
+        assert captured_output == ["Status: working"]
 
     def test_success(self, output, captured_output):
         """Test success message."""
@@ -210,80 +162,6 @@ class TestOutput:
         output.list_item("Item", bullet="→")
         assert "→" in captured_output[0]
         assert "Item" in captured_output[0]
-
-
-class TestOutputWithColor:
-    """Tests for Output class with color enabled."""
-
-    @pytest.fixture
-    def color_output(self):
-        """Create an Output instance with color enabled."""
-        output = Output(output_format="text")
-        output._use_color = True
-        return output
-
-    @pytest.fixture
-    def captured_output(self, color_output):
-        """Create output capture context."""
-        captured = []
-
-        def capture_print(text):
-            captured.append(text)
-
-        color_output._print = capture_print
-        return captured
-
-    def test_line_with_style_applies_color(self, color_output, captured_output):
-        """Test that styled lines apply ANSI codes."""
-        from a2a_handler.common.output import GREEN, RESET
-
-        color_output.line("Green text", style="green")
-        assert len(captured_output) == 1
-        assert GREEN in captured_output[0]
-        assert RESET in captured_output[0]
-
-    def test_error_applies_red_bold(self, color_output, captured_output):
-        """Test that error applies red and bold."""
-        from a2a_handler.common.output import RED, BOLD, RESET
-
-        color_output.error("Error message")
-        assert len(captured_output) == 1
-        assert RED in captured_output[0]
-        assert BOLD in captured_output[0]
-        assert RESET in captured_output[0]
-
-    def test_header_applies_bold(self, color_output, captured_output):
-        """Test that header applies bold."""
-        from a2a_handler.common.output import BOLD, RESET
-
-        color_output.header("Title")
-        assert len(captured_output) == 1
-        assert BOLD in captured_output[0]
-        assert RESET in captured_output[0]
-
-    def test_field_with_dim_value(self, color_output, captured_output):
-        """Test field with dimmed value."""
-        from a2a_handler.common.output import DIM
-
-        color_output.field("Name", "Value", dim_value=True)
-        assert len(captured_output) == 1
-        assert DIM in captured_output[0]
-
-    def test_field_with_value_style(self, color_output, captured_output):
-        """Test field with specific value style."""
-        from a2a_handler.common.output import CYAN
-
-        color_output.field("Name", "Value", value_style="cyan")
-        assert len(captured_output) == 1
-        assert CYAN in captured_output[0]
-
-    def test_state_applies_appropriate_color(self, color_output, captured_output):
-        """Test state applies color based on state type."""
-        from a2a_handler.common.output import GREEN
-
-        color_output.state("Status", "completed")
-        assert len(captured_output) == 1
-        assert GREEN in captured_output[0]
 
 
 class TestStructuredOutput:

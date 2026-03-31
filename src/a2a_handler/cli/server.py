@@ -57,7 +57,7 @@ def _render_server(output: Output, server_def: ServerDefinition) -> None:
         if server_def.auth.ca_cert_path:
             output.field("CA Certificate", server_def.auth.ca_cert_path)
     else:
-        output.field("Auth", "none", dim_value=True)
+        output.field("Auth", "none")
 
 
 def _iter_catalog_sections(
@@ -227,12 +227,12 @@ def server_show(name: str, source: str | None) -> None:
     credentials, warning = resolve_server_credentials(server_def)
     output.blank()
     if credentials:
-        output.field("Status", "resolved", value_style="green")
+        output.field("Status", "resolved")
     elif warning:
-        output.field("Status", "unavailable", value_style="yellow")
+        output.field("Status", "unavailable")
         output.warning(warning)
     else:
-        output.field("Status", "no default auth configured", dim_value=True)
+        output.field("Status", "no default auth configured")
 
 
 @server.command("add")
@@ -380,16 +380,16 @@ def server_validate() -> None:
             )
             output.field("URL", server_def.agent_url)
             if not server_def.auth:
-                output.field("Auth", "none", dim_value=True)
+                output.field("Auth", "none")
                 continue
 
             output.field("Auth Type", server_def.auth.auth_type.value)
             credentials, warning = resolve_server_credentials(server_def)
             if credentials:
-                output.field("Status", "ok", value_style="green")
+                output.field("Status", "ok")
             else:
                 has_issues = True
-                output.field("Status", "error", value_style="red")
+                output.field("Status", "error")
                 if warning:
                     output.warning(warning)
 

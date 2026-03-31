@@ -38,11 +38,11 @@ def session_list() -> None:
         output.blank()
         output.subheader(session_entry.agent_url)
         if session_entry.context_id:
-            output.field("Context ID", session_entry.context_id, dim_value=True)
+            output.field("Context ID", session_entry.context_id)
         if session_entry.task_id:
-            output.field("Task ID", session_entry.task_id, dim_value=True)
+            output.field("Task ID", session_entry.task_id)
         if session_entry.last_used_at:
-            output.field("Last Used", session_entry.last_used_at, dim_value=True)
+            output.field("Last Used", session_entry.last_used_at)
 
 
 @session.command("show")
@@ -77,17 +77,14 @@ def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
     output.field(
         "Context ID",
         session_entry.context_id or "none",
-        dim_value=not session_entry.context_id,
     )
     output.field(
         "Task ID",
         session_entry.task_id or "none",
-        dim_value=not session_entry.task_id,
     )
     output.field(
         "Last Used",
         session_entry.last_used_at or "none",
-        dim_value=not session_entry.last_used_at,
     )
 
 

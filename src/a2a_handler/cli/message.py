@@ -333,9 +333,9 @@ async def _stream_message(
 
     output.blank()
     if last_context_id:
-        output.field("Context ID", last_context_id, dim_value=True)
+        output.field("Context ID", last_context_id)
     if last_task_id:
-        output.field("Task ID", last_task_id, dim_value=True)
+        output.field("Task ID", last_task_id)
     if last_state:
         output.state("State", last_state.value)
 
@@ -352,9 +352,9 @@ def _format_send_result(result: SendResult, output: Output) -> None:
     """Format and display a send result."""
     output.blank()
     if result.context_id:
-        output.field("Context ID", result.context_id, dim_value=True)
+        output.field("Context ID", result.context_id)
     if result.task_id:
-        output.field("Task ID", result.task_id, dim_value=True)
+        output.field("Task ID", result.task_id)
     if result.state:
         output.state("State", result.state.value)
 

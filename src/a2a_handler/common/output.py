@@ -1,27 +1,17 @@
 """Simple output formatting system for CLI.
 
-Provides styled console output with ANSI colors.
+Provides plain text and structured JSON/NDJSON output.
 """
 
 from __future__ import annotations
 
 import json as json_module
-import sys
-from typing import Any, Literal, TextIO
+from typing import Any, Literal
 
 TERMINAL_STATES = {"completed", "failed", "canceled", "rejected"}
 SUCCESS_STATES = {"completed"}
 ERROR_STATES = {"failed", "rejected"}
 WARNING_STATES = {"canceled"}
-
-# Basic ANSI color codes
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-RED = "\033[31m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-CYAN = "\033[36m"
 
 OutputFormat = Literal["text", "json", "ndjson"]
 
@@ -36,20 +26,11 @@ def configure_output(output_format: OutputFormat = "text", quiet: bool = False) 
     _DEFAULT_QUIET = quiet
 
 
-def _supports_color(stream: TextIO) -> bool:
-    """Check if the stream supports ANSI colors."""
-    if not hasattr(stream, "isatty"):
-        return False
-    if not stream.isatty():
-        return False
-    return True
-
-
 class Output:
-    """Manages styled console output.
+    """Manages console output.
 
     Provides a unified interface for outputting text, fields, JSON, and
-    markdown with automatic color formatting when supported.
+    markdown in plain text or structured formats.
     """
 
     def __init__(
@@ -57,15 +38,8 @@ class Output:
         output_format: OutputFormat | None = None,
         quiet: bool | None = None,
     ) -> None:
-        self._use_color = _supports_color(sys.stdout)
         self._output_format: OutputFormat = output_format or _DEFAULT_OUTPUT_FORMAT
         self._quiet = _DEFAULT_QUIET if quiet is None else quiet
-
-    def _style(self, text: str, *codes: str) -> str:
-        """Apply ANSI codes if color is enabled."""
-        if not self._use_color or not codes:
-            return text
-        return "".join(codes) + text + RESET
 
     def _print(self, text: str) -> None:
         """Print text to stdout."""
@@ -86,73 +60,36 @@ class Output:
         else:
             self._print(json_module.dumps(payload, indent=2, default=str))
 
-    def line(self, text: str, style: str | None = None) -> None:
-        """Print a line of text with optional style."""
+    def line(self, text: str) -> None:
+        """Print a line of text."""
         if self._output_format != "text":
-            self._emit_structured({"type": "line", "text": text, "style": style})
+            self._emit_structured({"type": "line", "text": text})
             return
-        if style and self._use_color:
-            code = {
-                "green": GREEN,
-                "red": RED,
-                "yellow": YELLOW,
-                "cyan": CYAN,
-                "dim": DIM,
-                "bold": BOLD,
-            }.get(style, "")
-            text = self._style(text, code)
         self._emit_text(text)
 
-    def field(
-        self,
-        name: str,
-        value: Any,
-        dim_value: bool = False,
-        value_style: str | None = None,
-    ) -> None:
-        """Print a field as 'Name: value' with formatting."""
+    def field(self, name: str, value: Any) -> None:
+        """Print a field as 'Name: value'."""
         value_str = str(value) if value is not None else "none"
         if self._output_format != "text":
             self._emit_structured(
-                {
-                    "type": "field",
-                    "name": name,
-                    "value": value,
-                    "dim_value": dim_value,
-                    "value_style": value_style,
-                }
+                {"type": "field", "name": name, "value": value}
             )
             return
-        name_part = self._style(f"{name}:", BOLD) if self._use_color else f"{name}:"
-
-        if self._use_color:
-            if value_style:
-                code = {"green": GREEN, "red": RED, "cyan": CYAN}.get(value_style, "")
-                value_part = self._style(value_str, code)
-            elif dim_value:
-                value_part = self._style(value_str, DIM)
-            else:
-                value_part = value_str
-        else:
-            value_part = value_str
-
-        self._emit_text(f"{name_part} {value_part}")
+        self._emit_text(f"{name}: {value_str}")
 
     def header(self, text: str) -> None:
         """Print a section header."""
         if self._output_format != "text":
             self._emit_structured({"type": "header", "text": text})
             return
-        styled = self._style(text, BOLD) if self._use_color else text
-        self._emit_text(f"\n{styled}")
+        self._emit_text(f"\n{text}")
 
     def subheader(self, text: str) -> None:
         """Print a subheader (less prominent than header)."""
         if self._output_format != "text":
             self._emit_structured({"type": "subheader", "text": text})
             return
-        styled = self._style(text, BOLD, CYAN) if self._use_color else text
-        self._emit_text(styled)
+        self._emit_text(text)
 
     def blank(self) -> None:
         """Print a blank line."""
@@ -162,38 +99,22 @@ class Output:
         self._emit_text("")
 
     def state(self, name: str, state: str) -> None:
-        """Print a state field with appropriate coloring."""
-        lower = state.lower()
+        """Print a state field."""
         if self._output_format != "text":
             self._emit_structured({"type": "state", "name": name, "state": state})
             return
-        if lower in SUCCESS_STATES:
-            style = "green"
-        elif lower in ERROR_STATES:
-            style = "red"
-        elif lower in WARNING_STATES:
-            style = "yellow"
-        else:
-            style = "cyan"
-
-        name_part = self._style(f"{name}:", BOLD) if self._use_color else f"{name}:"
-        code = {"green": GREEN, "red": RED, "yellow": YELLOW, "cyan": CYAN}.get(
-            style, ""
-        )
-        value_part = self._style(state, code) if self._use_color else state
-        self._emit_text(f"{name_part} {value_part}")
+        self._emit_text(f"{name}: {state}")
 
     def success(self, text: str) -> None:
         """Print a success message."""
-        self.line(text, "green")
+        self.line(text)
 
     def error(self, text: str) -> None:
         """Print an error message."""
         if self._output_format != "text":
             self.error_obj(code="cli_error", message=text)
             return
-        styled = self._style(text, RED, BOLD) if self._use_color else text
-        self._emit_text(styled, force=True)
+        self._emit_text(text, force=True)
 
     def error_obj(
         self,
@@ -224,11 +145,11 @@ class Output:
 
     def warning(self, text: str) -> None:
         """Print a warning message."""
-        self.line(text, "yellow")
+        self.line(text)
 
     def dim(self, text: str) -> None:
-        """Print dimmed/muted text."""
-        self.line(text, "dim")
+        """Print muted text."""
+        self.line(text)
 
     def json(self, data: Any) -> None:
         """Print JSON data."""
