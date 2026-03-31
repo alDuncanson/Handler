@@ -60,13 +60,11 @@ def task_get(
 ) -> None:
     """Retrieve the current status of a task.
 
-    **Examples:**
-
-    ```
-    handler task get --server my_agent --task task-123
-    handler task get --url http://localhost:8000 --task task-123
-    handler task get --server my_agent --task task-123 --history-length 10
-    ```
+    \b
+    Examples:
+      $ handler task get --server my_agent --task task-123
+      $ handler task get --url http://localhost:8000 --task task-123
+      $ handler task get --server my_agent --task task-123 --history-length 10
     """
     output = Output()
     payload: dict[str, Any] = {}
@@ -143,12 +141,10 @@ def task_cancel(
 ) -> None:
     """Request cancellation of a task.
 
-    **Examples:**
-
-    ```
-    handler task cancel --server my_agent --task task-123
-    handler task cancel --url http://localhost:8000 --task task-123
-    ```
+    \b
+    Examples:
+      $ handler task cancel --server my_agent --task task-123
+      $ handler task cancel --url http://localhost:8000 --task task-123
     """
     output = Output()
 
@@ -207,12 +203,10 @@ def task_resubscribe(
 ) -> None:
     """Resubscribe to a task's SSE stream after disconnection.
 
-    **Examples:**
-
-    ```
-    handler task resubscribe --server my_agent --task task-123
-    handler task resubscribe --url http://localhost:8000 --task task-123
-    ```
+    \b
+    Examples:
+      $ handler task resubscribe --server my_agent --task task-123
+      $ handler task resubscribe --url http://localhost:8000 --task task-123
     """
     output = Output()
 
@@ -300,12 +294,10 @@ def notification_set(
 ) -> None:
     """Configure a push notification webhook for a task.
 
-    **Examples:**
-
-    ```
-    handler task notification set --server my_agent --task task-123 --webhook-url http://webhook.example.com
-    handler task notification set --url http://localhost:8000 --task task-123 --webhook-url http://webhook.example.com --token SECRET
-    ```
+    \b
+    Examples:
+      $ handler task notification set --server my_agent --task task-123 --webhook-url http://webhook.example.com
+      $ handler task notification set --url http://localhost:8000 --task task-123 --webhook-url http://webhook.example.com --token SECRET
     """
     output = Output()
 
@@ -376,12 +368,10 @@ def notification_get(
 ) -> None:
     """Get the push notification configuration for a task.
 
-    **Examples:**
-
-    ```
-    handler task notification get --server my_agent --task task-123
-    handler task notification get --url http://localhost:8000 --task task-123
-    ```
+    \b
+    Examples:
+      $ handler task notification get --server my_agent --task task-123
+      $ handler task notification get --url http://localhost:8000 --task task-123
     """
     output = Output()
 

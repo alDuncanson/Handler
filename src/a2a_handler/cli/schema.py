@@ -83,12 +83,10 @@ def resolve_command(
 def schema(ctx: click.Context) -> None:
     """Output machine-readable CLI command schema.
 
-    **Examples:**
-
-    ```
-    handler schema
-    handler --output json schema
-    ```
+    \b
+    Examples:
+      $ handler schema
+      $ handler --output json schema
     """
     root = ctx.find_root().command
     assert isinstance(root, click.Group)
@@ -102,13 +100,11 @@ def schema(ctx: click.Context) -> None:
 def describe(ctx: click.Context, command_path: tuple[str, ...]) -> None:
     """Describe a command path as machine-readable metadata.
 
-    **Examples:**
-
-    ```
-    handler describe message send
-    handler describe task get
-    handler describe server add
-    ```
+    \b
+    Examples:
+      $ handler describe message send
+      $ handler describe task get
+      $ handler describe server add
     """
     root = ctx.find_root().command
     assert isinstance(root, click.Group)

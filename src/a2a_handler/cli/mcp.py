@@ -23,13 +23,11 @@ TransportType = Literal["stdio", "sse", "streamable-http"]
 def mcp(transport: TransportType) -> None:
     """Run a local MCP server exposing A2A capabilities.
 
-    **Examples:**
-
-    ```
-    handler mcp
-    handler mcp --transport sse
-    handler mcp --transport streamable-http
-    ```
+    \b
+    Examples:
+      $ handler mcp
+      $ handler mcp --transport sse
+      $ handler mcp --transport streamable-http
 
     This starts an MCP (Model Context Protocol) server that exposes Handler's
     A2A functionality as MCP tools and resources. You can connect to this

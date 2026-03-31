@@ -93,12 +93,10 @@ cli.add_command(describe)
 def version(ctx: click.Context) -> None:
     """Display the current version.
 
-    **Examples:**
-
-    ```
-    handler version
-    handler --output json version
-    ```
+    \b
+    Examples:
+      $ handler version
+      $ handler --output json version
     """
     output = Output()
     output_format = (ctx.obj or {}).get("output_format", "text")
@@ -125,15 +123,13 @@ def tui(
 ) -> None:
     """Launch the interactive terminal interface.
 
-    **Examples:**
-
-    ```
-    handler tui
-    handler tui --connect my_agent
-    handler tui --connect my_agent --connect other_agent
-    handler tui --url http://localhost:8000
-    handler tui --bearer TOKEN
-    ```
+    \b
+    Examples:
+      $ handler tui
+      $ handler tui --connect my_agent
+      $ handler tui --connect my_agent --connect other_agent
+      $ handler tui --url http://localhost:8000
+      $ handler tui --bearer TOKEN
     """
     log.info("Launching TUI")
     logging.getLogger().handlers = []
@@ -151,12 +147,10 @@ def tui(
 def web(host: str, port: int) -> None:
     """Serve the TUI as a web application.
 
-    **Examples:**
-
-    ```
-    handler web
-    handler web --port 9000
-    ```
+    \b
+    Examples:
+      $ handler web
+      $ handler web --port 9000
     """
     from textual_serve.server import Server
 

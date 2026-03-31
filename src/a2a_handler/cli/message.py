@@ -86,15 +86,13 @@ def message_send(
 ) -> None:
     """Send a message to an agent and receive a response.
 
-    **Examples:**
-
-    ```
-    handler message send --server my_agent --text "Hello"
-    handler message send --url http://localhost:8000 --text "Hello"
-    handler message send --server my_agent --text "Hello" --stream
-    handler message send --server my_agent --text "Follow up" --continue
-    handler message send --url http://localhost:8000 --bearer TOKEN --text "Hi"
-    ```
+    \b
+    Examples:
+      $ handler message send --server my_agent --text "Hello"
+      $ handler message send --url http://localhost:8000 --text "Hello"
+      $ handler message send --server my_agent --text "Hello" --stream
+      $ handler message send --server my_agent --text "Follow up" --continue
+      $ handler message send --url http://localhost:8000 --bearer TOKEN --text "Hi"
     """
     output = Output()
     payload: dict[str, Any] = {}
@@ -285,13 +283,11 @@ def message_stream(
 ) -> None:
     """Send a message and stream the response in real-time.
 
-    **Examples:**
-
-    ```
-    handler message stream --server my_agent --text "Hello"
-    handler message stream --url http://localhost:8000 --text "Hello"
-    handler message stream --server my_agent --text "Follow up" --continue
-    ```
+    \b
+    Examples:
+      $ handler message stream --server my_agent --text "Hello"
+      $ handler message stream --url http://localhost:8000 --text "Hello"
+      $ handler message stream --server my_agent --text "Follow up" --continue
     """
     ctx.invoke(
         message_send,

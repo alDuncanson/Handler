@@ -21,11 +21,9 @@ def session() -> None:
 def session_list() -> None:
     """List all saved conversation sessions.
 
-    **Examples:**
-
-    ```
-    handler session list
-    ```
+    \b
+    Examples:
+      $ handler session list
     """
     output = Output()
     store = get_session_store()
@@ -53,12 +51,10 @@ def session_list() -> None:
 def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
     """Display saved conversation state for an agent.
 
-    **Examples:**
-
-    ```
-    handler session show --server my_agent
-    handler session show --url http://localhost:8000
-    ```
+    \b
+    Examples:
+      $ handler session show --server my_agent
+      $ handler session show --url http://localhost:8000
     """
     output = Output()
 
@@ -106,13 +102,11 @@ def session_clear(
 ) -> None:
     """Clear saved conversation state.
 
-    **Examples:**
-
-    ```
-    handler session clear --server my_agent
-    handler session clear --url http://localhost:8000
-    handler session clear --all
-    ```
+    \b
+    Examples:
+      $ handler session clear --server my_agent
+      $ handler session clear --url http://localhost:8000
+      $ handler session clear --all
     """
     output = Output()
     if clear_all:

@@ -44,13 +44,11 @@ def card_get(
 ) -> None:
     """Retrieve an agent's card.
 
-    **Examples:**
-
-    ```
-    handler card get --server my_agent
-    handler card get --url http://localhost:8000
-    handler card get --url http://localhost:8000 --bearer TOKEN
-    ```
+    \b
+    Examples:
+      $ handler card get --server my_agent
+      $ handler card get --url http://localhost:8000
+      $ handler card get --url http://localhost:8000 --bearer TOKEN
     """
     output = Output()
 
@@ -113,13 +111,11 @@ def card_validate(
 ) -> None:
     """Validate an agent card from URL or file.
 
-    **Examples:**
-
-    ```
-    handler card validate --server my_agent
-    handler card validate --url http://localhost:8000
-    handler card validate --file ./agent-card.json
-    ```
+    \b
+    Examples:
+      $ handler card validate --server my_agent
+      $ handler card validate --url http://localhost:8000
+      $ handler card validate --file ./agent-card.json
     """
     output = Output()
 
