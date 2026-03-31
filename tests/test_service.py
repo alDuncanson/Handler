@@ -8,12 +8,18 @@ from a2a_handler.auth import create_bearer_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
-    SendResult,
     StreamEvent,
-    TaskResult,
     TERMINAL_TASK_STATES,
+    A2AResponse,
+    extract_text,
     extract_text_from_task,
     extract_text_from_message_parts,
+    is_terminal,
+    protocol_dump,
+    response_context_id,
+    response_needs_auth,
+    response_state,
+    response_task_id,
 )
 
 
@@ -39,78 +45,78 @@ def _make_message(context_id: str = "ctx-123", task_id: str | None = None) -> Me
     )
 
 
-class TestSendResult:
-    """Tests for SendResult dataclass."""
+class TestResponseHelpers:
+    """Tests for A2AResponse helper functions."""
 
-    def test_is_complete_when_completed(self):
-        """Test is_complete returns True for completed state."""
-        result = SendResult(task=_make_task(TaskState.completed))
-        assert result.is_complete is True
+    def test_is_terminal_when_completed(self):
+        assert is_terminal(_make_task(TaskState.completed)) is True
 
-    def test_is_complete_when_canceled(self):
-        """Test is_complete returns True for canceled state."""
-        result = SendResult(task=_make_task(TaskState.canceled))
-        assert result.is_complete is True
+    def test_is_terminal_when_canceled(self):
+        assert is_terminal(_make_task(TaskState.canceled)) is True
 
-    def test_is_complete_when_failed(self):
-        """Test is_complete returns True for failed state."""
-        result = SendResult(task=_make_task(TaskState.failed))
-        assert result.is_complete is True
+    def test_is_terminal_when_failed(self):
+        assert is_terminal(_make_task(TaskState.failed)) is True
 
-    def test_is_complete_when_rejected(self):
-        """Test is_complete returns True for rejected state."""
-        result = SendResult(task=_make_task(TaskState.rejected))
-        assert result.is_complete is True
+    def test_is_terminal_when_rejected(self):
+        assert is_terminal(_make_task(TaskState.rejected)) is True
 
-    def test_is_complete_when_working(self):
-        """Test is_complete returns False for working state."""
-        result = SendResult(task=_make_task(TaskState.working))
-        assert result.is_complete is False
+    def test_is_terminal_when_working(self):
+        assert is_terminal(_make_task(TaskState.working)) is False
 
-    def test_is_complete_when_no_state(self):
-        """Test is_complete returns False when no task or message."""
-        result = SendResult()
-        assert result.is_complete is False
+    def test_is_terminal_for_message(self):
+        assert is_terminal(_make_message()) is False
 
-    def test_needs_input_when_input_required(self):
-        """Test needs_input returns True for input_required state."""
-        result = SendResult(task=_make_task(TaskState.input_required))
-        assert result.needs_input is True
+    def test_needs_auth_when_auth_required(self):
+        assert response_needs_auth(_make_task(TaskState.auth_required)) is True
 
-    def test_needs_input_when_working(self):
-        """Test needs_input returns False for working state."""
-        result = SendResult(task=_make_task(TaskState.working))
-        assert result.needs_input is False
+    def test_needs_auth_when_working(self):
+        assert response_needs_auth(_make_task(TaskState.working)) is False
 
-    def test_needs_input_when_no_state(self):
-        """Test needs_input returns False when no task or message."""
-        result = SendResult()
-        assert result.needs_input is False
+    def test_needs_auth_for_message(self):
+        assert response_needs_auth(_make_message()) is False
 
     def test_context_id_from_task(self):
-        """Test context_id is derived from task."""
-        result = SendResult(task=_make_task(TaskState.completed, context_id="ctx-456"))
-        assert result.context_id == "ctx-456"
+        assert response_context_id(_make_task(TaskState.completed, context_id="ctx-456")) == "ctx-456"
 
     def test_context_id_from_message(self):
-        """Test context_id is derived from message when no task."""
-        result = SendResult(message=_make_message(context_id="ctx-789"))
-        assert result.context_id == "ctx-789"
+        assert response_context_id(_make_message(context_id="ctx-789")) == "ctx-789"
 
     def test_task_id_from_task(self):
-        """Test task_id is derived from task."""
-        result = SendResult(task=_make_task(TaskState.completed, task_id="task-456"))
-        assert result.task_id == "task-456"
+        assert response_task_id(_make_task(TaskState.completed, task_id="task-456")) == "task-456"
 
     def test_task_id_from_message(self):
-        """Test task_id is derived from message when no task."""
-        result = SendResult(message=_make_message(task_id="task-789"))
-        assert result.task_id == "task-789"
+        assert response_task_id(_make_message(task_id="task-789")) == "task-789"
 
     def test_state_from_task(self):
-        """Test state is derived from task status."""
-        result = SendResult(task=_make_task(TaskState.working))
-        assert result.state == TaskState.working
+        assert response_state(_make_task(TaskState.working)) == TaskState.working
+
+    def test_state_from_message(self):
+        assert response_state(_make_message()) is None
+
+    def test_extract_text_from_task(self):
+        task = Task(
+            id="t", context_id="c",
+            status=TaskStatus(state=TaskState.completed),
+            history=[Message(message_id="m", role=Role.agent, parts=[Part(root=TextPart(text="Hello"))], context_id="c")],
+        )
+        assert extract_text(task) == "Hello"
+
+    def test_extract_text_from_message(self):
+        msg = _make_message()
+        assert extract_text(msg) == "Hello"
+
+    def test_protocol_dump_task(self):
+        task = _make_task(TaskState.completed)
+        dumped = protocol_dump(task)
+        assert dumped["id"] == "task-123"
+        assert dumped["status"]["state"] == "completed"
+        assert "kind" in dumped
+
+    def test_protocol_dump_message(self):
+        msg = _make_message()
+        dumped = protocol_dump(msg)
+        assert dumped["contextId"] == "ctx-123"
+        assert dumped["role"] == "agent"
 
 
 class TestStreamEvent:
@@ -147,35 +153,6 @@ class TestStreamEvent:
         task = _make_task(TaskState.completed, context_id="ctx-abc")
         event = StreamEvent(event_type="task", task=task)
         assert event.context_id == "ctx-abc"
-
-
-class TestTaskResult:
-    """Tests for TaskResult dataclass."""
-
-    def test_create_task_result(self):
-        """Test creating a task result."""
-        mock_task = _make_task(
-            TaskState.completed, task_id="task-123", context_id="ctx-123"
-        )
-
-        result = TaskResult(
-            task=mock_task,
-            text="Task completed successfully",
-        )
-
-        assert result.task_id == "task-123"
-        assert result.context_id == "ctx-123"
-        assert result.state == TaskState.completed
-        assert result.text == "Task completed successfully"
-
-    def test_properties_derived_from_task(self):
-        """Test that properties are correctly derived from the SDK Task object."""
-        task = _make_task(TaskState.failed, task_id="task-xyz", context_id="ctx-xyz")
-        result = TaskResult(task=task)
-
-        assert result.task_id == "task-xyz"
-        assert result.context_id == "ctx-xyz"
-        assert result.state == TaskState.failed
 
 
 class TestExtractTextFromMessageParts:
@@ -229,25 +206,6 @@ class TestTerminalStates:
     def test_working_is_not_terminal(self):
         """Test that working is not a terminal state."""
         assert TaskState.working not in TERMINAL_TASK_STATES
-
-
-class TestSendResultNeedsAuth:
-    """Tests for SendResult.needs_auth property."""
-
-    def test_needs_auth_when_auth_required(self):
-        """Test needs_auth returns True for auth_required state."""
-        result = SendResult(task=_make_task(TaskState.auth_required))
-        assert result.needs_auth is True
-
-    def test_needs_auth_when_working(self):
-        """Test needs_auth returns False for working state."""
-        result = SendResult(task=_make_task(TaskState.working))
-        assert result.needs_auth is False
-
-    def test_needs_auth_when_no_state(self):
-        """Test needs_auth returns False when no task or message."""
-        result = SendResult()
-        assert result.needs_auth is False
 
 
 class TestStreamEventStatusFields:
@@ -325,20 +283,6 @@ class TestStreamEventArtifact:
         )
         event = StreamEvent(event_type="artifact", artifact=artifact_event)
         assert event.task_id == "task-artifact"
-
-
-class TestTaskResultState:
-    """Additional tests for TaskResult state handling."""
-
-    def test_state_default_when_unknown(self):
-        """Test state returns unknown when task has unknown state."""
-        task = Task(
-            id="task-123",
-            context_id="ctx-123",
-            status=TaskStatus(state=TaskState.unknown),
-        )
-        result = TaskResult(task=task)
-        assert result.state == TaskState.unknown
 
 
 class TestExtractTextFromTask:
@@ -554,9 +498,10 @@ class TestA2AServiceStreamingCompatibility:
 
             result = await service.send("hello")
 
-        assert result.task_id == "task-123"
-        assert result.state == TaskState.completed
-        assert result.text == "Done"
+        assert isinstance(result, Task)
+        assert result.id == "task-123"
+        assert result.status.state == TaskState.completed
+        assert extract_text(result) == "Done"
 
 
 @pytest.mark.asyncio

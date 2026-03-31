@@ -24,7 +24,17 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
-from a2a_handler.service import A2AService, SendResult
+from a2a_handler.service import (
+    A2AService,
+    A2AResponse,
+    StreamEvent,
+    extract_text,
+    protocol_dump,
+    response_context_id,
+    response_needs_auth,
+    response_state,
+    response_task_id,
+)
 from a2a_handler.session import get_session, update_session
 
 from ._helpers import (
@@ -69,6 +79,7 @@ def message() -> None:
     multiple=True,
     help="Custom header (repeatable, format: 'Name: Value')",
 )
+@click.option("--raw", is_flag=True, help="Emit full A2A protocol response")
 def message_send(
     agent_url: Optional[str],
     server_name: Optional[str],
@@ -83,6 +94,7 @@ def message_send(
     bearer_token: Optional[str],
     api_key: Optional[str],
     headers: tuple[str, ...] = (),
+    raw: bool = False,
 ) -> None:
     """Send a message to an agent and receive a response.
 
@@ -232,12 +244,16 @@ def message_send(
 
                 if stream:
                     await _stream_message(
-                        service, text, context_id, task_id, resolved_url, output
+                        service, text, context_id, task_id, resolved_url, output, raw
                     )
                 else:
-                    result = await service.send(text, context_id, task_id)
-                    update_session(resolved_url, result.context_id, result.task_id)
-                    _format_send_result(result, output)
+                    response = await service.send(text, context_id, task_id)
+                    update_session(
+                        resolved_url,
+                        response_context_id(response),
+                        response_task_id(response),
+                    )
+                    _format_response(response, output, raw)
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -266,6 +282,7 @@ def message_send(
     multiple=True,
     help="Custom header (repeatable, format: 'Name: Value')",
 )
+@click.option("--raw", is_flag=True, help="Emit full A2A protocol response")
 @click.pass_context
 def message_stream(
     ctx: click.Context,
@@ -280,6 +297,7 @@ def message_stream(
     bearer_token: Optional[str],
     api_key: Optional[str],
     headers: tuple[str, ...] = (),
+    raw: bool = False,
 ) -> None:
     """Send a message and stream the response in real-time.
 
@@ -303,6 +321,7 @@ def message_stream(
         bearer_token=bearer_token,
         api_key=api_key,
         headers=headers,
+        raw=raw,
     )
 
 
@@ -313,17 +332,23 @@ async def _stream_message(
     task_id: Optional[str],
     agent_url: str,
     output: Output,
+    raw: bool = False,
 ) -> None:
     """Stream a message and handle events."""
     collected_text: list[str] = []
     last_context_id: str | None = None
     last_task_id: str | None = None
     last_state = None
+    last_response: A2AResponse | None = None
 
     async for event in service.stream(text, context_id, task_id):
         last_context_id = event.context_id or last_context_id
         last_task_id = event.task_id or last_task_id
         last_state = event.state or last_state
+        if event.task:
+            last_response = event.task
+        elif event.message:
+            last_response = event.message
 
         if event.text and event.text not in collected_text:
             output.line(event.text)
@@ -331,19 +356,8 @@ async def _stream_message(
 
     update_session(agent_url, last_context_id, last_task_id)
 
-    if output.is_structured:
-        data: dict[str, object] = {}
-        if last_context_id:
-            data["context_id"] = last_context_id
-        if last_task_id:
-            data["task_id"] = last_task_id
-        if last_state:
-            data["state"] = last_state.value
-            if last_state.value == "auth-required":
-                data["needs_auth"] = True
-        if collected_text:
-            data["text"] = "\n".join(collected_text)
-        output.json(data)
+    if (output.is_structured or raw) and last_response:
+        output.json(protocol_dump(last_response))
         return
 
     output.blank()
@@ -363,33 +377,27 @@ async def _stream_message(
         )
 
 
-def _format_send_result(result: SendResult, output: Output) -> None:
-    """Format and display a send result."""
-    if output.is_structured:
-        data: dict[str, object] = {}
-        if result.context_id:
-            data["context_id"] = result.context_id
-        if result.task_id:
-            data["task_id"] = result.task_id
-        if result.state:
-            data["state"] = result.state.value
-        if result.needs_auth:
-            data["needs_auth"] = True
-        elif result.text:
-            data["text"] = result.text
-        output.json(data)
+def _format_response(response: A2AResponse, output: Output, raw: bool = False) -> None:
+    """Format and display an A2A response."""
+    if output.is_structured or raw:
+        output.json(protocol_dump(response))
         return
 
-    output.blank()
-    if result.context_id:
-        output.field("Context ID", result.context_id)
-    if result.task_id:
-        output.field("Task ID", result.task_id)
-    if result.state:
-        output.state("State", result.state.value)
+    context_id = response_context_id(response)
+    task_id = response_task_id(response)
+    state = response_state(response)
+    text = extract_text(response)
 
     output.blank()
-    if result.needs_auth:
+    if context_id:
+        output.field("Context ID", context_id)
+    if task_id:
+        output.field("Task ID", task_id)
+    if state:
+        output.state("State", state.value)
+
+    output.blank()
+    if response_needs_auth(response):
         output.warning("Authentication required")
         output.line("The agent requires authentication to complete this task.")
         output.line(
@@ -401,7 +409,7 @@ def _format_send_result(result: SendResult, output: Output) -> None:
         output.line(
             "Or use a named server: handler message send --server <name> ..."
         )
-    elif result.text:
-        output.markdown(result.text)
+    elif text:
+        output.markdown(text)
     else:
         output.dim("No text content in response")

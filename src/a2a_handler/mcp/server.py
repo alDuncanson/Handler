@@ -21,7 +21,15 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
-from a2a_handler.service import A2AService
+from a2a_handler.service import (
+    A2AService,
+    extract_text,
+    protocol_dump,
+    response_context_id,
+    response_needs_auth,
+    response_state,
+    response_task_id,
+)
 from a2a_handler.session import (
     clear_session,
     get_session,
@@ -277,17 +285,14 @@ def create_mcp_server() -> FastMCP:
                 credentials=credentials,
             )
 
-            result = await service.send(message, context_id, task_id)
-            update_session(agent_url, result.context_id, result.task_id)
+            response = await service.send(message, context_id, task_id)
+            update_session(
+                agent_url,
+                response_context_id(response),
+                response_task_id(response),
+            )
 
-            return {
-                "context_id": result.context_id,
-                "task_id": result.task_id,
-                "state": result.state.value if result.state else None,
-                "text": result.text,
-                "needs_input": result.needs_input,
-                "needs_auth": result.needs_auth,
-            }
+            return protocol_dump(response)
 
     @mcp.tool()
     async def get_task(
@@ -343,14 +348,9 @@ def create_mcp_server() -> FastMCP:
 
         async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            result = await service.get_task(task_id, history_length)
+            task = await service.get_task(task_id, history_length)
 
-            return {
-                "task_id": result.task_id,
-                "context_id": result.context_id,
-                "state": result.state.value,
-                "text": result.text,
-            }
+            return protocol_dump(task)
 
     @mcp.tool()
     async def cancel_task(
@@ -403,14 +403,9 @@ def create_mcp_server() -> FastMCP:
 
         async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            result = await service.cancel_task(task_id)
+            task = await service.cancel_task(task_id)
 
-            return {
-                "task_id": result.task_id,
-                "context_id": result.context_id,
-                "state": result.state.value,
-                "text": result.text,
-            }
+            return protocol_dump(task)
 
     @mcp.tool()
     async def set_task_notification(

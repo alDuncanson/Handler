@@ -5,7 +5,7 @@ Provides a unified interface for A2A operations, shared between the CLI and TUI.
 
 import uuid
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import AsyncIterator, Union
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
@@ -50,59 +50,6 @@ TERMINAL_TASK_STATES = {
     TaskState.failed,
     TaskState.rejected,
 }
-
-
-@dataclass
-class SendResult:
-    """Result from sending a message to an agent.
-
-    This is a Handler convenience wrapper around SDK types (Task, Message).
-    All A2A protocol data is accessible via the `task` and `message` fields.
-    """
-
-    task: Task | None = None
-    message: Message | None = None
-    text: str = ""
-
-    @property
-    def context_id(self) -> str | None:
-        """Get context_id from the underlying SDK type."""
-        if self.task:
-            return self.task.context_id
-        if self.message:
-            return self.message.context_id
-        return None
-
-    @property
-    def task_id(self) -> str | None:
-        """Get task_id from the underlying SDK type."""
-        if self.task:
-            return self.task.id
-        if self.message:
-            return self.message.task_id
-        return None
-
-    @property
-    def state(self) -> TaskState | None:
-        """Get task state from the underlying SDK type."""
-        if self.task and self.task.status:
-            return self.task.status.state
-        return None
-
-    @property
-    def is_complete(self) -> bool:
-        """Check if the task reached a terminal state."""
-        return self.state in TERMINAL_TASK_STATES if self.state else False
-
-    @property
-    def needs_input(self) -> bool:
-        """Check if the task is waiting for user input."""
-        return self.state == TaskState.input_required if self.state else False
-
-    @property
-    def needs_auth(self) -> bool:
-        """Check if the task requires authentication."""
-        return self.state == TaskState.auth_required if self.state else False
 
 
 @dataclass
@@ -156,33 +103,6 @@ class StreamEvent:
         return None
 
 
-@dataclass
-class TaskResult:
-    """Result from a task operation (get/cancel).
-
-    This is a Handler convenience wrapper around the SDK Task type.
-    All A2A protocol data is accessible via the `task` field.
-    """
-
-    task: Task
-    text: str = ""
-
-    @property
-    def task_id(self) -> str:
-        """Get task_id from the underlying SDK type."""
-        return self.task.id
-
-    @property
-    def context_id(self) -> str:
-        """Get context_id from the underlying SDK type."""
-        return self.task.context_id
-
-    @property
-    def state(self) -> TaskState:
-        """Get task state from the underlying SDK type."""
-        return self.task.status.state if self.task.status else TaskState.unknown
-
-
 def extract_text_from_message_parts(message_parts: list[Part] | None) -> str:
     """Extract text content from message parts."""
     if not message_parts:
@@ -212,6 +132,51 @@ def extract_text_from_task(task: Task) -> str:
                 extracted_texts.append(extract_text_from_message_parts(message.parts))
 
     return "\n".join(text for text in extracted_texts if text)
+
+
+A2AResponse = Union[Task, Message]
+
+
+def response_context_id(response: A2AResponse) -> str | None:
+    """Get context_id from a Task or Message."""
+    return response.context_id
+
+
+def response_task_id(response: A2AResponse) -> str | None:
+    """Get task_id from a Task or Message."""
+    if isinstance(response, Task):
+        return response.id
+    return response.task_id
+
+
+def response_state(response: A2AResponse) -> TaskState | None:
+    """Get task state from a Task or Message (Messages have no state)."""
+    if isinstance(response, Task) and response.status:
+        return response.status.state
+    return None
+
+
+def is_terminal(response: A2AResponse) -> bool:
+    """Check if the response reached a terminal state."""
+    state = response_state(response)
+    return state in TERMINAL_TASK_STATES if state else False
+
+
+def response_needs_auth(response: A2AResponse) -> bool:
+    """Check if the response requires authentication."""
+    return response_state(response) == TaskState.auth_required
+
+
+def extract_text(response: A2AResponse) -> str:
+    """Extract text content from a Task or Message."""
+    if isinstance(response, Task):
+        return extract_text_from_task(response)
+    return extract_text_from_message_parts(response.parts)
+
+
+def protocol_dump(response: A2AResponse) -> dict[str, object]:
+    """Serialize an A2A protocol object to a JSON-compatible dict."""
+    return response.model_dump(mode="json", exclude_none=True)
 
 
 class A2AService:
@@ -401,18 +366,10 @@ class A2AService:
         message_text: str,
         context_id: str | None = None,
         task_id: str | None = None,
-    ) -> SendResult:
+    ) -> Task | Message:
         """Send a message to the agent and wait for completion.
 
-        This method collects all streaming events and returns the final result.
-
-        Args:
-            message_text: Message to send
-            context_id: Optional context ID for conversation continuity
-            task_id: Optional task ID to continue
-
-        Returns:
-            SendResult with task state, extracted text, and IDs
+        Returns the raw A2A protocol response (Task or Message).
         """
         client = await self._get_or_create_client()
         user_message = self._build_user_message(message_text, context_id, task_id)
@@ -422,26 +379,31 @@ class A2AService:
         )
         logger.info("Sending message: %s", truncated_message)
 
-        result = SendResult()
+        last_task: Task | None = None
+        last_message: Message | None = None
 
         async for event in client.send_message(user_message):
             if isinstance(event, Message):
-                result.message = event
-                result.text = extract_text_from_message_parts(event.parts)
+                last_message = event
                 logger.debug("Received message response")
             elif isinstance(event, tuple):
-                received_task, task_update = event
-                result.task = received_task
+                received_task, _task_update = event
+                last_task = received_task
                 logger.debug(
                     "Received task update: %s",
                     received_task.status.state if received_task.status else "unknown",
                 )
 
-        if result.task:
-            result.text = extract_text_from_task(result.task)
+        response = last_task or last_message
+        if response is None:
+            raise RuntimeError("A2A send returned neither Task nor Message")
 
-        logger.info("Send complete: task_id=%s, state=%s", result.task_id, result.state)
-        return result
+        logger.info(
+            "Send complete: task_id=%s, state=%s",
+            response_task_id(response),
+            response_state(response),
+        )
+        return response
 
     async def stream(
         self,
@@ -509,48 +471,29 @@ class A2AService:
         self,
         task_id: str,
         history_length: int | None = None,
-    ) -> TaskResult:
+    ) -> Task:
         """Get the current state of a task.
 
-        Args:
-            task_id: ID of the task to retrieve
-            history_length: Optional number of history messages to include
-
-        Returns:
-            TaskResult with task state and details
+        Returns the raw A2A Task object.
         """
         client = await self._get_or_create_client()
 
         query_params = TaskQueryParams(id=task_id, history_length=history_length)
         logger.info("Getting task: %s", task_id)
 
-        task = await client.get_task(query_params)
+        return await client.get_task(query_params)
 
-        return TaskResult(
-            task=task,
-            text=extract_text_from_task(task),
-        )
-
-    async def cancel_task(self, task_id: str) -> TaskResult:
+    async def cancel_task(self, task_id: str) -> Task:
         """Cancel a running task.
 
-        Args:
-            task_id: ID of the task to cancel
-
-        Returns:
-            TaskResult with updated task state
+        Returns the raw A2A Task object with updated state.
         """
         client = await self._get_or_create_client()
 
         task_id_params = TaskIdParams(id=task_id)
         logger.info("Canceling task: %s", task_id)
 
-        task = await client.cancel_task(task_id_params)
-
-        return TaskResult(
-            task=task,
-            text=extract_text_from_task(task),
-        )
+        return await client.cancel_task(task_id_params)
 
     async def resubscribe(self, task_id: str) -> AsyncIterator[StreamEvent]:
         """Resubscribe to a task's event stream.

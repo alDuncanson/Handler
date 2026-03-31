@@ -4,10 +4,19 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from click.testing import CliRunner
-from a2a.types import Task, TaskState, TaskStatus, PushNotificationConfig
+from a2a.types import (
+    Message,
+    Part,
+    PushNotificationConfig,
+    Role,
+    Task,
+    TaskState,
+    TaskStatus,
+    TextPart,
+)
 
 from a2a_handler.cli.task import task
-from a2a_handler.service import TaskResult, StreamEvent
+from a2a_handler.service import StreamEvent
 
 
 @pytest.fixture
@@ -34,8 +43,19 @@ class TestTaskGet:
 
     def test_task_get_success(self, runner):
         """Test successful task get command."""
-        mock_task = _make_task(TaskState.completed)
-        mock_result = TaskResult(task=mock_task, text="Task output text")
+        mock_task = Task(
+            id="task-123",
+            context_id="ctx-123",
+            status=TaskStatus(state=TaskState.completed),
+            history=[
+                Message(
+                    message_id="msg-1",
+                    role=Role.agent,
+                    parts=[Part(root=TextPart(text="Task output text"))],
+                    context_id="ctx-123",
+                )
+            ],
+        )
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -47,7 +67,7 @@ class TestTaskGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_task.return_value = mock_result
+            mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -67,7 +87,6 @@ class TestTaskGet:
     def test_task_get_with_history_length(self, runner):
         """Test task get with history length option."""
         mock_task = _make_task(TaskState.completed)
-        mock_result = TaskResult(task=mock_task)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -79,7 +98,7 @@ class TestTaskGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_task.return_value = mock_result
+            mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -101,7 +120,6 @@ class TestTaskGet:
     def test_task_get_with_bearer_auth(self, runner):
         """Test task get with bearer token override."""
         mock_task = _make_task(TaskState.completed)
-        mock_result = TaskResult(task=mock_task)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -113,7 +131,7 @@ class TestTaskGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_task.return_value = mock_result
+            mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -137,7 +155,6 @@ class TestTaskGet:
     def test_task_get_with_api_key_auth(self, runner):
         """Test task get with API key override."""
         mock_task = _make_task(TaskState.completed)
-        mock_result = TaskResult(task=mock_task)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -149,7 +166,7 @@ class TestTaskGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_task.return_value = mock_result
+            mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -201,7 +218,6 @@ class TestTaskGet:
     def test_task_get_with_json_params(self, runner):
         """Test task get supports raw json params."""
         mock_task = _make_task(TaskState.completed)
-        mock_result = TaskResult(task=mock_task)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -213,7 +229,7 @@ class TestTaskGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_task.return_value = mock_result
+            mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -255,7 +271,6 @@ class TestTaskCancel:
     def test_task_cancel_success(self, runner):
         """Test successful task cancel command."""
         mock_task = _make_task(TaskState.canceled)
-        mock_result = TaskResult(task=mock_task)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -267,7 +282,7 @@ class TestTaskCancel:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.cancel_task.return_value = mock_result
+            mock_service.cancel_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -287,7 +302,6 @@ class TestTaskCancel:
     def test_task_cancel_with_bearer(self, runner):
         """Test task cancel with bearer token."""
         mock_task = _make_task(TaskState.canceled)
-        mock_result = TaskResult(task=mock_task)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -299,7 +313,7 @@ class TestTaskCancel:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.cancel_task.return_value = mock_result
+            mock_service.cancel_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -596,37 +610,47 @@ class TestTaskNotificationGet:
             )
 
 
-class TestFormatTaskResult:
-    """Tests for _format_task_result helper."""
+class TestFormatTask:
+    """Tests for _format_task helper."""
 
-    def test_format_task_result_completed(self):
-        """Test formatting a completed task result."""
-        from a2a_handler.cli.task import _format_task_result
+    def test_format_task_completed(self):
+        """Test formatting a completed task."""
+        from a2a_handler.cli.task import _format_task
         from a2a_handler.common import Output
         from unittest.mock import MagicMock
 
-        mock_task = _make_task(TaskState.completed, context_id="ctx-abc")
-        result = TaskResult(task=mock_task, text="Output text here")
+        mock_task = Task(
+            id="task-123",
+            context_id="ctx-abc",
+            status=TaskStatus(state=TaskState.completed),
+            history=[
+                Message(
+                    message_id="msg-1",
+                    role=Role.agent,
+                    parts=[Part(root=TextPart(text="Output text here"))],
+                    context_id="ctx-abc",
+                )
+            ],
+        )
 
         output = MagicMock(spec=Output)
         output.is_structured = False
-        _format_task_result(result, output)
+        _format_task(mock_task, output)
 
         output.field.assert_any_call("Task ID", "task-123")
         output.state.assert_called_with("State", "completed")
         output.markdown.assert_called_with("Output text here")
 
-    def test_format_task_result_no_text(self):
-        """Test formatting a task result without text."""
-        from a2a_handler.cli.task import _format_task_result
+    def test_format_task_no_text(self):
+        """Test formatting a task without text."""
+        from a2a_handler.cli.task import _format_task
         from a2a_handler.common import Output
         from unittest.mock import MagicMock
 
         mock_task = _make_task(TaskState.working)
-        result = TaskResult(task=mock_task, text="")
 
         output = MagicMock(spec=Output)
         output.is_structured = False
-        _format_task_result(result, output)
+        _format_task(mock_task, output)
 
         output.markdown.assert_not_called()

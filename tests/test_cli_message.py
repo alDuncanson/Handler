@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from a2a.types import Task, TaskState, TaskStatus
+from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
 
-from a2a_handler.cli.message import message, _format_send_result, _stream_message
+from a2a_handler.cli.message import message, _format_response, _stream_message
 from a2a_handler.common import Output
-from a2a_handler.service import SendResult, StreamEvent
+from a2a_handler.service import StreamEvent
 
 
 @pytest.fixture
@@ -21,12 +21,24 @@ def _make_task(
     state: TaskState = TaskState.completed,
     task_id: str = "task-123",
     context_id: str = "ctx-123",
+    text: str | None = None,
 ) -> Task:
     """Helper to create a Task with the given state."""
+    history = None
+    if text:
+        history = [
+            Message(
+                message_id="msg-1",
+                role=Role.agent,
+                parts=[Part(root=TextPart(text=text))],
+                context_id=context_id,
+            )
+        ]
     return Task(
         id=task_id,
         context_id=context_id,
         status=TaskStatus(state=state),
+        history=history,
     )
 
 
@@ -35,8 +47,7 @@ class TestMessageSend:
 
     def test_message_send_success(self, runner):
         """Test successful message send."""
-        mock_task = _make_task(TaskState.completed)
-        mock_result = SendResult(task=mock_task, text="Response text")
+        mock_task = _make_task(TaskState.completed, text="Response text")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -49,7 +60,7 @@ class TestMessageSend:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.send.return_value = mock_result
+            mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -62,8 +73,7 @@ class TestMessageSend:
 
     def test_message_send_with_context_id(self, runner):
         """Test message send with context ID."""
-        mock_task = _make_task(TaskState.completed)
-        mock_result = SendResult(task=mock_task, text="Response")
+        mock_task = _make_task(TaskState.completed, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -76,7 +86,7 @@ class TestMessageSend:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.send.return_value = mock_result
+            mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -104,8 +114,7 @@ class TestMessageSend:
             context_id="saved-ctx",
             task_id="saved-task",
         )
-        mock_task = _make_task(TaskState.completed)
-        mock_result = SendResult(task=mock_task, text="Response")
+        mock_task = _make_task(TaskState.completed, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -119,7 +128,7 @@ class TestMessageSend:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.send.return_value = mock_result
+            mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -139,8 +148,7 @@ class TestMessageSend:
 
     def test_message_send_with_bearer_auth(self, runner):
         """Test message send with bearer token."""
-        mock_task = _make_task(TaskState.completed)
-        mock_result = SendResult(task=mock_task, text="Response")
+        mock_task = _make_task(TaskState.completed, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -153,7 +161,7 @@ class TestMessageSend:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.send.return_value = mock_result
+            mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -175,8 +183,7 @@ class TestMessageSend:
 
     def test_message_send_with_push_url(self, runner):
         """Test message send with push notification URL."""
-        mock_task = _make_task(TaskState.completed)
-        mock_result = SendResult(task=mock_task, text="Response")
+        mock_task = _make_task(TaskState.completed, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -189,7 +196,7 @@ class TestMessageSend:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.send.return_value = mock_result
+            mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -235,8 +242,7 @@ class TestMessageSend:
 
     def test_message_send_with_json_payload(self, runner):
         """Test message send accepts raw json payload."""
-        mock_task = _make_task(TaskState.completed)
-        mock_result = SendResult(task=mock_task, text="Response")
+        mock_task = _make_task(TaskState.completed, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -249,7 +255,7 @@ class TestMessageSend:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.send.return_value = mock_result
+            mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -341,17 +347,18 @@ class TestMessageStream:
             assert call_kwargs["enable_streaming"] is True
 
 
-class TestFormatSendResult:
-    """Tests for _format_send_result helper."""
+class TestFormatResponse:
+    """Tests for _format_response helper."""
 
     def test_format_completed_result(self):
         """Test formatting a completed result with text."""
-        mock_task = _make_task(TaskState.completed, context_id="ctx-123")
-        result = SendResult(task=mock_task, text="Response text here")
+        mock_task = _make_task(
+            TaskState.completed, context_id="ctx-123", text="Response text here"
+        )
         output = MagicMock(spec=Output)
         output.is_structured = False
 
-        _format_send_result(result, output)
+        _format_response(mock_task, output)
 
         output.field.assert_any_call("Context ID", "ctx-123")
         output.state.assert_called_with("State", "completed")
@@ -360,22 +367,20 @@ class TestFormatSendResult:
     def test_format_auth_required_result(self):
         """Test formatting an auth_required result."""
         mock_task = _make_task(TaskState.auth_required)
-        result = SendResult(task=mock_task)
         output = MagicMock(spec=Output)
         output.is_structured = False
 
-        _format_send_result(result, output)
+        _format_response(mock_task, output)
 
         output.warning.assert_called_with("Authentication required")
 
     def test_format_no_text_result(self):
         """Test formatting a result without text."""
         mock_task = _make_task(TaskState.completed)
-        result = SendResult(task=mock_task, text="")
         output = MagicMock(spec=Output)
         output.is_structured = False
 
-        _format_send_result(result, output)
+        _format_response(mock_task, output)
 
         output.dim.assert_called_with("No text content in response")
 
@@ -448,40 +453,35 @@ class TestStreamMessage:
         output.warning.assert_called_with("Authentication required")
 
 
-class TestFormatSendResultStructured:
-    """Tests for _format_send_result in structured output mode."""
+class TestFormatResponseStructured:
+    """Tests for _format_response in structured output mode."""
 
     def test_structured_completed_result(self):
         """Test structured output for a completed result with text."""
-        mock_task = _make_task(TaskState.completed, context_id="ctx-123")
-        result = SendResult(task=mock_task, text="Response text here")
+        mock_task = _make_task(
+            TaskState.completed, context_id="ctx-123", text="Response text here"
+        )
         output = MagicMock(spec=Output)
         output.is_structured = True
 
-        _format_send_result(result, output)
+        _format_response(mock_task, output)
 
-        output.json.assert_called_once_with(
-            {
-                "context_id": "ctx-123",
-                "task_id": mock_task.id,
-                "state": "completed",
-                "text": "Response text here",
-            }
-        )
+        call_data = output.json.call_args[0][0]
+        assert call_data["contextId"] == "ctx-123"
+        assert call_data["id"] == mock_task.id
+        assert call_data["status"]["state"] == "completed"
         output.field.assert_not_called()
 
     def test_structured_auth_required_result(self):
         """Test structured output for an auth_required result."""
         mock_task = _make_task(TaskState.auth_required)
-        result = SendResult(task=mock_task)
         output = MagicMock(spec=Output)
         output.is_structured = True
 
-        _format_send_result(result, output)
+        _format_response(mock_task, output)
 
         call_data = output.json.call_args[0][0]
-        assert call_data["needs_auth"] is True
-        assert call_data["state"] == "auth-required"
+        assert call_data["status"]["state"] == "auth-required"
         output.warning.assert_not_called()
 
 
@@ -491,7 +491,7 @@ class TestStreamMessageStructured:
     @pytest.mark.asyncio
     async def test_structured_stream_collects_text(self):
         """Test structured output collects streamed text."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.completed, text="First chunk")
 
         async def mock_stream(*args, **kwargs):
             yield StreamEvent(
@@ -522,8 +522,8 @@ class TestStreamMessageStructured:
             )
 
         call_data = output.json.call_args[0][0]
-        assert call_data["text"] == "First chunk\nSecond chunk"
-        assert call_data["state"] == "completed"
+        assert call_data["status"]["state"] == "completed"
+        assert call_data["contextId"] == "ctx-123"
         output.field.assert_not_called()
 
     @pytest.mark.asyncio
@@ -554,6 +554,5 @@ class TestStreamMessageStructured:
             )
 
         call_data = output.json.call_args[0][0]
-        assert call_data["needs_auth"] is True
-        assert call_data["state"] == "auth-required"
+        assert call_data["status"]["state"] == "auth-required"
         output.warning.assert_not_called()

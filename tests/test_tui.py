@@ -16,7 +16,6 @@ from a2a_handler.servers import (
     ServerSource,
 )
 from a2a_handler.session import AgentSession
-from a2a_handler.service import TaskResult
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import TabbedMessagesPanel
@@ -390,7 +389,7 @@ async def test_auto_resume_hydrates_saved_task_history(
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
-        mock_service.get_task.return_value = TaskResult(task=resumed_task)
+        mock_service.get_task.return_value = resumed_task
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:

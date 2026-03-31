@@ -28,7 +28,13 @@ from a2a_handler.servers import (
     load_server_catalog,
     resolve_server_credentials,
 )
-from a2a_handler.service import A2AService, SendResult, extract_text_from_message_parts
+from a2a_handler.service import (
+    A2AService,
+    extract_text,
+    extract_text_from_message_parts,
+    response_context_id,
+    response_task_id,
+)
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
 from a2a_handler.tui.server_resolution import (
@@ -334,7 +340,7 @@ class ServerTab(Container):
             return
 
         if message.role == Role.agent:
-            messages_panel.add_agent_message(SendResult(message=message, text=text))
+            messages_panel.add_agent_message(message)
             return
 
         if message.role == Role.user:
@@ -355,7 +361,7 @@ class ServerTab(Container):
             return
 
         try:
-            task_result = await self._agent_service.get_task(
+            task = await self._agent_service.get_task(
                 saved_conversation.task_id,
                 history_length=RESUME_HISTORY_LENGTH,
             )
@@ -372,7 +378,7 @@ class ServerTab(Container):
             )
             return
 
-        self._load_task_into_live_view(live_view, task_result.task)
+        self._load_task_into_live_view(live_view, task)
 
     def _build_connect_error_message(self, error: InputValidationError) -> str:
         if error.suggestion:
@@ -586,25 +592,26 @@ class ServerTab(Container):
 
             self._refresh_live_summary()
 
-            send_result = await self._agent_service.send(
+            response = await self._agent_service.send(
                 message_text,
                 context_id=self.current_context_id,
             )
 
-            if send_result.context_id:
-                self.current_context_id = send_result.context_id
-            self.current_task_id = send_result.task_id
+            ctx_id = response_context_id(response)
+            if ctx_id:
+                self.current_context_id = ctx_id
+            self.current_task_id = response_task_id(response)
             self._persist_session_state()
 
-            messages_panel.add_agent_message(send_result)
+            messages_panel.add_agent_message(response)
 
-            if send_result.task:
-                messages_panel.update_task(send_result.task)
-                if send_result.task.artifacts:
-                    for artifact in send_result.task.artifacts:
+            if isinstance(response, Task):
+                messages_panel.update_task(response)
+                if response.artifacts:
+                    for artifact in response.artifacts:
                         messages_panel.update_artifact(
                             artifact,
-                            send_result.task_id or "",
+                            response_task_id(response) or "",
                             self.current_context_id or "",
                         )
 

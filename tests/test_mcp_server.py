@@ -15,7 +15,7 @@ from a2a.types import (
 )
 
 from a2a_handler.mcp.server import create_mcp_server
-from a2a_handler.service import SendResult, TaskResult
+from a2a_handler.service import protocol_dump
 from a2a_handler.session import AgentSession
 from a2a_handler.validation import ValidationResult, ValidationSource
 
@@ -181,10 +181,9 @@ async def test_send_message_success() -> None:
     fn = _tool_fn(server, "send_message")
 
     task = _make_task()
-    send_result = SendResult(task=task, text="Hello back!")
 
     mock_service = AsyncMock()
-    mock_service.send.return_value = send_result
+    mock_service.send.return_value = task
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
@@ -193,12 +192,9 @@ async def test_send_message_success() -> None:
     ):
         resp = await fn(agent_url="http://localhost:8000", message="hi")
 
-    assert resp["text"] == "Hello back!"
-    assert resp["state"] == "completed"
-    assert resp["context_id"] == "ctx-1"
-    assert resp["task_id"] == "task-1"
-    assert resp["needs_input"] is False
-    assert resp["needs_auth"] is False
+    assert resp["id"] == "task-1"
+    assert resp["contextId"] == "ctx-1"
+    assert resp["status"]["state"] == "completed"
     mock_update.assert_called_once_with("http://localhost:8000", "ctx-1", "task-1")
 
 
@@ -208,10 +204,9 @@ async def test_send_message_with_use_session() -> None:
     fn = _tool_fn(server, "send_message")
 
     task = _make_task()
-    send_result = SendResult(task=task, text="continued")
 
     mock_service = AsyncMock()
-    mock_service.send.return_value = send_result
+    mock_service.send.return_value = task
 
     session = AgentSession(agent_url="http://localhost:8000", context_id="saved-ctx")
 
@@ -224,7 +219,8 @@ async def test_send_message_with_use_session() -> None:
         resp = await fn(agent_url="http://localhost:8000", message="hi", use_session=True)
 
     mock_service.send.assert_called_once_with("hi", "saved-ctx", None)
-    assert resp["text"] == "continued"
+    assert resp["id"] == "task-1"
+    assert resp["contextId"] == "ctx-1"
 
 
 @pytest.mark.asyncio
@@ -233,10 +229,9 @@ async def test_send_message_with_bearer_token() -> None:
     fn = _tool_fn(server, "send_message")
 
     task = _make_task()
-    send_result = SendResult(task=task, text="authed")
 
     mock_service = AsyncMock()
-    mock_service.send.return_value = send_result
+    mock_service.send.return_value = task
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
@@ -249,7 +244,8 @@ async def test_send_message_with_bearer_token() -> None:
             bearer_token="tok-123",
         )
 
-    assert resp["text"] == "authed"
+    assert resp["id"] == "task-1"
+    assert resp["status"]["state"] == "completed"
     _, kwargs = mock_cls.call_args
     assert kwargs["credentials"] is not None
 
@@ -265,10 +261,9 @@ async def test_get_task_success() -> None:
     fn = _tool_fn(server, "get_task")
 
     task = _make_task(state=TaskState.working)
-    task_result = TaskResult(task=task, text="working on it")
 
     mock_service = AsyncMock()
-    mock_service.get_task.return_value = task_result
+    mock_service.get_task.return_value = task
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
@@ -276,10 +271,9 @@ async def test_get_task_success() -> None:
     ):
         resp = await fn(agent_url="http://localhost:8000", task_id="task-1")
 
-    assert resp["task_id"] == "task-1"
-    assert resp["context_id"] == "ctx-1"
-    assert resp["state"] == "working"
-    assert resp["text"] == "working on it"
+    assert resp["id"] == "task-1"
+    assert resp["contextId"] == "ctx-1"
+    assert resp["status"]["state"] == "working"
 
 
 @pytest.mark.asyncio
@@ -311,10 +305,9 @@ async def test_cancel_task_success() -> None:
     fn = _tool_fn(server, "cancel_task")
 
     task = _make_task(state=TaskState.canceled)
-    task_result = TaskResult(task=task, text="canceled")
 
     mock_service = AsyncMock()
-    mock_service.cancel_task.return_value = task_result
+    mock_service.cancel_task.return_value = task
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
@@ -322,9 +315,9 @@ async def test_cancel_task_success() -> None:
     ):
         resp = await fn(agent_url="http://localhost:8000", task_id="task-1")
 
-    assert resp["state"] == "canceled"
-    assert resp["task_id"] == "task-1"
-    assert resp["text"] == "canceled"
+    assert resp["id"] == "task-1"
+    assert resp["contextId"] == "ctx-1"
+    assert resp["status"]["state"] == "canceled"
 
 
 # ---------------------------------------------------------------------------

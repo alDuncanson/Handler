@@ -17,7 +17,16 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
-from a2a_handler.service import A2AService, TaskResult
+from a2a.types import Task
+from a2a_handler.service import (
+    A2AService,
+    StreamEvent,
+    extract_text,
+    protocol_dump,
+    response_context_id,
+    response_state,
+    response_task_id,
+)
 
 from ._helpers import (
     build_http_client,
@@ -42,6 +51,7 @@ def task() -> None:
 @click.option(
     "--history-length", "-n", type=int, help="Number of history messages to include"
 )
+@click.option("--raw", is_flag=True, help="Emit full A2A protocol response")
 @click.option(
     "--params",
     "json_params",
@@ -54,6 +64,7 @@ def task_get(
     server_name: Optional[str],
     task_id: str,
     history_length: Optional[int],
+    raw: bool,
     json_params: Optional[str],
     bearer_token: Optional[str],
     api_key: Optional[str],
@@ -117,8 +128,8 @@ def task_get(
                 service = A2AService(
                     http_client, resolved_url, credentials=credentials
                 )
-                result = await service.get_task(task_id, history_length)
-                _format_task_result(result, output)
+                task = await service.get_task(task_id, history_length)
+                _format_task(task, output, raw)
         except Exception as e:
             handle_client_error(e, resolved_url, output)
             raise click.Abort()
@@ -130,12 +141,14 @@ def task_get(
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--task", "task_id", required=True, help="Task ID to cancel")
+@click.option("--raw", is_flag=True, help="Emit full A2A protocol response")
 @click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
 @click.option("--api-key", "-k", help="API key (overrides saved)")
 def task_cancel(
     agent_url: Optional[str],
     server_name: Optional[str],
     task_id: str,
+    raw: bool,
     bearer_token: Optional[str],
     api_key: Optional[str],
 ) -> None:
@@ -176,8 +189,8 @@ def task_cancel(
 
                 output.dim(f"Canceling task {task_id}...")
 
-                result = await service.cancel_task(task_id)
-                _format_task_result(result, output)
+                task = await service.cancel_task(task_id)
+                _format_task(task, output, raw)
 
                 output.success("Task canceled")
 
@@ -240,7 +253,10 @@ def task_resubscribe(
 
                 collected_text: list[str] = []
                 last_state: str | None = None
+                last_task: Task | None = None
                 async for event in service.resubscribe(task_id):
+                    if event.task:
+                        last_task = event.task
                     if event.event_type == "status":
                         last_state = event.state.value if event.state else "unknown"
                         output.state("Status", last_state)
@@ -248,13 +264,8 @@ def task_resubscribe(
                         output.line(event.text)
                         collected_text.append(event.text)
 
-                if output.is_structured:
-                    data: dict[str, object] = {"task_id": task_id}
-                    if last_state:
-                        data["state"] = last_state
-                    if collected_text:
-                        data["text"] = "\n".join(collected_text)
-                    output.json(data)
+                if output.is_structured and last_task:
+                    output.json(protocol_dump(last_task))
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -263,29 +274,26 @@ def task_resubscribe(
     asyncio.run(do_resubscribe())
 
 
-def _format_task_result(result: TaskResult, output: Output) -> None:
-    """Format and display a task result."""
-    if output.is_structured:
-        data: dict[str, object] = {
-            "task_id": result.task_id,
-            "state": result.state.value,
-        }
-        if result.context_id:
-            data["context_id"] = result.context_id
-        if result.text:
-            data["text"] = result.text
-        output.json(data)
+def _format_task(task: Task, output: Output, raw: bool = False) -> None:
+    """Format and display a task."""
+    if output.is_structured or raw:
+        output.json(protocol_dump(task))
         return
 
-    output.blank()
-    output.field("Task ID", result.task_id)
-    output.state("State", result.state.value)
-    if result.context_id:
-        output.field("Context ID", result.context_id)
+    text = extract_text(task)
 
-    if result.text:
+    output.blank()
+    output.field("Task ID", task.id)
+    state = response_state(task)
+    if state:
+        output.state("State", state.value)
+    context_id = response_context_id(task)
+    if context_id:
+        output.field("Context ID", context_id)
+
+    if text:
         output.blank()
-        output.markdown(result.text)
+        output.markdown(text)
 
 
 @task.group("notification")

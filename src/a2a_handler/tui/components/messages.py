@@ -13,6 +13,7 @@ from textual.widgets import Static, TabbedContent, TabPane, Tabs
 
 from a2a_handler.auth import AuthType
 from a2a_handler.common import get_logger
+from a2a_handler.service import extract_text, response_state, response_task_id
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
 from a2a_handler.tui.components.logs import LogsPanel
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from a2a.types import Artifact, Task
 
     from a2a_handler.auth import AuthCredentials
-    from a2a_handler.service import SendResult
+    from a2a_handler.service import A2AResponse
 
 logger = get_logger(__name__)
 
@@ -47,12 +48,12 @@ class AgentMessage(Static):
 
     def __init__(
         self,
-        send_result: SendResult,
+        response: A2AResponse,
         timestamp: datetime | None = None,
         **kwargs: Any,
     ) -> None:
         formatted_time = (timestamp or datetime.now()).strftime("%H:%M:%S")
-        content = send_result.text or "(no text in response)"
+        content = extract_text(response) or "(no text in response)"
         super().__init__(f"{formatted_time} {content}", **kwargs)
 
 
@@ -90,15 +91,14 @@ class MessagesPanel(Container):
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
-    def add_agent_message(self, send_result: SendResult) -> None:
+    def add_agent_message(self, response: A2AResponse) -> None:
         logger.debug(
-            "Adding agent message - task_id=%s, state=%s, text_len=%d",
-            send_result.task_id,
-            send_result.state,
-            len(send_result.text) if send_result.text else 0,
+            "Adding agent message - task_id=%s, state=%s",
+            response_task_id(response),
+            response_state(response),
         )
         chat_container = self._get_chat_container()
-        message_widget = AgentMessage(send_result)
+        message_widget = AgentMessage(response)
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
@@ -207,15 +207,14 @@ class TabbedMessagesPanel(Container):
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
-    def add_agent_message(self, send_result: SendResult) -> None:
+    def add_agent_message(self, response: A2AResponse) -> None:
         logger.debug(
-            "Adding agent message - task_id=%s, state=%s, text_len=%d",
-            send_result.task_id,
-            send_result.state,
-            len(send_result.text) if send_result.text else 0,
+            "Adding agent message - task_id=%s, state=%s",
+            response_task_id(response),
+            response_state(response),
         )
         chat_container = self._get_chat_container()
-        message_widget = AgentMessage(send_result)
+        message_widget = AgentMessage(response)
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
