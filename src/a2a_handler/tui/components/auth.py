@@ -13,7 +13,6 @@ from a2a_handler.auth import (
     create_bearer_auth,
     create_mtls_auth,
     create_oauth2_auth,
-    parse_header_string,
 )
 from a2a_handler.common import get_logger
 
@@ -123,11 +122,6 @@ class AuthPanel(Vertical):
             yield Label("Scopes (optional, space-separated)")
             yield Input(placeholder="read write", id="oauth2-scopes-input")
 
-        yield Label("Custom Headers (optional, semicolon-separated)")
-        yield Input(
-            placeholder="x-user-id: me@mydomain.com; x-org: acme",
-            id="custom-headers-input",
-        )
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Handle auth type selection changes."""
@@ -142,25 +136,6 @@ class AuthPanel(Vertical):
             logger.debug("Auth type changed to OAuth2")
         else:
             logger.debug("Auth type changed to None")
-
-    def _parse_custom_headers(self) -> dict[str, str] | None:
-        """Parse the optional custom-headers field into a header dictionary."""
-        raw = self.query_one("#custom-headers-input", Input).value.strip()
-        if not raw:
-            return None
-
-        headers: dict[str, str] = {}
-        for line in raw.split(";"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                name, value = parse_header_string(line)
-                headers[name] = value
-            except ValueError:
-                logger.warning("Skipping invalid custom header: %s", line)
-
-        return headers or None
 
     def get_credentials(self) -> AuthCredentials | None:
         """Get the configured authentication credentials.
@@ -205,16 +180,6 @@ class AuthPanel(Vertical):
                 credentials = create_oauth2_auth(
                     token_url, client_id, client_secret, scopes
                 )
-
-        custom_headers = self._parse_custom_headers()
-        if custom_headers:
-            if credentials is None:
-                credentials = AuthCredentials(
-                    auth_type=AuthType.BEARER,
-                    custom_headers=custom_headers,
-                )
-            else:
-                credentials.custom_headers = custom_headers
 
         return credentials
 
@@ -273,16 +238,6 @@ class AuthPanel(Vertical):
         )
         logger.debug("Preconfigured OAuth2 authentication")
 
-    def set_custom_headers(self, headers: dict[str, str] | None) -> None:
-        """Preconfigure custom headers from a dictionary."""
-        headers_input = self.query_one("#custom-headers-input", Input)
-        if not headers:
-            headers_input.value = ""
-            return
-        headers_input.value = "; ".join(
-            f"{name}: {value}" for name, value in headers.items()
-        )
-
     def clear(self) -> None:
         """Reset auth fields to no authentication selected."""
         self.query_one("#api-key-input", Input).value = ""
@@ -295,5 +250,4 @@ class AuthPanel(Vertical):
         self.query_one("#oauth2-client-id-input", Input).value = ""
         self.query_one("#oauth2-client-secret-input", Input).value = ""
         self.query_one("#oauth2-scopes-input", Input).value = ""
-        self.query_one("#custom-headers-input", Input).value = ""
         self._set_none_selected()

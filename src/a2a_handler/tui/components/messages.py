@@ -11,18 +11,18 @@ from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Static, TabbedContent, TabPane, Tabs
 
-from a2a_handler.auth import AuthType
+from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.service import extract_text, response_state, response_task_id
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
+from a2a_handler.tui.components.headers import HeadersPanel
 from a2a_handler.tui.components.logs import LogsPanel
 from a2a_handler.tui.components.tasks import TasksPanel
 
 if TYPE_CHECKING:
     from a2a.types import Artifact, Task
 
-    from a2a_handler.auth import AuthCredentials
     from a2a_handler.service import A2AResponse
 
 logger = get_logger(__name__)
@@ -172,6 +172,8 @@ class TabbedMessagesPanel(Container):
                 yield ArtifactsPanel(id="artifacts-panel")
             with TabPane("Auth", id="auth-tab"):
                 yield AuthPanel(id="auth-panel")
+            with TabPane("Headers", id="headers-tab"):
+                yield HeadersPanel(id="headers-panel")
             with TabPane("Logs", id="logs-tab"):
                 yield LogsPanel(id="logs-panel")
 
@@ -193,6 +195,9 @@ class TabbedMessagesPanel(Container):
 
     def _get_auth_panel(self) -> AuthPanel:
         return self.query_one("#auth-panel", AuthPanel)
+
+    def _get_headers_panel(self) -> HeadersPanel:
+        return self.query_one("#headers-panel", HeadersPanel)
 
     def _get_tasks_panel(self) -> TasksPanel:
         return self.query_one("#tasks-panel", TasksPanel)
@@ -254,9 +259,19 @@ class TabbedMessagesPanel(Container):
         self._get_artifacts_panel().clear()
 
     def get_auth_credentials(self) -> "AuthCredentials | None":
-        """Get configured authentication credentials from the auth panel."""
+        """Get configured auth credentials and custom headers."""
         auth_panel = self._get_auth_panel()
-        return auth_panel.get_credentials()
+        credentials = auth_panel.get_credentials()
+        custom_headers = self._get_headers_panel().get_headers()
+        if custom_headers:
+            if credentials is None:
+                credentials = AuthCredentials(
+                    auth_type=AuthType.BEARER,
+                    custom_headers=custom_headers,
+                )
+            else:
+                credentials.custom_headers = custom_headers
+        return credentials
 
     def set_bearer_token(self, token: str) -> None:
         """Preconfigure bearer token authentication in the auth panel."""
@@ -264,9 +279,11 @@ class TabbedMessagesPanel(Container):
         auth_panel.set_bearer_token(token)
 
     def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
-        """Preconfigure auth panel fields from resolved credentials."""
+        """Preconfigure auth and headers panel fields from resolved credentials."""
         auth_panel = self._get_auth_panel()
+        headers_panel = self._get_headers_panel()
         auth_panel.clear()
+        headers_panel.clear()
         if credentials is None:
             return
 
@@ -300,7 +317,7 @@ class TabbedMessagesPanel(Container):
                 credentials.scopes,
             )
 
-        auth_panel.set_custom_headers(credentials.custom_headers)
+        headers_panel.set_headers(credentials.custom_headers)
 
     def add_task(self, task: "Task") -> None:
         """Add a task to the tasks panel."""

@@ -3,7 +3,7 @@
 from .artifacts import ArtifactsPanel
 from .auth import AuthPanel
 from .card import AgentCardPanel
-
+from .headers import HeadersPanel
 from .input import InputPanel
 from .logs import LogsPanel
 from .messages import Message, MessagesPanel, TabbedMessagesPanel
@@ -13,7 +13,7 @@ __all__ = [
     "AgentCardPanel",
     "ArtifactsPanel",
     "AuthPanel",
-
+    "HeadersPanel",
     "InputPanel",
     "LogsPanel",
     "Message",

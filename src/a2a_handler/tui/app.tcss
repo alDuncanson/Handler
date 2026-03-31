@@ -683,6 +683,19 @@ AgentMessage {
     margin-bottom: 0;
 }
 
+#headers-panel {
+    height: auto;
+    padding: 0 1 1 1;
+}
+
+#headers-panel Label {
+    margin-bottom: 0;
+}
+
+#headers-panel Input {
+    margin-bottom: 0;
+}
+
 .auth-fields {
     height: auto;
     margin-top: 0;
