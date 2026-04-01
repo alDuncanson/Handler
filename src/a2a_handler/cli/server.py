@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import stat
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Optional
@@ -11,7 +14,6 @@ import click
 from a2a_handler.common import Output, get_logger
 from a2a_handler.server import run_server
 from a2a_handler.servers import (
-    DEFAULT_SERVER_DIRECTORY,
     SERVERS_FILENAME,
     SERVER_SCHEMA_VERSION,
     ServerCatalog,
@@ -82,39 +84,29 @@ def _resolve_servers_path(use_repository: bool) -> Path:
     return server_file_path()
 
 
-def _build_toml_block(
-    name: str,
-    url: str,
-    *,
-    bearer_token: str | None,
-    api_key: str | None,
-    api_key_header: str,
-    cert_path: str | None,
-    key_path: str | None,
-) -> str:
-    """Build a TOML block for a single server entry."""
-    lines = [f"[servers.{name}]", f'url = "{url}"']
+_OWNER_RW = stat.S_IRUSR | stat.S_IWUSR  # 0o600
 
-    if cert_path and key_path:
-        lines.append("")
-        lines.append(f"[servers.{name}.auth]")
-        lines.append('type = "mtls"')
-        lines.append(f'cert = "{cert_path}"')
-        lines.append(f'key = "{key_path}"')
-    elif bearer_token:
-        lines.append("")
-        lines.append(f"[servers.{name}.auth]")
-        lines.append('type = "bearer"')
-        lines.append(f'value = "{bearer_token}"')
-    elif api_key:
-        lines.append("")
-        lines.append(f"[servers.{name}.auth]")
-        lines.append('type = "api_key"')
-        lines.append(f'value = "{api_key}"')
-        if api_key_header != "X-API-Key":
-            lines.append(f'header = "{api_key_header}"')
 
-    return "\n".join(lines) + "\n"
+def _set_owner_only_permissions(path: Path) -> None:
+    try:
+        path.chmod(_OWNER_RW)
+    except OSError:
+        pass
+
+
+def _toml_encode_value(value: object) -> str:
+    """Encode a single value as a TOML literal."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        return f'"{escaped}"'
+    if isinstance(value, list):
+        items = ", ".join(_toml_encode_value(v) for v in value)
+        return f"[{items}]"
+    return repr(value)
 
 
 def _read_toml(path: Path) -> dict[str, object]:
@@ -125,8 +117,8 @@ def _read_toml(path: Path) -> dict[str, object]:
         return tomllib.load(f)
 
 
-def _write_toml_from_data(path: Path, data: dict[str, object]) -> None:
-    """Rewrite a servers.toml from parsed data (without tomli_w)."""
+def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
+    """Atomically write a servers.toml from a data dict."""
     lines = [f"version = {SERVER_SCHEMA_VERSION}", ""]
 
     servers = data.get("servers")
@@ -135,20 +127,36 @@ def _write_toml_from_data(path: Path, data: dict[str, object]) -> None:
             if not isinstance(entry, dict):
                 continue
             lines.append(f"[servers.{name}]")
-            url = entry.get("url", "")
-            lines.append(f'url = "{url}"')
+            for key, value in entry.items():
+                if key == "auth":
+                    continue
+                lines.append(f"{key} = {_toml_encode_value(value)}")
 
             auth = entry.get("auth")
             if isinstance(auth, dict):
                 lines.append("")
                 lines.append(f"[servers.{name}.auth]")
                 for key, value in auth.items():
-                    if isinstance(value, str):
-                        lines.append(f'{key} = "{value}"')
+                    lines.append(f"{key} = {_toml_encode_value(value)}")
             lines.append("")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=".servers-",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w") as tmp_file:
+            tmp_file.write("\n".join(lines) + "\n")
+        os.replace(tmp_path, path)
+    except BaseException:
+        with __import__("contextlib").suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+    _set_owner_only_permissions(path)
 
 
 # ---------------------------------------------------------------------------
@@ -167,9 +175,12 @@ def server_list() -> None:
     output = Output()
     catalog = load_server_catalog()
 
-    for source, servers in _iter_catalog_sections(catalog):
-        for server_def in servers:
-            output.json(_server_to_dict(server_def))
+    servers = [
+        _server_to_dict(server_def)
+        for source, server_defs in _iter_catalog_sections(catalog)
+        for server_def in server_defs
+    ]
+    output.json(servers)
 
 
 @server.command("show")
@@ -194,11 +205,7 @@ def server_show(name: str, source: str | None) -> None:
     for server_source, servers in _iter_catalog_sections(catalog):
         if source and server_source.value != source:
             continue
-        matches.extend(
-            server_def
-            for server_def in servers
-            if server_def.name == name
-        )
+        matches.extend(server_def for server_def in servers if server_def.name == name)
 
     if not matches:
         output.error(code="not_found", message=f"Server '{name}' not found")
@@ -215,7 +222,9 @@ def server_show(name: str, source: str | None) -> None:
 
     result = _server_to_dict(server_def)
     credentials, warning = resolve_server_credentials(server_def)
-    result["credentials_status"] = "resolved" if credentials else ("unavailable" if warning else "none")
+    result["credentials_status"] = (
+        "resolved" if credentials else ("unavailable" if warning else "none")
+    )
     if warning:
         result["credentials_warning"] = warning
     output.json(result)
@@ -274,26 +283,30 @@ def server_add(
     data = _read_toml(path)
     servers = data.get("servers", {})
     if isinstance(servers, dict) and name in servers:
-        output.error(code="already_exists", message=f"Server '{name}' already exists in {path}")
+        output.error(
+            code="already_exists", message=f"Server '{name}' already exists in {path}"
+        )
         return
 
-    block = _build_toml_block(
-        name,
-        url,
-        bearer_token=bearer_token,
-        api_key=api_key,
-        api_key_header=api_key_header,
-        cert_path=cert_path,
-        key_path=key_path,
-    )
+    if not isinstance(servers, dict):
+        servers = {}
+    entry: dict[str, object] = {"url": url}
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        with open(path, "w") as f:
-            f.write(f"version = {SERVER_SCHEMA_VERSION}\n\n{block}")
-    else:
-        with open(path, "a") as f:
-            f.write(f"\n{block}")
+    if cert_path and key_path:
+        entry["auth"] = {"type": "mtls", "cert": cert_path, "key": key_path}
+    elif bearer_token:
+        entry["auth"] = {"type": "bearer", "value": bearer_token}
+    elif api_key:
+        auth: dict[str, object] = {"type": "api_key", "value": api_key}
+        if api_key_header != "X-API-Key":
+            auth["header"] = api_key_header
+        entry["auth"] = auth
+
+    servers[name] = entry
+    data["servers"] = servers
+    data["version"] = SERVER_SCHEMA_VERSION
+
+    _write_servers_toml(path, data)
 
     output.json({"name": name, "url": url, "path": str(path)})
 
@@ -335,7 +348,7 @@ def server_remove(name: str, use_global: bool, use_repository: bool) -> None:
         return
 
     del servers[name]
-    _write_toml_from_data(path, data)
+    _write_servers_toml(path, data)
 
     output.json({"name": name, "path": str(path)})
 

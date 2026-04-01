@@ -24,13 +24,11 @@ from a2a_handler.common.input_validation import (
 from a2a_handler.servers import (
     ServerCatalog,
     ServerDefinition,
-    ServerSource,
     load_server_catalog,
     resolve_server_credentials,
 )
 from a2a_handler.service import (
     A2AService,
-    extract_text,
     extract_text_from_message_parts,
     response_context_id,
     response_task_id,
@@ -475,17 +473,13 @@ class ServerTab(Container):
             if connect_view._is_manual_selected():
                 messages_panel.add_system_message("Please enter an agent URL")
             else:
-                messages_panel.add_system_message(
-                    "Choose a server or switch to Manual"
-                )
+                messages_panel.add_system_message("Choose a server or switch to Manual")
             return
 
         try:
             validate_agent_url(agent_url)
         except InputValidationError as error:
-            messages_panel.add_system_message(
-                self._build_connect_error_message(error)
-            )
+            messages_panel.add_system_message(self._build_connect_error_message(error))
             return
 
         connect_view.set_status(f"Connecting to {agent_url}...")
@@ -520,9 +514,7 @@ class ServerTab(Container):
             self.current_agent_card = agent_card
             self.current_agent_url = agent_url
             self.current_context_id = context_id
-            self.current_task_id = (
-                saved_conversation.task_id if resumed else None
-            )
+            self.current_task_id = saved_conversation.task_id if resumed else None
             self.state.connected_credentials = credentials
             self.state.auth_source = source_description
             self.state.auth_overridden = override_credentials is not None
@@ -598,6 +590,7 @@ class ServerTab(Container):
             response = await self._agent_service.send(
                 message_text,
                 context_id=self.current_context_id,
+                task_id=self.current_task_id,
             )
 
             ctx_id = response_context_id(response)

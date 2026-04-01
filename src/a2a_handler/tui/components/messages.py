@@ -9,7 +9,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Static, TabbedContent, TabPane, Tabs
+from textual.widgets import Static, TabbedContent, TabPane
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -63,65 +63,6 @@ class ChatScrollContainer(VerticalScroll):
     can_focus = False
 
 
-class MessagesPanel(Container):
-    """Panel for displaying chat messages."""
-
-    BINDINGS = [
-        Binding("j", "scroll_down", "Scroll Down", show=False),
-        Binding("k", "scroll_up", "Scroll Up", show=False),
-        Binding("down", "scroll_down", "Scroll Down", show=False),
-        Binding("up", "scroll_up", "Scroll Up", show=False),
-    ]
-
-    can_focus = True
-
-    def compose(self) -> ComposeResult:
-        yield ChatScrollContainer(id="chat")
-
-    def on_mount(self) -> None:
-        logger.debug("Messages panel mounted")
-
-    def _get_chat_container(self) -> ChatScrollContainer:
-        return self.query_one("#chat", ChatScrollContainer)
-
-    def add_message(self, role: str, content: str) -> None:
-        logger.debug("Adding %s message: %s", role, content[:50])
-        chat_container = self._get_chat_container()
-        message_widget = Message(role, content)
-        chat_container.mount(message_widget)
-        chat_container.scroll_end(animate=False)
-
-    def add_agent_message(self, response: A2AResponse) -> None:
-        logger.debug(
-            "Adding agent message - task_id=%s, state=%s",
-            response_task_id(response),
-            response_state(response),
-        )
-        chat_container = self._get_chat_container()
-        message_widget = AgentMessage(response)
-        chat_container.mount(message_widget)
-        chat_container.scroll_end(animate=False)
-
-    def add_system_message(self, content: str) -> None:
-        logger.info("System message: %s", content)
-        self.add_message("system", content)
-
-    def update_message_count(self) -> None:
-        pass
-
-    async def clear(self) -> None:
-        logger.info("Clearing chat messages")
-        chat_container = self._get_chat_container()
-        await chat_container.remove_children()
-        self.add_system_message("Chat cleared")
-
-    def action_scroll_down(self) -> None:
-        self._get_chat_container().scroll_down()
-
-    def action_scroll_up(self) -> None:
-        self._get_chat_container().scroll_up()
-
-
 class TabbedMessagesPanel(Container):
     """Panel with tabs for Messages and Logs."""
 
@@ -142,7 +83,7 @@ class TabbedMessagesPanel(Container):
         Binding("ctrl+u", "scroll_half_up", "½ Page ↑", show=True),
         Binding("y", "copy_task_id", "Copy ID", show=False),
         Binding("Y", "copy_context_id", "Copy Ctx", show=False),
-        Binding("y", "copy_artifact_id", "Copy ID", show=False),
+        Binding("a", "copy_artifact_id", "Copy ID", show=False),
     ]
 
     can_focus = True
@@ -347,21 +288,17 @@ class TabbedMessagesPanel(Container):
 
     def action_previous_tab(self) -> None:
         """Switch to the previous tab."""
-        try:
-            tabs_widget = self.query_one("#messages-tabs Tabs", Tabs)
-            tabs_widget.action_previous_tab()
+        tabs = self.query("#messages-tabs Tabs")
+        if tabs:
+            tabs.first().action_previous_tab()
             self.focus()
-        except Exception:
-            pass
 
     def action_next_tab(self) -> None:
         """Switch to the next tab."""
-        try:
-            tabs_widget = self.query_one("#messages-tabs Tabs", Tabs)
-            tabs_widget.action_next_tab()
+        tabs = self.query("#messages-tabs Tabs")
+        if tabs:
+            tabs.first().action_next_tab()
             self.focus()
-        except Exception:
-            pass
 
     def action_scroll_down(self) -> None:
         active = self._get_active_tab_id()

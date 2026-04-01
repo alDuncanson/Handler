@@ -6,7 +6,7 @@ from .card import AgentCardPanel
 from .headers import HeadersPanel
 from .input import InputPanel
 from .logs import LogsPanel
-from .messages import Message, MessagesPanel, TabbedMessagesPanel
+from .messages import Message, TabbedMessagesPanel
 from .tasks import TasksPanel
 
 __all__ = [
@@ -17,7 +17,6 @@ __all__ = [
     "InputPanel",
     "LogsPanel",
     "Message",
-    "MessagesPanel",
     "TabbedMessagesPanel",
     "TasksPanel",
 ]

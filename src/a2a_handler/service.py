@@ -245,7 +245,9 @@ class A2AService:
         if credentials.auth_type == AuthType.MTLS:
             logger.debug("mTLS credentials set (transport-level authentication)")
         elif credentials.auth_type == AuthType.OAUTH2:
-            logger.debug("OAuth2 credentials set (token will be fetched on first request)")
+            logger.debug(
+                "OAuth2 credentials set (token will be fetched on first request)"
+            )
         else:
             logger.debug(
                 "Applied authentication headers: %s", list(auth_headers.keys())
@@ -253,10 +255,7 @@ class A2AService:
 
     async def ensure_oauth2_token(self) -> None:
         """Fetch or refresh the OAuth2 access token if needed."""
-        if (
-            self.credentials is None
-            or self.credentials.auth_type != AuthType.OAUTH2
-        ):
+        if self.credentials is None or self.credentials.auth_type != AuthType.OAUTH2:
             return
         if self.credentials.value:
             return
@@ -288,6 +287,7 @@ class A2AService:
         Returns:
             The agent's card with metadata and capabilities
         """
+        await self.ensure_oauth2_token()
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
             card_resolver = A2ACardResolver(self.http_client, self.agent_url)
@@ -314,6 +314,7 @@ class A2AService:
         Returns:
             Configured A2A client instance
         """
+        await self.ensure_oauth2_token()
         if self._cached_client is None:
             agent_card = await self.get_card()
 
@@ -390,7 +391,6 @@ class A2AService:
 
         Returns the raw A2A protocol response (Task or Message).
         """
-        await self.ensure_oauth2_token()
         client = await self._get_or_create_client()
         user_message = self._build_user_message(message_text, context_id, task_id)
 
@@ -441,7 +441,6 @@ class A2AService:
         Yields:
             StreamEvent objects as they are received
         """
-        await self.ensure_oauth2_token()
         client = await self._get_or_create_client()
         user_message = self._build_user_message(message_text, context_id, task_id)
 
