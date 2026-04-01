@@ -10,8 +10,6 @@ import click
 from a2a_handler.auth import (
     AuthCredentials,
     AuthType,
-    create_api_key_auth,
-    create_bearer_auth,
     parse_header_string,
 )
 from a2a_handler.common import Output, get_logger

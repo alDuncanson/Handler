@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
-from textual.widgets import RadioButton, Select, Static, Tab, Tabs
+from textual.widgets import Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.servers import (
@@ -264,9 +264,7 @@ async def test_recent_connections_are_loaded_from_session_recency(
     patch_server_sources: Mock,
 ) -> None:
     """Recent servers should appear in the single server selector."""
-    patch_server_sources.recent_agent_urls.return_value = [
-        "https://recent.example.com"
-    ]
+    patch_server_sources.recent_agent_urls.return_value = ["https://recent.example.com"]
     app = HandlerTUI()
 
     async with app.run_test() as pilot:
@@ -517,9 +515,7 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
             assert credentials is not None
             assert credentials.auth_type == AuthType.BEARER
             assert credentials.value == "profile-token"
-            assert (
-                workspace.state.auth_source == "repository server 'staging' default"
-            )
+            assert workspace.state.auth_source == "repository server 'staging' default"
 
 
 @pytest.mark.asyncio
@@ -572,9 +568,7 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 
 
 @pytest.mark.asyncio
-async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -> (
-    None
-):
+async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -> None:
     """Successful connect should update the unified server view and tab title."""
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,

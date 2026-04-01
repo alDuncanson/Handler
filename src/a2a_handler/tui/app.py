@@ -37,7 +37,9 @@ class HandlerTUI(App[Any]):
             key_display="Ctrl+C",
             priority=True,
         ),
-        Binding("ctrl+p", "command_palette", "Palette", show=True, key_display="Ctrl+P"),
+        Binding(
+            "ctrl+p", "command_palette", "Palette", show=True, key_display="Ctrl+P"
+        ),
         Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
         Binding(
             "ctrl+b",
@@ -53,9 +55,7 @@ class HandlerTUI(App[Any]):
             show=True,
             key_display="Ctrl+T",
         ),
-        Binding(
-            "ctrl+n", "new_server", "New Server", show=True, key_display="Ctrl+N"
-        ),
+        Binding("ctrl+n", "new_server", "New Server", show=True, key_display="Ctrl+N"),
         Binding(
             "ctrl+w",
             "close_server",
@@ -221,6 +221,7 @@ class HandlerTUI(App[Any]):
 
     def _switch_to_server(self, server_id: str) -> callable:
         """Return a callback that activates the given server tab."""
+
         def callback() -> None:
             server_tabs = self.query_one(ServerTabs)
             tab_id = server_tabs._tab_ids_by_server_id.get(server_id)

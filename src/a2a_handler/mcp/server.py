@@ -23,11 +23,8 @@ from a2a_handler.common.input_validation import (
 )
 from a2a_handler.service import (
     A2AService,
-    extract_text,
     protocol_dump,
     response_context_id,
-    response_needs_auth,
-    response_state,
     response_task_id,
 )
 from a2a_handler.session import (

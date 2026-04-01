@@ -62,9 +62,7 @@ class TestCardGet:
             mock_service.get_card.return_value = mock_card
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                card, ["get", "--url", "http://localhost:8000"]
-            )
+            result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 0
             assert "Test Agent" in result.output
@@ -87,9 +85,7 @@ class TestCardGet:
             mock_service.get_card.side_effect = httpx.ConnectError("Connection refused")
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                card, ["get", "--url", "http://localhost:8000"]
-            )
+            result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 1
 
@@ -111,7 +107,8 @@ class TestCardGet:
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
-                card, ["get", "--url", "http://localhost:8000", "--bearer", "test-token"]
+                card,
+                ["get", "--url", "http://localhost:8000", "--bearer", "test-token"],
             )
 
             assert result.exit_code == 0
@@ -235,9 +232,7 @@ class TestCardValidate:
 
             mock_validate.return_value = mock_result
 
-            result = runner.invoke(
-                card, ["validate", "--url", "http://localhost:8000"]
-            )
+            result = runner.invoke(card, ["validate", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 0
             assert '"valid": true' in result.output

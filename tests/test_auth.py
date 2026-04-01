@@ -243,6 +243,7 @@ class TestOAuth2Auth:
         creds = AuthCredentials(auth_type=AuthType.BEARER, value="token")
         with pytest.raises(ValueError, match="OAuth2"):
             import asyncio
+
             asyncio.get_event_loop().run_until_complete(
                 creds.fetch_oauth2_token(None)  # type: ignore[arg-type]
             )

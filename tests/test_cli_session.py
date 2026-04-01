@@ -69,9 +69,7 @@ class TestSessionShow:
         )
 
         with patch("a2a_handler.cli.session.get_session", return_value=mock_session):
-            result = runner.invoke(
-                session, ["show", "--url", "http://localhost:8000"]
-            )
+            result = runner.invoke(session, ["show", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 0
             assert "ctx-123" in result.output
@@ -86,9 +84,7 @@ class TestSessionShow:
         )
 
         with patch("a2a_handler.cli.session.get_session", return_value=mock_session):
-            result = runner.invoke(
-                session, ["show", "--url", "http://localhost:8000"]
-            )
+            result = runner.invoke(session, ["show", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 0
             assert "null" in result.output.lower()
@@ -107,9 +103,7 @@ class TestSessionClear:
     def test_clear_specific_session(self, runner):
         """Test clearing a specific session."""
         with patch("a2a_handler.cli.session.clear_session") as mock_clear:
-            result = runner.invoke(
-                session, ["clear", "--url", "http://localhost:8000"]
-            )
+            result = runner.invoke(session, ["clear", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 0
             assert '"cleared"' in result.output

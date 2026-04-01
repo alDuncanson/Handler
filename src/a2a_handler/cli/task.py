@@ -6,7 +6,6 @@ from typing import Optional
 
 import click
 
-from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
@@ -118,9 +117,7 @@ def task_get(
     async def do_get() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(
-                    http_client, resolved_url, credentials=credentials
-                )
+                service = A2AService(http_client, resolved_url, credentials=credentials)
                 task = await service.get_task(task_id, history_length)
                 _format_task(task, output)
         except Exception as e:
@@ -174,9 +171,7 @@ def task_cancel(
     async def do_cancel() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(
-                    http_client, resolved_url, credentials=credentials
-                )
+                service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 task = await service.cancel_task(task_id)
                 _format_task(task, output)
@@ -232,9 +227,7 @@ def task_resubscribe(
     async def do_resubscribe() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(
-                    http_client, resolved_url, credentials=credentials
-                )
+                service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 last_task: Task | None = None
                 async for event in service.resubscribe(task_id):
@@ -244,7 +237,10 @@ def task_resubscribe(
                 if last_task:
                     output.json(protocol_dump(last_task))
                 else:
-                    output.error(code="no_response", message="No task received from resubscription")
+                    output.error(
+                        code="no_response",
+                        message="No task received from resubscription",
+                    )
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -317,9 +313,7 @@ def notification_set(
     async def do_set() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(
-                    http_client, resolved_url, credentials=credentials
-                )
+                service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 config = await service.set_push_config(task_id, webhook_url, token)
                 output.json(config.model_dump(mode="json", exclude_none=True))
@@ -379,9 +373,7 @@ def notification_get(
     async def do_get() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(
-                    http_client, resolved_url, credentials=credentials
-                )
+                service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 config = await service.get_push_config(task_id, config_id)
                 output.json(config.model_dump(mode="json", exclude_none=True))

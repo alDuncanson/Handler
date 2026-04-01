@@ -66,8 +66,6 @@ class TestServerList:
     ) -> None:
         from unittest.mock import patch
 
-        from a2a_handler.servers import load_servers, ServerSource
-
         servers_file = servers_dir / "servers.toml"
         servers_file.write_text(
             'version = 1\n\n[servers.demo]\nurl = "http://localhost:8000"\n'
@@ -171,10 +169,14 @@ class TestServerAdd:
             result = runner.invoke(
                 server,
                 [
-                    "add", "demo",
-                    "--url", "http://localhost:8000",
-                    "--api-key", "key-123",
-                    "--api-key-header", "X-Custom",
+                    "add",
+                    "demo",
+                    "--url",
+                    "http://localhost:8000",
+                    "--api-key",
+                    "key-123",
+                    "--api-key-header",
+                    "X-Custom",
                 ],
             )
 
@@ -192,10 +194,14 @@ class TestServerAdd:
             result = runner.invoke(
                 server,
                 [
-                    "add", "demo",
-                    "--url", "https://secure.example.com",
-                    "--cert", "/path/to/cert.pem",
-                    "--key", "/path/to/key.pem",
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://secure.example.com",
+                    "--cert",
+                    "/path/to/cert.pem",
+                    "--key",
+                    "/path/to/key.pem",
                 ],
             )
 
@@ -225,9 +231,7 @@ class TestServerAdd:
         assert "gamma" in data["servers"]
         assert data["servers"]["gamma"]["url"] == "http://localhost:7000"
 
-    def test_add_rejects_duplicate(
-        self, runner: CliRunner, servers_file: Path
-    ) -> None:
+    def test_add_rejects_duplicate(self, runner: CliRunner, servers_file: Path) -> None:
         from unittest.mock import patch
 
         with patch(
@@ -248,9 +252,7 @@ class TestServerAdd:
 
 
 class TestServerRemove:
-    def test_remove_existing(
-        self, runner: CliRunner, servers_file: Path
-    ) -> None:
+    def test_remove_existing(self, runner: CliRunner, servers_file: Path) -> None:
         from unittest.mock import patch
 
         with patch(
@@ -265,9 +267,7 @@ class TestServerRemove:
         assert "beta" not in data.get("servers", {})
         assert "alpha" in data["servers"]
 
-    def test_remove_not_found(
-        self, runner: CliRunner, servers_file: Path
-    ) -> None:
+    def test_remove_not_found(self, runner: CliRunner, servers_file: Path) -> None:
         from unittest.mock import patch
 
         with patch(
@@ -279,9 +279,7 @@ class TestServerRemove:
         assert result.exit_code == 0
         assert "not found" in result.output.lower()
 
-    def test_remove_missing_file(
-        self, runner: CliRunner, servers_dir: Path
-    ) -> None:
+    def test_remove_missing_file(self, runner: CliRunner, servers_dir: Path) -> None:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"
@@ -311,9 +309,7 @@ class TestServerValidate:
 
         assert result.exit_code == 0
 
-    def test_validate_all_ok(
-        self, runner: CliRunner, servers_dir: Path
-    ) -> None:
+    def test_validate_all_ok(self, runner: CliRunner, servers_dir: Path) -> None:
         from unittest.mock import patch
 
         from a2a_handler.servers import load_server_catalog

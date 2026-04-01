@@ -69,9 +69,7 @@ def card_get(
     async def do_get() -> None:
         try:
             async with build_http_client(credentials=credentials) as http_client:
-                service = A2AService(
-                    http_client, resolved_url, credentials=credentials
-                )
+                service = A2AService(http_client, resolved_url, credentials=credentials)
                 card_data = await service.get_card()
                 log.info("Retrieved card for agent: %s", card_data.name)
 

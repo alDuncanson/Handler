@@ -10,7 +10,6 @@ from a2a_handler.service import (
     A2AService,
     StreamEvent,
     TERMINAL_TASK_STATES,
-    A2AResponse,
     extract_text,
     extract_text_from_task,
     extract_text_from_message_parts,
@@ -76,13 +75,19 @@ class TestResponseHelpers:
         assert response_needs_auth(_make_message()) is False
 
     def test_context_id_from_task(self):
-        assert response_context_id(_make_task(TaskState.completed, context_id="ctx-456")) == "ctx-456"
+        assert (
+            response_context_id(_make_task(TaskState.completed, context_id="ctx-456"))
+            == "ctx-456"
+        )
 
     def test_context_id_from_message(self):
         assert response_context_id(_make_message(context_id="ctx-789")) == "ctx-789"
 
     def test_task_id_from_task(self):
-        assert response_task_id(_make_task(TaskState.completed, task_id="task-456")) == "task-456"
+        assert (
+            response_task_id(_make_task(TaskState.completed, task_id="task-456"))
+            == "task-456"
+        )
 
     def test_task_id_from_message(self):
         assert response_task_id(_make_message(task_id="task-789")) == "task-789"
@@ -95,9 +100,17 @@ class TestResponseHelpers:
 
     def test_extract_text_from_task(self):
         task = Task(
-            id="t", context_id="c",
+            id="t",
+            context_id="c",
             status=TaskStatus(state=TaskState.completed),
-            history=[Message(message_id="m", role=Role.agent, parts=[Part(root=TextPart(text="Hello"))], context_id="c")],
+            history=[
+                Message(
+                    message_id="m",
+                    role=Role.agent,
+                    parts=[Part(root=TextPart(text="Hello"))],
+                    context_id="c",
+                )
+            ],
         )
         assert extract_text(task) == "Hello"
 

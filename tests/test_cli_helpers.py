@@ -254,9 +254,7 @@ class TestResolveAgentTarget:
         catalog = ServerCatalog()
 
         with (
-            patch(
-                "a2a_handler.cli._helpers.load_server_catalog", return_value=catalog
-            ),
+            patch("a2a_handler.cli._helpers.load_server_catalog", return_value=catalog),
             pytest.raises(click.UsageError, match="not found"),
         ):
             resolve_agent_target(url=None, server="nonexistent")
@@ -269,6 +267,4 @@ class TestResolveAgentTarget:
     def test_both_url_and_server_raises_usage_error(self):
         """Test that providing both --url and --server raises UsageError."""
         with pytest.raises(click.UsageError, match="not both"):
-            resolve_agent_target(
-                url="http://localhost:8000", server="handler_dev"
-            )
+            resolve_agent_target(url="http://localhost:8000", server="handler_dev")

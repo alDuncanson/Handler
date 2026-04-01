@@ -10,8 +10,6 @@ from a2a_handler.common.input_validation import (
 )
 from a2a_handler.servers import (
     ServerDefinition,
-    ServerSource,
-    server_source_label,
 )
 from a2a_handler.session import AgentSession
 from a2a_handler.tui.server_types import SavedConversation
@@ -88,9 +86,7 @@ def resolve_saved_conversation(
     try:
         validate_resource_id(session.context_id, "context_id")
     except InputValidationError as error:
-        logger.warning(
-            "Ignoring saved context for %s: %s", agent_url, error.message
-        )
+        logger.warning("Ignoring saved context for %s: %s", agent_url, error.message)
         warning = f"saved session ignored: {error.message}"
         if error.suggestion:
             warning = f"saved session ignored: {error.message}. {error.suggestion}"

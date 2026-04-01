@@ -69,7 +69,9 @@ def test_build_agent_card_custom_host_port() -> None:
 
 def test_build_agent_card_with_auth() -> None:
     """require_auth=True populates security_schemes and security."""
-    card = build_agent_card(_make_agent(), host="localhost", port=8000, require_auth=True)
+    card = build_agent_card(
+        _make_agent(), host="localhost", port=8000, require_auth=True
+    )
 
     assert card.security_schemes is not None
     assert "apiKey" in card.security_schemes

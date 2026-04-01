@@ -141,9 +141,7 @@ class ServerTabs(Container):
         self.query_one("#server-content", ContentSwitcher).current = server_id
 
     @on(ServerTab.TitleChanged)
-    def _handle_server_title_changed(
-        self, event: ServerTab.TitleChanged
-    ) -> None:
+    def _handle_server_title_changed(self, event: ServerTab.TitleChanged) -> None:
         tab_id = self._tab_ids_by_server_id.get(event.server_id)
         if tab_id is None:
             return

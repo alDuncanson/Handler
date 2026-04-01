@@ -72,12 +72,14 @@ def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
 
     session_entry = get_session(agent_url)
 
-    output.json({
-        "agent_url": agent_url,
-        "context_id": session_entry.context_id,
-        "task_id": session_entry.task_id,
-        "last_used_at": session_entry.last_used_at,
-    })
+    output.json(
+        {
+            "agent_url": agent_url,
+            "context_id": session_entry.context_id,
+            "task_id": session_entry.task_id,
+            "last_used_at": session_entry.last_used_at,
+        }
+    )
 
 
 @session.command("clear")
@@ -118,4 +120,7 @@ def session_clear(
         clear_session(agent_url)
         output.json({"cleared": agent_url})
     else:
-        output.error(code="missing_target", message="Provide --url or --server, or use --all to clear sessions")
+        output.error(
+            code="missing_target",
+            message="Provide --url or --server, or use --all to clear sessions",
+        )

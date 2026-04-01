@@ -197,9 +197,7 @@ def _make_agent_card() -> AgentCard:
         capabilities=AgentCapabilities(),
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
-        skills=[
-            AgentSkill(id="test", name="Test", description="Test", tags=["test"])
-        ],
+        skills=[AgentSkill(id="test", name="Test", description="Test", tags=["test"])],
     )
 
 
@@ -247,7 +245,9 @@ class TestValidateAgentCardFromUrl:
             mock_resolver = AsyncMock()
             response = httpx.Response(status_code=404, text="Not Found")
             mock_resolver.get_agent_card.side_effect = httpx.HTTPStatusError(
-                "Not Found", request=httpx.Request("GET", "http://localhost:8000"), response=response
+                "Not Found",
+                request=httpx.Request("GET", "http://localhost:8000"),
+                response=response,
             )
             mock_resolver_cls.return_value = mock_resolver
 
@@ -280,7 +280,9 @@ class TestValidateAgentCardFromUrl:
 
         with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
             first_resolver = AsyncMock()
-            first_resolver.get_agent_card.side_effect = A2AClientHTTPError(404, "Not Found")
+            first_resolver.get_agent_card.side_effect = A2AClientHTTPError(
+                404, "Not Found"
+            )
             fallback_resolver = AsyncMock()
             fallback_resolver.get_agent_card.return_value = mock_card
             mock_resolver_cls.side_effect = [first_resolver, fallback_resolver]

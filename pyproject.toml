@@ -77,6 +77,9 @@ module-root = "src"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
+[tool.ruff.lint.per-file-ignores]
+"src/a2a_handler/cli/__init__.py" = ["E402"]
+
 [tool.coverage.run]
 source = ["a2a_handler"]
 

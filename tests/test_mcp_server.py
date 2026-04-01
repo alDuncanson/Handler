@@ -15,7 +15,6 @@ from a2a.types import (
 )
 
 from a2a_handler.mcp.server import create_mcp_server
-from a2a_handler.service import protocol_dump
 from a2a_handler.session import AgentSession
 from a2a_handler.validation import ValidationResult, ValidationSource
 
@@ -42,7 +41,9 @@ def _make_agent_card(name: str = "TestAgent") -> AgentCard:
         defaultInputModes=["text"],
         defaultOutputModes=["text"],
         capabilities=AgentCapabilities(streaming=True, push_notifications=False),
-        skills=[AgentSkill(id="s1", name="skill1", description="A skill", tags=["test"])],
+        skills=[
+            AgentSkill(id="s1", name="skill1", description="A skill", tags=["test"])
+        ],
     )
 
 
@@ -90,7 +91,9 @@ async def test_validate_agent_card_from_file_success() -> None:
         agent_card=_make_agent_card(),
     )
 
-    with patch("a2a_handler.mcp.server.validate_agent_card_from_file", return_value=result):
+    with patch(
+        "a2a_handler.mcp.server.validate_agent_card_from_file", return_value=result
+    ):
         resp = await fn(source="/tmp/card.json", from_file=True)
 
     assert resp["valid"] is True
@@ -112,7 +115,11 @@ async def test_validate_agent_card_from_url_success() -> None:
         agent_card=_make_agent_card(),
     )
 
-    with patch("a2a_handler.mcp.server.validate_agent_card_from_url", new_callable=AsyncMock, return_value=result):
+    with patch(
+        "a2a_handler.mcp.server.validate_agent_card_from_url",
+        new_callable=AsyncMock,
+        return_value=result,
+    ):
         resp = await fn(source="http://localhost:8000", from_file=False)
 
     assert resp["valid"] is True
@@ -216,7 +223,9 @@ async def test_send_message_with_use_session() -> None:
         patch("a2a_handler.mcp.server.update_session"),
         patch("a2a_handler.mcp.server.get_session", return_value=session),
     ):
-        resp = await fn(agent_url="http://localhost:8000", message="hi", use_session=True)
+        resp = await fn(
+            agent_url="http://localhost:8000", message="hi", use_session=True
+        )
 
     mock_service.send.assert_called_once_with("hi", "saved-ctx", None)
     assert resp["id"] == "task-1"
@@ -235,7 +244,9 @@ async def test_send_message_with_bearer_token() -> None:
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
-        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service) as mock_cls,
+        patch(
+            "a2a_handler.mcp.server.A2AService", return_value=mock_service
+        ) as mock_cls,
         patch("a2a_handler.mcp.server.update_session"),
     ):
         resp = await fn(
@@ -444,7 +455,9 @@ async def test_get_session_info_success() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "get_session_info")
 
-    session = AgentSession(agent_url="http://localhost:8000", context_id="c1", task_id="t1")
+    session = AgentSession(
+        agent_url="http://localhost:8000", context_id="c1", task_id="t1"
+    )
 
     with patch("a2a_handler.mcp.server.get_session", return_value=session):
         resp = await fn(agent_url="http://localhost:8000")
@@ -490,6 +503,3 @@ async def test_clear_session_data_all() -> None:
 
     mock_clear.assert_called_once_with()
     assert resp["cleared"] == "All sessions"
-
-
-

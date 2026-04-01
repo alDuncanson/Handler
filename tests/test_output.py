@@ -81,4 +81,6 @@ class TestNdjsonOutput:
         output = Output(output_format="ndjson")
         output.error(code="x", message="bad")
         captured = capsys.readouterr()
-        assert captured.err.strip() == '{"type": "error", "code": "x", "message": "bad"}'
+        assert (
+            captured.err.strip() == '{"type": "error", "code": "x", "message": "bad"}'
+        )

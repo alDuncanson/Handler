@@ -107,12 +107,11 @@ class AuthPanel(Vertical):
         with Vertical(id="oauth2-fields", classes="auth-fields hidden"):
             yield Label("Token URL")
             yield Input(
-                placeholder="https://example.com/oauth/token", id="oauth2-token-url-input"
+                placeholder="https://example.com/oauth/token",
+                id="oauth2-token-url-input",
             )
             yield Label("Client ID")
-            yield Input(
-                placeholder="Enter client ID", id="oauth2-client-id-input"
-            )
+            yield Input(placeholder="Enter client ID", id="oauth2-client-id-input")
             yield Label("Client Secret")
             yield Input(
                 placeholder="Enter client secret",
@@ -121,7 +120,6 @@ class AuthPanel(Vertical):
             )
             yield Label("Scopes (optional, space-separated)")
             yield Input(placeholder="read write", id="oauth2-scopes-input")
-
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Handle auth type selection changes."""
@@ -171,9 +169,9 @@ class AuthPanel(Vertical):
         elif self.query_one("#auth-oauth2", RadioButton).value:
             token_url = self.query_one("#oauth2-token-url-input", Input).value.strip()
             client_id = self.query_one("#oauth2-client-id-input", Input).value.strip()
-            client_secret = (
-                self.query_one("#oauth2-client-secret-input", Input).value.strip()
-            )
+            client_secret = self.query_one(
+                "#oauth2-client-secret-input", Input
+            ).value.strip()
             scopes_raw = self.query_one("#oauth2-scopes-input", Input).value.strip()
             scopes = scopes_raw.split() if scopes_raw else None
             if token_url and client_id and client_secret:

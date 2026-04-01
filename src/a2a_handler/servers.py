@@ -169,9 +169,7 @@ def load_servers(
     try:
         raw_servers = _coerce_str_key_table(raw_servers_value, "servers")
     except ServerConfigError:
-        logger.warning(
-            "Ignoring server file %s: 'servers' must be a TOML table", path
-        )
+        logger.warning("Ignoring server file %s: 'servers' must be a TOML table", path)
         return []
 
     loaded: list[ServerDefinition] = []
@@ -250,9 +248,7 @@ def resolve_server_credentials(
                 ),
             )
         return (
-            create_oauth2_auth(
-                auth.token_url, client_id, client_secret, auth.scopes
-            ),
+            create_oauth2_auth(auth.token_url, client_id, client_secret, auth.scopes),
             None,
         )
 
@@ -312,17 +308,13 @@ def load_server_catalog(
     server_directory: Path | None = None,
 ) -> ServerCatalog:
     """Load global and repository-local server definitions."""
-    global_servers = tuple(
-        load_servers(server_directory, ServerSource.GLOBAL)
-    )
+    global_servers = tuple(load_servers(server_directory, ServerSource.GLOBAL))
 
     repository_servers: tuple[ServerDefinition, ...] = ()
     git_root = find_git_root()
     if git_root is not None:
         local_server_dir = git_root / ".handler"
-        if local_server_dir != (
-            server_directory or DEFAULT_SERVER_DIRECTORY
-        ):
+        if local_server_dir != (server_directory or DEFAULT_SERVER_DIRECTORY):
             repository_servers = tuple(
                 load_servers(local_server_dir, ServerSource.REPOSITORY)
             )
@@ -387,9 +379,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
     if auth_type == AuthType.MTLS:
         for forbidden in ("env", "value", "header"):
             if forbidden in auth_table:
-                raise ServerConfigError(
-                    f"auth.{forbidden} is not valid for mtls auth"
-                )
+                raise ServerConfigError(f"auth.{forbidden} is not valid for mtls auth")
         cert = _parse_optional_str(auth_table, "cert")
         key = _parse_optional_str(auth_table, "key")
         if cert is None or key is None:
