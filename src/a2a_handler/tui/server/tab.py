@@ -296,9 +296,7 @@ class ServerTab(Container):
         server_view.agent_card_panel().update_card(agent_card)
 
         if resumed and saved_conversation is not None:
-            await self._hydrate_resumed_history(
-                server_view, saved_conversation
-            )
+            await self._hydrate_resumed_history(server_view, saved_conversation)
 
         if warning:
             server_view.messages_panel().add_system_message(warning)
@@ -355,17 +353,13 @@ class ServerTab(Container):
             if connection_bar._is_manual_selected():
                 messages_panel.add_system_message("Please enter an agent URL")
             else:
-                messages_panel.add_system_message(
-                    "Choose a server or switch to Manual"
-                )
+                messages_panel.add_system_message("Choose a server or switch to Manual")
             return
 
         try:
             validate_agent_url(agent_url)
         except InputValidationError as error:
-            messages_panel.add_system_message(
-                self._build_connect_error_message(error)
-            )
+            messages_panel.add_system_message(self._build_connect_error_message(error))
             return
 
         connection_bar.set_status(f"Connecting to {agent_url}...")
@@ -384,9 +378,7 @@ class ServerTab(Container):
                     f"'{selected_server.label}' default"
                 )
             else:
-                auth_source = (
-                    "manual override" if credentials is not None else "none"
-                )
+                auth_source = "manual override" if credentials is not None else "none"
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
 
@@ -401,15 +393,16 @@ class ServerTab(Container):
                 and session_warning is None
             )
             context_id = str(uuid.uuid4())
+            resumed_task_id: str | None = None
             if resumed:
+                assert saved_conversation is not None
                 context_id = saved_conversation.context_id
+                resumed_task_id = saved_conversation.task_id
 
             self.state.agent_card = agent_card
             self.state.agent_url = agent_url
             self.state.current_context_id = context_id
-            self.state.current_task_id = (
-                saved_conversation.task_id if resumed else None
-            )
+            self.state.current_task_id = resumed_task_id
             self.state.auth_source = auth_source
             self.state.connected_server_def = selected_server
             self.state.mode = ServerConnectionMode.CONNECTED
@@ -424,9 +417,7 @@ class ServerTab(Container):
                 resumed=resumed,
                 saved_conversation=saved_conversation,
             )
-            self.post_message(
-                self.TitleChanged(self.server_id, agent_card.name)
-            )
+            self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 
         except Exception as error:
             logger.error(
@@ -538,9 +529,7 @@ class ServerTab(Container):
             self.state.current_task_id,
         )
 
-    def _load_task_into_live_view(
-        self, server_view: ServerView, task: Task
-    ) -> None:
+    def _load_task_into_live_view(self, server_view: ServerView, task: Task) -> None:
         messages_panel = server_view.messages_panel()
         seen_message_ids: set[str] = set()
 

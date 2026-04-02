@@ -3,6 +3,7 @@
 import httpx
 import pytest
 from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
+from typing import cast
 
 from a2a_handler.auth import create_bearer_auth
 from a2a_handler.common.input_validation import InputValidationError
@@ -122,7 +123,10 @@ class TestResponseHelpers:
         task = _make_task(TaskState.completed)
         dumped = protocol_dump(task)
         assert dumped["id"] == "task-123"
-        assert dumped["status"]["state"] == "completed"
+        status = dumped["status"]
+        assert isinstance(status, dict)
+        typed_status = cast(dict[str, object], status)
+        assert typed_status["state"] == "completed"
         assert "kind" in dumped
 
     def test_protocol_dump_message(self):

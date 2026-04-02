@@ -443,7 +443,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
                 isinstance(s, str) for s in raw_scopes
             ):
                 raise ServerConfigError("auth.scopes must be a list of strings")
-            scopes = list(raw_scopes)
+            scopes = [scope for scope in raw_scopes if isinstance(scope, str)]
 
         return ServerAuthConfig(
             auth_type=auth_type,

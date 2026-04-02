@@ -38,8 +38,8 @@ def _make_agent_card(name: str = "TestAgent") -> AgentCard:
         description="A test agent",
         url="http://localhost:8000",
         version="1.0",
-        defaultInputModes=["text"],
-        defaultOutputModes=["text"],
+        default_input_modes=["text"],
+        default_output_modes=["text"],
         capabilities=AgentCapabilities(streaming=True, push_notifications=False),
         skills=[
             AgentSkill(id="s1", name="skill1", description="A skill", tags=["test"])

@@ -9,7 +9,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Static, TabbedContent, TabPane
+from textual.widgets import Static, TabbedContent, TabPane, Tabs
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -280,17 +280,15 @@ class TabbedMessagesPanel(Container):
 
     def action_previous_tab(self) -> None:
         """Switch to the previous tab."""
-        tabs = self.query("#messages-tabs Tabs")
-        if tabs:
-            tabs.first().action_previous_tab()
-            self.focus()
+        tabs = self.query_one("#messages-tabs Tabs", Tabs)
+        tabs.action_previous_tab()
+        self.focus()
 
     def action_next_tab(self) -> None:
         """Switch to the next tab."""
-        tabs = self.query("#messages-tabs Tabs")
-        if tabs:
-            tabs.first().action_next_tab()
-            self.focus()
+        tabs = self.query_one("#messages-tabs Tabs", Tabs)
+        tabs.action_next_tab()
+        self.focus()
 
     def action_scroll_down(self) -> None:
         active = self._get_active_tab_id()

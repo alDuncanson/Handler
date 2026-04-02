@@ -7,7 +7,7 @@ import stat
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import click
 
@@ -117,14 +117,22 @@ def _read_toml(path: Path) -> dict[str, object]:
         return tomllib.load(f)
 
 
+def _as_toml_table(value: object) -> dict[str, object] | None:
+    """Narrow parsed TOML values to string-keyed dictionaries."""
+    if not isinstance(value, dict):
+        return None
+    return cast(dict[str, object], value)
+
+
 def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
     """Atomically write a servers.toml from a data dict."""
     lines = [f"version = {SERVER_SCHEMA_VERSION}", ""]
 
-    servers = data.get("servers")
-    if isinstance(servers, dict):
-        for name, entry in sorted(servers.items()):
-            if not isinstance(entry, dict):
+    servers = _as_toml_table(data.get("servers"))
+    if servers is not None:
+        for name, raw_entry in sorted(servers.items()):
+            entry = _as_toml_table(raw_entry)
+            if entry is None:
                 continue
             lines.append(f"[servers.{name}]")
             for key, value in entry.items():
@@ -132,8 +140,8 @@ def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
                     continue
                 lines.append(f"{key} = {_toml_encode_value(value)}")
 
-            auth = entry.get("auth")
-            if isinstance(auth, dict):
+            auth = _as_toml_table(entry.get("auth"))
+            if auth is not None:
                 lines.append("")
                 lines.append(f"[servers.{name}.auth]")
                 for key, value in auth.items():
@@ -281,14 +289,14 @@ def server_add(
     path = _resolve_servers_path(use_repository)
 
     data = _read_toml(path)
-    servers = data.get("servers", {})
-    if isinstance(servers, dict) and name in servers:
+    servers = _as_toml_table(data.get("servers"))
+    if servers is not None and name in servers:
         output.error(
             code="already_exists", message=f"Server '{name}' already exists in {path}"
         )
         return
 
-    if not isinstance(servers, dict):
+    if servers is None:
         servers = {}
     entry: dict[str, object] = {"url": url}
 
@@ -342,8 +350,8 @@ def server_remove(name: str, use_global: bool, use_repository: bool) -> None:
         return
 
     data = _read_toml(path)
-    servers = data.get("servers")
-    if not isinstance(servers, dict) or name not in servers:
+    servers = _as_toml_table(data.get("servers"))
+    if servers is None or name not in servers:
         output.error(code="not_found", message=f"Server '{name}' not found in {path}")
         return
 

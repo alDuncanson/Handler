@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -15,6 +15,13 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _TOML_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _as_toml_table(value: object) -> dict[str, object] | None:
+    """Narrow parsed TOML values to string-keyed dictionaries."""
+    if not isinstance(value, dict):
+        return None
+    return cast(dict[str, object], value)
 
 
 def _sanitize_key(name: str) -> str:
@@ -116,13 +123,18 @@ def save_connections_to_workspace(
 
     path = _resolve_servers_path(use_repository=True)
     data = _read_toml(path)
-    servers = data.get("servers", {})
-    if not isinstance(servers, dict):
+    servers = _as_toml_table(data.get("servers"))
+    if servers is None:
         servers = {}
 
-    existing_urls = {
-        entry.get("url") for entry in servers.values() if isinstance(entry, dict)
-    }
+    existing_urls: set[str] = set()
+    for raw_entry in servers.values():
+        entry = _as_toml_table(raw_entry)
+        if entry is None:
+            continue
+        url = entry.get("url")
+        if isinstance(url, str):
+            existing_urls.add(url)
 
     added = 0
     for server_tab in connected_servers:

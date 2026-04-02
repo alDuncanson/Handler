@@ -1,7 +1,7 @@
 """Main TUI application for Handler."""
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from textual import on
@@ -242,7 +242,7 @@ class HandlerTUI(App[Any]):
                 self._switch_to_server(server.server_id),
             )
 
-    def _switch_to_server(self, server_id: str) -> callable:
+    def _switch_to_server(self, server_id: str) -> Callable[[], None]:
         """Return a callback that activates the given server tab."""
 
         def callback() -> None:
