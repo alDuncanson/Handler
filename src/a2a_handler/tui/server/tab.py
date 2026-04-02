@@ -8,6 +8,7 @@ from collections.abc import Generator
 from typing import Any
 
 import httpx
+from a2a.client.errors import A2AClientJSONRPCError
 from a2a.types import AgentCard, Message as A2AMessage, Role, Task
 from textual import on, work
 from textual.app import ComposeResult
@@ -469,11 +470,30 @@ class ServerTab(Container):
 
             self._refresh_status_badges()
 
-            response = await self._agent_service.send(
-                message_text,
-                context_id=self.state.current_context_id,
-                task_id=self.state.current_task_id,
-            )
+            try:
+                response = await self._agent_service.send(
+                    message_text,
+                    context_id=self.state.current_context_id,
+                    task_id=self.state.current_task_id,
+                )
+            except Exception as error:
+                if self.state.current_task_id and self._is_missing_task_error(error):
+                    logger.info(
+                        "Retrying %s without stale task_id %s",
+                        self.server_id,
+                        self.state.current_task_id,
+                    )
+                    self._clear_current_task_id()
+                    messages_panel.add_system_message(
+                        "Saved task is no longer available; retrying with the saved context only."
+                    )
+                    response = await self._agent_service.send(
+                        message_text,
+                        context_id=self.state.current_context_id,
+                        task_id=None,
+                    )
+                else:
+                    raise
 
             ctx_id = response_context_id(response)
             if ctx_id:
@@ -528,6 +548,20 @@ class ServerTab(Container):
             self.state.current_context_id,
             self.state.current_task_id,
         )
+
+    def _clear_current_task_id(self) -> None:
+        """Drop the active task ID while keeping the current context."""
+        if self.state.current_task_id is None:
+            return
+        self.state.current_task_id = None
+        self._persist_session_state()
+
+    def _is_missing_task_error(self, error: Exception) -> bool:
+        """Return True when the server rejects a stale task continuation."""
+        if not isinstance(error, A2AClientJSONRPCError):
+            return False
+        message = str(getattr(error.error, "message", "")).lower()
+        return "task" in message and "does not exist" in message
 
     def _load_task_into_live_view(self, server_view: ServerView, task: Task) -> None:
         messages_panel = server_view.messages_panel()
@@ -600,8 +634,10 @@ class ServerTab(Container):
                 error,
                 exc_info=True,
             )
+            if self.state.current_task_id == saved_conversation.task_id:
+                self._clear_current_task_id()
             server_view.messages_panel().add_system_message(
-                "Resumed saved context, but prior messages could not be loaded."
+                "Resumed saved context, but the saved task could not be loaded. New messages will continue without that task ID."
             )
             return
 

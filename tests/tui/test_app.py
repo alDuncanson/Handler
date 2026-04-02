@@ -2,11 +2,22 @@
 
 from collections.abc import Generator
 import uuid
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
-from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
-from textual.widgets import Select, Static, Tab, Tabs
+from a2a.client.errors import A2AClientJSONRPCError
+from a2a.types import (
+    JSONRPCError,
+    JSONRPCErrorResponse,
+    Message,
+    Part,
+    Role,
+    Task,
+    TaskState,
+    TaskStatus,
+    TextPart,
+)
+from textual.widgets import Input, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.servers import (
@@ -42,6 +53,20 @@ def _make_server(
         agent_url=agent_url,
         auth=auth,
         origin_label=source.value.capitalize(),
+    )
+
+
+def _missing_task_error(task_id: str) -> A2AClientJSONRPCError:
+    return A2AClientJSONRPCError(
+        JSONRPCErrorResponse(
+            error=JSONRPCError(
+                code=-32001,
+                data=None,
+                message=f"Task {task_id} was specified but does not exist",
+            ),
+            id="request-1",
+            jsonrpc="2.0",
+        )
     )
 
 
@@ -500,6 +525,157 @@ async def test_auto_resume_hydrates_saved_task_history(
                 "task-saved-654321",
                 history_length=100,
             )
+
+
+@pytest.mark.asyncio
+async def test_auto_resume_clears_missing_saved_task_id(
+    patch_server_sources: Mock,
+) -> None:
+    """Missing saved tasks should fall back to the saved context only."""
+    patch_server_sources.find.return_value = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="agent",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.get_task.side_effect = _missing_task_error("task-saved-654321")
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace.state.current_context_id == "ctx-saved-123456"
+            assert workspace.state.current_task_id is None
+            assert patch_server_sources.set_conversation.call_args == call(
+                "https://agent.example.com",
+                "ctx-saved-123456",
+                None,
+            )
+
+            messages_panel = workspace.query_one(TabbedMessagesPanel)
+            texts = _chat_texts(messages_panel)
+            assert any(
+                "saved task could not be loaded" in text.lower() for text in texts
+            )
+
+
+@pytest.mark.asyncio
+async def test_send_retries_without_stale_task_id(
+    patch_server_sources: Mock,
+) -> None:
+    """Sending should retry with context only when a saved task is gone."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="agent",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.agent,
+        parts=[Part(root=TextPart(text="Recovered response"))],
+        context_id="ctx-saved-123456",
+        task_id=None,
+    )
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.send.side_effect = [
+            _missing_task_error("task-stale-1"),
+            response_message,
+        ]
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            workspace.state.current_context_id = "ctx-saved-123456"
+            workspace.state.current_task_id = "task-stale-1"
+            patch_server_sources.set_conversation.reset_mock()
+
+            workspace.query_one("#message-input", Input).value = "Hello again"
+            workspace.handle_send_button()
+            await pilot.pause()
+
+            assert mock_service.send.await_args_list == [
+                call(
+                    "Hello again",
+                    context_id="ctx-saved-123456",
+                    task_id="task-stale-1",
+                ),
+                call(
+                    "Hello again",
+                    context_id="ctx-saved-123456",
+                    task_id=None,
+                ),
+            ]
+            assert workspace.state.current_task_id is None
+            assert patch_server_sources.set_conversation.call_args == call(
+                "https://agent.example.com",
+                "ctx-saved-123456",
+                None,
+            )
+
+            messages_panel = workspace.query_one(TabbedMessagesPanel)
+            texts = _chat_texts(messages_panel)
+            assert any(
+                "retrying with the saved context only" in text.lower() for text in texts
+            )
+            assert any("Recovered response" in text for text in texts)
 
 
 @pytest.mark.asyncio

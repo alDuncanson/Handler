@@ -14,6 +14,7 @@ from a2a_handler.auth import (
     create_oauth2_auth,
     parse_header_string,
 )
+from a2a_handler.common.input_validation import InputValidationError
 
 
 class TestAuthCredentials:
@@ -156,6 +157,27 @@ class TestMTLSAuth:
         ):
             creds = create_mtls_auth(cert_file.name, key_file.name, ca_file.name)
             assert creds.ca_cert_path == ca_file.name
+
+    def test_create_mtls_auth_rejects_insecure_key_permissions(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".pem", delete=False) as cert_file:
+            cert_path = cert_file.name
+        with tempfile.NamedTemporaryFile(suffix=".pem", delete=False) as key_file:
+            key_file.write(b"private-key")
+            key_path = key_file.name
+
+        try:
+            import os
+
+            os.chmod(key_path, 0o644)
+            with pytest.raises(InputValidationError) as exc_info:
+                create_mtls_auth(cert_path, key_path)
+            assert isinstance(exc_info.value, InputValidationError)
+            assert "readable by group or others" in exc_info.value.message
+        finally:
+            import os
+
+            os.unlink(cert_path)
+            os.unlink(key_path)
 
     def test_build_ssl_context_rejects_non_mtls(self) -> None:
         creds = AuthCredentials(auth_type=AuthType.BEARER, value="token")
