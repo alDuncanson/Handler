@@ -270,7 +270,7 @@ class A2AService:
             logger.info(
                 "Fetching OAuth2 access token from %s", self.credentials.token_url
             )
-        await self.credentials.fetch_oauth2_token(self.http_client)
+        await self.credentials.fetch_oauth2_token()
         auth_headers = self.credentials.to_headers()
         self.http_client.headers.update(auth_headers)
         self._applied_auth_headers = set(auth_headers.keys())

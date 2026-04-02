@@ -244,13 +244,11 @@ class TestOAuth2Auth:
         with pytest.raises(ValueError, match="OAuth2"):
             import asyncio
 
-            asyncio.get_event_loop().run_until_complete(
-                creds.fetch_oauth2_token(None)  # type: ignore[arg-type]
-            )
+            asyncio.get_event_loop().run_until_complete(creds.fetch_oauth2_token())
 
     async def test_fetch_oauth2_token_success(self) -> None:
         """fetch_oauth2_token posts client credentials and stores token."""
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
         creds = create_oauth2_auth(
             "https://auth.example.com/oauth/token",
@@ -264,8 +262,11 @@ class TestOAuth2Auth:
 
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        token = await creds.fetch_oauth2_token(mock_client)
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            token = await creds.fetch_oauth2_token()
 
         assert token == "fetched-token-abc"
         assert creds.value == "fetched-token-abc"
@@ -283,7 +284,7 @@ class TestOAuth2Auth:
 
     async def test_fetch_oauth2_token_without_scopes(self) -> None:
         """fetch_oauth2_token omits scope when no scopes configured."""
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
         creds = create_oauth2_auth(
             "https://auth.example.com/oauth/token",
@@ -296,8 +297,11 @@ class TestOAuth2Auth:
 
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        await creds.fetch_oauth2_token(mock_client)
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            await creds.fetch_oauth2_token()
 
         mock_client.post.assert_called_once_with(
             "https://auth.example.com/oauth/token",
@@ -310,7 +314,7 @@ class TestOAuth2Auth:
 
     async def test_fetch_oauth2_token_http_error_propagates(self) -> None:
         """fetch_oauth2_token propagates HTTP errors from the token endpoint."""
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
         import httpx
 
@@ -328,9 +332,12 @@ class TestOAuth2Auth:
 
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with pytest.raises(httpx.HTTPStatusError):
-            await creds.fetch_oauth2_token(mock_client)
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(httpx.HTTPStatusError):
+                await creds.fetch_oauth2_token()
 
     async def test_fetch_oauth2_token_missing_fields(self) -> None:
         """fetch_oauth2_token raises when OAuth2 fields are incomplete."""
@@ -339,11 +346,11 @@ class TestOAuth2Auth:
             token_url="https://auth.example.com/oauth/token",
         )
         with pytest.raises(ValueError, match="token_url, client_id, and client_secret"):
-            await creds.fetch_oauth2_token(AsyncMock())
+            await creds.fetch_oauth2_token()
 
     async def test_fetch_oauth2_token_tracks_expiry(self) -> None:
         """fetch_oauth2_token parses expires_in and tracks expiry."""
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
         creds = create_oauth2_auth(
             "https://auth.example.com/oauth/token",
@@ -358,8 +365,11 @@ class TestOAuth2Auth:
         mock_response.raise_for_status = MagicMock()
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        await creds.fetch_oauth2_token(mock_client)
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            await creds.fetch_oauth2_token()
 
         assert creds.value == "tok-1"
         assert creds._token_expires_at is not None
@@ -367,7 +377,7 @@ class TestOAuth2Auth:
 
     async def test_fetch_oauth2_token_without_expires_in(self) -> None:
         """Token without expires_in is treated as non-expiring."""
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
         creds = create_oauth2_auth(
             "https://auth.example.com/oauth/token",
@@ -379,8 +389,11 @@ class TestOAuth2Auth:
         mock_response.raise_for_status = MagicMock()
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        await creds.fetch_oauth2_token(mock_client)
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            await creds.fetch_oauth2_token()
 
         assert creds.value == "tok-forever"
         assert creds._token_expires_at is None

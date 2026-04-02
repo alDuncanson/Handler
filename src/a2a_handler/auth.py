@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+
 
 from a2a_handler.common.input_validation import (
     check_key_file_permissions,
@@ -20,8 +20,7 @@ from a2a_handler.common.input_validation import (
     validate_token_url,
 )
 
-if TYPE_CHECKING:
-    import httpx
+import httpx
 
 
 _TOKEN_EXPIRY_MARGIN = 30  # seconds before expiry to trigger refresh
@@ -123,8 +122,11 @@ class AuthCredentials:
         self.value = ""
         self._token_expires_at = None
 
-    async def fetch_oauth2_token(self, http_client: httpx.AsyncClient) -> str:
+    async def fetch_oauth2_token(self) -> str:
         """Fetch an access token using OAuth2 client credentials grant.
+
+        Uses a short-lived HTTP client so that agent auth headers and custom
+        headers on the main client are never sent to the token endpoint.
 
         Updates self.value with the new token and returns it.
         Parses ``expires_in`` from the token response to track expiry.
@@ -143,7 +145,8 @@ class AuthCredentials:
         if self.scopes:
             data["scope"] = " ".join(self.scopes)
 
-        response = await http_client.post(self.token_url, data=data)
+        async with httpx.AsyncClient(trust_env=False) as token_client:
+            response = await token_client.post(self.token_url, data=data)
         response.raise_for_status()
         token_data = response.json()
         self.value = token_data["access_token"]
