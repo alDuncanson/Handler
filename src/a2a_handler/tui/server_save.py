@@ -149,12 +149,14 @@ def save_connections_to_workspace(
         server_def = server_tab.state.connected_server_def
         if server_def and server_def.auth:
             entry["auth"] = _auth_config_to_dict(server_def.auth)
-        elif server_tab.state.connected_credentials:
-            skeleton = _credentials_to_skeleton_dict(
-                server_tab.state.connected_credentials,
-            )
-            if skeleton:
-                entry["auth"] = skeleton
+        else:
+            server_view = server_tab._try_get_server_view()
+            if server_view is not None:
+                panel_credentials = server_view.messages_panel().get_auth_credentials()
+                if panel_credentials is not None:
+                    skeleton = _credentials_to_skeleton_dict(panel_credentials)
+                    if skeleton:
+                        entry["auth"] = skeleton
 
         servers[name] = entry
         existing_urls.add(agent_url)

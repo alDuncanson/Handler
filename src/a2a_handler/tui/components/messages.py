@@ -178,9 +178,6 @@ class TabbedMessagesPanel(Container):
         logs_panel = self._get_logs_panel()
         logs_panel.load_logs(lines)
 
-    def update_message_count(self) -> None:
-        pass
-
     async def clear(self) -> None:
         logger.info("Clearing chat messages")
         chat_container = self._get_chat_container()
@@ -213,11 +210,6 @@ class TabbedMessagesPanel(Container):
             else:
                 credentials.custom_headers = custom_headers
         return credentials
-
-    def set_bearer_token(self, token: str) -> None:
-        """Preconfigure bearer token authentication in the auth panel."""
-        auth_panel = self._get_auth_panel()
-        auth_panel.set_bearer_token(token)
 
     def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
         """Preconfigure auth and headers panel fields from resolved credentials."""

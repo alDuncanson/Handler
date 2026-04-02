@@ -8,7 +8,6 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Select, Static
 
-from a2a_handler.auth import AuthCredentials
 from a2a_handler.servers import ServerDefinition, ServerSource, server_source_label
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
 from a2a_handler.tui.server_types import MANUAL_SERVER_ID
@@ -20,12 +19,11 @@ CONFIGURED_SERVER_SOURCES = (
 )
 
 
-class ServerConnectView(Container):
+class ConnectionBar(Container):
     """Compact connection bar for selecting and opening a server."""
 
-    def __init__(self, server_title: str, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._server_title = server_title
         self._servers_by_id: dict[str, ServerDefinition] = {}
 
     def compose(self) -> ComposeResult:
@@ -62,12 +60,6 @@ class ServerConnectView(Container):
         """Press connect when the URL input is submitted."""
         connect_button = self.query_one("#connect-btn", Button)
         self.post_message(Button.Pressed(connect_button))
-
-    def _messages_panel(self) -> TabbedMessagesPanel:
-        for ancestor in self.ancestors:
-            if isinstance(ancestor, ServerLiveView):
-                return ancestor.messages_panel()
-        raise LookupError("Connection bar is not mounted inside a server view")
 
     def set_server_catalog(
         self,
@@ -187,23 +179,16 @@ class ServerConnectView(Container):
         self._set_badge("badge-protocol", "")
         self._set_badge("badge-version", "")
 
-    def get_auth_credentials(self) -> AuthCredentials | None:
-        return self._messages_panel().get_auth_credentials()
 
-    def set_auth_credentials(self, credentials: AuthCredentials | None) -> None:
-        self._messages_panel().set_auth_credentials(credentials)
-
-
-class ServerLiveView(Container):
+class ServerView(Container):
     """Always-mounted server view with a compact connection bar."""
 
-    def __init__(self, server_title: str, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._server_title = server_title
 
     def compose(self) -> ComposeResult:
         with Vertical(id="server-stage"):
-            yield ServerConnectView(self._server_title)
+            yield ConnectionBar()
             with Container(id="live-stage", classes="server-live-layout"):
                 with Vertical(id="server-meta"):
                     yield AgentCardPanel(id="agent-card-container", classes="panel")
@@ -221,10 +206,9 @@ class ServerLiveView(Container):
         ).border_title = "Activity"
         self.query_one("#input-container", InputPanel).border_title = "Compose"
         self.input_panel().set_enabled(False)
-        self.show_disconnected_state()
 
-    def connect_view(self) -> ServerConnectView:
-        return self.query_one(ServerConnectView)
+    def connection_bar(self) -> ConnectionBar:
+        return self.query_one(ConnectionBar)
 
     def agent_card_panel(self) -> AgentCardPanel:
         return self.query_one("#agent-card-container", AgentCardPanel)
@@ -235,12 +219,7 @@ class ServerLiveView(Container):
     def input_panel(self) -> InputPanel:
         return self.query_one("#input-container", InputPanel)
 
-    def show_disconnected_state(self) -> None:
-        self.connect_view().show_disconnected_badges()
-        self.agent_card_panel().update_card(None)
-        self.input_panel().set_enabled(False)
-
-    async def prepare_for_connection(self) -> None:
+    async def reset_session(self) -> None:
         await self.messages_panel().reset_session()
         self.agent_card_panel().update_card(None)
         self.input_panel().set_enabled(False)

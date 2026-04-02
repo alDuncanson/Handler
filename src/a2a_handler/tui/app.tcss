@@ -58,12 +58,12 @@ Screen {
 }
 
 ServerTab,
-ServerLiveView {
+ServerView {
     width: 1fr;
     height: 1fr;
 }
 
-ServerConnectView {
+ConnectionBar {
     width: 1fr;
     height: auto;
 }

@@ -19,9 +19,8 @@ from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import TabbedMessagesPanel
-from a2a_handler.tui.server_tab import ServerTab
 from a2a_handler.tui.server_tabs import ServerTabs
-from a2a_handler.tui.server_views import ServerConnectView, ServerLiveView
+from a2a_handler.tui.server_views import ConnectionBar, ServerView
 
 
 def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
@@ -85,8 +84,8 @@ async def test_app_starts_with_server_shell_and_initial_server() -> None:
 
         assert workspace is not None
         assert not workspace.is_connected
-        connect_view = workspace.query_one(ServerConnectView)
-        live_view = workspace.query_one(ServerLiveView)
+        connect_view = workspace.query_one(ConnectionBar)
+        live_view = workspace.query_one(ServerView)
 
         assert connect_view
         assert live_view
@@ -161,8 +160,8 @@ async def test_command_palette_is_centered_instead_of_full_width() -> None:
 
 
 @pytest.mark.asyncio
-async def test_initial_bearer_token_seeds_first_server_connect_view() -> None:
-    """The first server should inherit an explicit auth override."""
+async def test_initial_bearer_token_seeds_first_server_auth_panel() -> None:
+    """The first server should inherit an explicit auth in the panel."""
     app = HandlerTUI(initial_bearer_token="test-token")
 
     async with app.run_test() as pilot:
@@ -171,10 +170,9 @@ async def test_initial_bearer_token_seeds_first_server_connect_view() -> None:
         workspace = app.query_one(ServerTabs).get_active_server()
         assert workspace is not None
 
-        connect_view = workspace.query_one(ServerConnectView)
-        credentials = connect_view.get_auth_credentials()
+        server_view = workspace.query_one(ServerView)
+        credentials = server_view.messages_panel().get_auth_credentials()
 
-        assert workspace.state.auth_overridden
         assert credentials is not None
         assert credentials.auth_type == AuthType.BEARER
         assert credentials.value == "test-token"
@@ -253,7 +251,7 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            connect_view = workspace.query_one(ServerConnectView)
+            connect_view = workspace.query_one(ConnectionBar)
 
             assert connect_view.get_selected_server() == repo_connection
             assert connect_view.get_url() == "https://staging.example.com"
@@ -273,7 +271,7 @@ async def test_recent_connections_are_loaded_from_session_recency(
         workspace = app.query_one(ServerTabs).get_active_server()
         assert workspace is not None
 
-        connect_view = workspace.query_one(ServerConnectView)
+        connect_view = workspace.query_one(ConnectionBar)
         server_select = connect_view.query_one("#server-select", Select)
         server_select.value = "recent:https://recent.example.com"
 
@@ -328,8 +326,7 @@ async def test_auto_resume_when_saved_session_exists(
             await workspace.handle_connect_button()
             await pilot.pause()
 
-            assert workspace.current_context_id == "ctx-saved-123456"
-            assert workspace.state.resumed
+            assert workspace.state.current_context_id == "ctx-saved-123456"
             patch_server_sources.set_conversation.assert_called_with(
                 "https://agent.example.com",
                 "ctx-saved-123456",
@@ -404,7 +401,7 @@ async def test_auto_resume_hydrates_saved_task_history(
             await workspace.handle_connect_button()
             await pilot.pause()
 
-            live_view = workspace.query_one(ServerLiveView)
+            live_view = workspace.query_one(ServerView)
             messages_panel = live_view.query_one(TabbedMessagesPanel)
             chat_texts = _chat_texts(messages_panel)
 
@@ -463,8 +460,7 @@ async def test_force_fresh_ignores_saved_context(
             await workspace.handle_connect_button(force_fresh=True)
             await pilot.pause()
 
-            assert workspace.current_context_id == str(fresh_context)
-            assert not workspace.state.resumed
+            assert workspace.state.current_context_id == str(fresh_context)
             patch_server_sources.set_conversation.assert_called_with(
                 "https://agent.example.com",
                 str(fresh_context),
@@ -554,9 +550,10 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            connect_view = workspace.query_one(ServerConnectView)
-            connect_view.set_auth_credentials(create_bearer_auth("manual-token"))
-            workspace.state.auth_overridden = True
+            server_view = workspace.query_one(ServerView)
+            server_view.messages_panel().set_auth_credentials(
+                create_bearer_auth("manual-token")
+            )
             await workspace.handle_connect_button()
             await pilot.pause()
 
@@ -564,7 +561,6 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
             assert credentials is not None
             assert credentials.auth_type == AuthType.BEARER
             assert credentials.value == "manual-token"
-            assert workspace.state.auth_source == "manual override"
 
 
 @pytest.mark.asyncio
@@ -607,9 +603,9 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
             assert workspace.is_connected
             assert workspace.current_agent_url == "https://agent.example.com"
-            assert workspace.query_one(ServerLiveView)
+            assert workspace.query_one(ServerView)
 
-            live_view = workspace.query_one(ServerLiveView)
+            live_view = workspace.query_one(ServerView)
             messages_panel = live_view.query_one(TabbedMessagesPanel)
             tabs = app.query_one("#server-tabs", Tabs)
             first_tab = tabs.query_one("#server-tab-1", Tab)
@@ -642,7 +638,7 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         workspace = app.query_one(ServerTabs).get_active_server()
         assert workspace is not None
 
-        connect_view = workspace.query_one(ServerConnectView)
+        connect_view = workspace.query_one(ConnectionBar)
         from a2a_handler.tui.server_types import MANUAL_SERVER_ID
 
         server_select = connect_view.query_one("#server-select", Select)
@@ -657,38 +653,4 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         assert any("valid http(s) URL" in t for t in texts)
 
 
-def test_resolve_server_credentials_uses_server_default_auth() -> None:
-    server = ServerTab(server_id="server-test", title="Server Test")
-    server_def = _make_server(
-        source=ServerSource.REPOSITORY,
-        name="staging",
-        agent_url="https://staging.example.com",
-        auth=ServerAuthConfig(auth_type=AuthType.BEARER, value="profile-token"),
-    )
-    server._server_credentials = {
-        server_def.server_id: create_bearer_auth("profile-token")
-    }
 
-    credentials, source, warning = server._resolve_auth(
-        selected_server=server_def,
-        override_credentials=None,
-    )
-
-    assert credentials is not None
-    assert credentials.value == "profile-token"
-    assert source == "repository server 'staging' default"
-    assert warning is None
-
-
-def test_resolve_server_credentials_uses_manual_override() -> None:
-    server = ServerTab(server_id="server-test", title="Server Test")
-    manual = create_bearer_auth("manual-token")
-
-    credentials, source, warning = server._resolve_auth(
-        selected_server=None,
-        override_credentials=manual,
-    )
-
-    assert credentials == manual
-    assert source == "manual override"
-    assert warning is None

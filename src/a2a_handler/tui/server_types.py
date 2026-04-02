@@ -46,13 +46,8 @@ class ServerState:
     agent_url: str | None = None
     current_context_id: str | None = None
     current_task_id: str | None = None
-    connected_credentials: AuthCredentials | None = None
     auth_source: str = "none"
-    auth_overridden: bool = False
     connected_server_def: ServerDefinition | None = None
-    saved_conversation: SavedConversation | None = None
-    resumed: bool = False
-    connection_summary: str = "Manual URL"
 
 
 def summarize_identifier(value: str) -> str:
