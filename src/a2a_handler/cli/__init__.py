@@ -20,6 +20,10 @@ truststore.inject_into_ssl()
 import logging
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 logging.getLogger().setLevel(logging.WARNING)
 
 import click
