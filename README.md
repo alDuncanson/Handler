@@ -78,49 +78,60 @@ This provides Python, uv, and just with all commands ready to use.
 For usage documentation, see the
 [Handler docs](https://alduncanson.github.io/Handler/).
 
-## Connections (TOML)
+## Servers (TOML)
 
-Handler supports optional named connections in
-`~/.handler/connections.toml` and repository-local `.handler/connections.toml`.
+Handler supports optional named servers in
+`$XDG_CONFIG_HOME/handler/servers.toml` (global) and repository-local
+`.handler/servers.toml`.
 
-The TUI shows configured connections alongside recently used URLs in a
-connection source selector. Auth resolution order is:
+The TUI shows configured servers alongside recently used URLs in a server
+source selector. Auth resolution order is:
 
 1. Auth override entered in the TUI Auth tab.
-2. Default auth from the selected connection definition.
+2. Default auth from the selected server definition.
 
 Example:
 
 ```toml
 version = 1
 
-[connections.local]
+[servers.local]
 url = "http://localhost:8000"
 
-[connections.local.auth]
+[servers.local.auth]
 type = "bearer"
 env = "HANDLER_LOCAL_TOKEN"
 
-[connections.staging]
+[servers.staging]
 url = "https://staging.example.com"
 
-[connections.staging.auth]
+[servers.staging.auth]
 type = "api_key"
 env = "HANDLER_STAGING_API_KEY"
 header = "X-API-Key"
 
-[connections.secure]
+[servers.secure]
 url = "https://secure.example.com"
 
-[connections.secure.auth]
+[servers.secure.auth]
 type = "mtls"
 cert = "/path/to/client.crt"
 key = "/path/to/client.key"
 ca_cert = "/path/to/ca.crt"  # optional
+
+[servers.oauth]
+url = "https://oauth.example.com"
+
+[servers.oauth.auth]
+type = "oauth2"
+token_url = "https://auth.example.com/oauth/token"
+client_id_env = "HANDLER_OAUTH_CLIENT_ID"
+client_secret_env = "HANDLER_OAUTH_CLIENT_SECRET"
+scopes = ["agent:read", "agent:write"]
 ```
 
-For connection auth, use environment variables where possible. Literal `value`
-fallbacks are supported for local development. mTLS connections use file paths
+For server auth, use environment variables where possible. Literal `value`
+fallbacks are supported for local development. mTLS servers use file paths
 for client certificates instead of environment variables.
 
 ## Contributing

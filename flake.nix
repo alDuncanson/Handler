@@ -14,14 +14,21 @@
     flake-utils.lib.eachDefaultSystem (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python311;
+        python = pkgs.python313;
       in {
         devShells.default = pkgs.mkShell {
           packages = [
             python
             pkgs.uv
             pkgs.just
+            pkgs.ruff
+            pkgs.ty
           ];
+
+          env = {
+            # Keep uv in sync with the Nix-provided Python.
+            UV_PYTHON = "${python}/bin/python3";
+          };
 
           shellHook = ''
             echo ""
