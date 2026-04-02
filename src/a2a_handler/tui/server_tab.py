@@ -518,6 +518,7 @@ class ServerTab(Container):
             self.state.connected_credentials = credentials
             self.state.auth_source = source_description
             self.state.auth_overridden = override_credentials is not None
+            self.state.connected_server_def = selected_server
             self.state.resumed = resumed
             self.state.mode = ServerConnectionMode.CONNECTED
             self.state.connection_summary = build_server_summary(

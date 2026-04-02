@@ -14,6 +14,7 @@ from textual.widgets import Footer, Tabs
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
+from a2a_handler.tui.server_save import save_connections_to_workspace
 from a2a_handler.tui.server_tabs import ServerTabs
 
 logging.basicConfig(
@@ -178,6 +179,20 @@ class HandlerTUI(App[Any]):
         if server is not None and not server.is_connected:
             await server.handle_connect_button(force_fresh=True)
 
+    async def action_save_connections(self) -> None:
+        """Save current connections to the workspace .handler/servers.toml."""
+        server_tabs = self.query_one(ServerTabs)
+        connected = [s for s in server_tabs.iter_servers() if s.is_connected]
+        if not connected:
+            self.notify("No connected servers to save", severity="warning")
+            return
+
+        try:
+            count = save_connections_to_workspace(connected)
+            self.notify(f"Saved {count} server(s) to .handler/servers.toml")
+        except Exception as error:
+            self.notify(f"Failed to save: {error}", severity="error")
+
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         """Provide custom commands and filter out maximize/minimize."""
         for command in super().get_system_commands(screen):
@@ -207,6 +222,14 @@ class HandlerTUI(App[Any]):
                 f"Close {active.title}",
                 "Close the active server tab",
                 self.action_close_server,
+            )
+
+        connected = [s for s in server_tabs.iter_servers() if s.is_connected]
+        if connected:
+            yield SystemCommand(
+                "Save Connections to Workspace",
+                "Add current server connections to .handler/servers.toml",
+                self.action_save_connections,
             )
 
         for server in server_tabs.iter_servers():

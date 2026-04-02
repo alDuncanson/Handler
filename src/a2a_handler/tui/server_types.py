@@ -49,6 +49,7 @@ class ServerState:
     connected_credentials: AuthCredentials | None = None
     auth_source: str = "none"
     auth_overridden: bool = False
+    connected_server_def: ServerDefinition | None = None
     saved_conversation: SavedConversation | None = None
     resumed: bool = False
     connection_summary: str = "Manual URL"
