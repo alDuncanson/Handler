@@ -418,7 +418,7 @@ class ServerTab(Container):
         await live_view.prepare_for_connection()
         live_view.agent_card_panel().update_card(agent_card)
         with self._suppressing_auth_events():
-            if self.state.auth_overridden:
+            if self.state.connected_credentials is not None:
                 live_view.messages_panel().set_auth_credentials(
                     self.state.connected_credentials
                 )
