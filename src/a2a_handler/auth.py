@@ -8,7 +8,8 @@ authentication schemes.
 from __future__ import annotations
 
 import ssl
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,6 +22,9 @@ from a2a_handler.common.input_validation import (
 
 if TYPE_CHECKING:
     import httpx
+
+
+_TOKEN_EXPIRY_MARGIN = 30  # seconds before expiry to trigger refresh
 
 
 class AuthType(str, Enum):
@@ -50,6 +54,7 @@ class AuthCredentials:
     client_secret: str | None = None  # For OAuth2: client secret
     scopes: list[str] | None = None  # For OAuth2: optional scopes
     custom_headers: dict[str, str] | None = None  # Additional headers for any auth type
+    _token_expires_at: float | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         """Redacted repr to prevent secret leakage in logs and tracebacks."""
@@ -61,9 +66,9 @@ class AuthCredentials:
             "ca_cert_path": self.ca_cert_path,
             "token_url": self.token_url,
         }
-        for field in ("value", "client_id", "client_secret"):
-            val = getattr(self, field)
-            redacted[field] = "***" if val else None
+        for secret_field in ("value", "client_id", "client_secret"):
+            val = getattr(self, secret_field)
+            redacted[secret_field] = "***" if val else None
         if self.custom_headers:
             redacted["custom_headers"] = {k: "***" for k in self.custom_headers}
         return f"AuthCredentials({redacted})"
@@ -101,10 +106,28 @@ class AuthCredentials:
         ctx.load_cert_chain(certfile=self.cert_path, keyfile=self.key_path)
         return ctx
 
+    def is_token_expired(self) -> bool:
+        """Check whether the cached OAuth2 access token has expired.
+
+        Returns True when no token is present, when no expiry was recorded,
+        or when the token will expire within a 30-second safety margin.
+        """
+        if not self.value:
+            return True
+        if self._token_expires_at is None:
+            return False
+        return time.monotonic() >= self._token_expires_at
+
+    def clear_token(self) -> None:
+        """Clear the cached OAuth2 access token so the next call re-fetches."""
+        self.value = ""
+        self._token_expires_at = None
+
     async def fetch_oauth2_token(self, http_client: httpx.AsyncClient) -> str:
         """Fetch an access token using OAuth2 client credentials grant.
 
         Updates self.value with the new token and returns it.
+        Parses ``expires_in`` from the token response to track expiry.
         """
         if self.auth_type != AuthType.OAUTH2:
             raise ValueError("Token fetch is only valid for OAuth2 credentials")
@@ -124,6 +147,15 @@ class AuthCredentials:
         response.raise_for_status()
         token_data = response.json()
         self.value = token_data["access_token"]
+
+        expires_in = token_data.get("expires_in")
+        if isinstance(expires_in, (int, float)) and expires_in > 0:
+            self._token_expires_at = (
+                time.monotonic() + expires_in - _TOKEN_EXPIRY_MARGIN
+            )
+        else:
+            self._token_expires_at = None
+
         return self.value
 
     def to_dict(self) -> dict:

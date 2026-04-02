@@ -254,12 +254,22 @@ class A2AService:
             )
 
     async def ensure_oauth2_token(self) -> None:
-        """Fetch or refresh the OAuth2 access token if needed."""
+        """Fetch or refresh the OAuth2 access token if needed.
+
+        Acquires a new token when no token is present or when the cached
+        token has expired (or is about to expire within a safety margin).
+        """
         if self.credentials is None or self.credentials.auth_type != AuthType.OAUTH2:
             return
-        if self.credentials.value:
+        if not self.credentials.is_token_expired():
             return
-        logger.info("Fetching OAuth2 access token from %s", self.credentials.token_url)
+        if self.credentials.value:
+            logger.info("OAuth2 access token expired, refreshing")
+            self.credentials.clear_token()
+        else:
+            logger.info(
+                "Fetching OAuth2 access token from %s", self.credentials.token_url
+            )
         await self.credentials.fetch_oauth2_token(self.http_client)
         auth_headers = self.credentials.to_headers()
         self.http_client.headers.update(auth_headers)

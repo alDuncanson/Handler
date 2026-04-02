@@ -341,6 +341,96 @@ class TestOAuth2Auth:
         with pytest.raises(ValueError, match="token_url, client_id, and client_secret"):
             await creds.fetch_oauth2_token(AsyncMock())
 
+    async def test_fetch_oauth2_token_tracks_expiry(self) -> None:
+        """fetch_oauth2_token parses expires_in and tracks expiry."""
+        from unittest.mock import MagicMock
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token",
+            "client-id",
+            "client-secret",
+        )
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "access_token": "tok-1",
+            "expires_in": 3600,
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        await creds.fetch_oauth2_token(mock_client)
+
+        assert creds.value == "tok-1"
+        assert creds._token_expires_at is not None
+        assert not creds.is_token_expired()
+
+    async def test_fetch_oauth2_token_without_expires_in(self) -> None:
+        """Token without expires_in is treated as non-expiring."""
+        from unittest.mock import MagicMock
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token",
+            "client-id",
+            "client-secret",
+        )
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": "tok-forever"}
+        mock_response.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+
+        await creds.fetch_oauth2_token(mock_client)
+
+        assert creds.value == "tok-forever"
+        assert creds._token_expires_at is None
+        assert not creds.is_token_expired()
+
+    def test_is_token_expired_no_token(self) -> None:
+        """Credentials with no token are considered expired."""
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token", "cid", "csec"
+        )
+        assert creds.is_token_expired()
+
+    def test_is_token_expired_past_expiry(self) -> None:
+        """Token with an expiry in the past is expired."""
+        import time
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token", "cid", "csec"
+        )
+        creds.value = "tok-old"
+        creds._token_expires_at = time.monotonic() - 10
+        assert creds.is_token_expired()
+
+    def test_is_token_expired_future_expiry(self) -> None:
+        """Token with an expiry in the future is not expired."""
+        import time
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token", "cid", "csec"
+        )
+        creds.value = "tok-fresh"
+        creds._token_expires_at = time.monotonic() + 3600
+        assert not creds.is_token_expired()
+
+    def test_clear_token_resets_value_and_expiry(self) -> None:
+        """clear_token removes token and expiry."""
+        import time
+
+        creds = create_oauth2_auth(
+            "https://auth.example.com/oauth/token", "cid", "csec"
+        )
+        creds.value = "tok-123"
+        creds._token_expires_at = time.monotonic() + 3600
+
+        creds.clear_token()
+
+        assert creds.value == ""
+        assert creds._token_expires_at is None
+        assert creds.is_token_expired()
+
 
 class TestCustomHeaders:
     def test_custom_headers_merged_with_bearer(self) -> None:
