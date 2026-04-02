@@ -10,7 +10,7 @@ from a2a_handler.common import get_logger
 from a2a_handler.servers import ServerAuthConfig
 
 if TYPE_CHECKING:
-    from a2a_handler.tui.server_tab import ServerTab
+    from a2a_handler.tui.server.tab import ServerTab
 
 logger = get_logger(__name__)
 

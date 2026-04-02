@@ -11,7 +11,7 @@ from textual.message import Message as TextualMessage
 from textual.widgets import Button, ContentSwitcher, Tab, Tabs
 
 from a2a_handler.servers import load_server_catalog
-from a2a_handler.tui.server_tab import ServerTab
+from a2a_handler.tui.server.tab import ServerTab
 
 
 class ServerTabs(Container):

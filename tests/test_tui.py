@@ -19,8 +19,8 @@ from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import TabbedMessagesPanel
-from a2a_handler.tui.server_tabs import ServerTabs
-from a2a_handler.tui.server_views import ConnectionBar, ServerView
+from a2a_handler.tui.server.tabs import ServerTabs
+from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
 
 def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
@@ -56,15 +56,15 @@ def patch_server_sources() -> Generator[Mock, None, None]:
     empty_catalog = ServerCatalog()
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=empty_catalog,
         ),
         patch(
-            "a2a_handler.tui.server_tabs.load_server_catalog",
+            "a2a_handler.tui.server.tabs.load_server_catalog",
             return_value=empty_catalog,
         ),
         patch(
-            "a2a_handler.tui.server_tab.get_session_store",
+            "a2a_handler.tui.server.tab.get_session_store",
             return_value=session_store,
         ),
     ):
@@ -242,7 +242,7 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
     )
 
     with patch(
-        "a2a_handler.tui.server_tab.load_server_catalog",
+        "a2a_handler.tui.server.tab.load_server_catalog",
         return_value=ServerCatalog(repository_servers=(repo_connection,)),
     ):
         async with app.run_test() as pilot:
@@ -304,14 +304,14 @@ async def test_auto_resume_when_saved_session_exists(
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.server_tab.build_http_client",
+            "a2a_handler.tui.server.tab.build_http_client",
             return_value=new_http_client,
         ),
-        patch("a2a_handler.tui.server_tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -378,14 +378,14 @@ async def test_auto_resume_hydrates_saved_task_history(
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.server_tab.build_http_client",
+            "a2a_handler.tui.server.tab.build_http_client",
             return_value=new_http_client,
         ),
-        patch("a2a_handler.tui.server_tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -437,15 +437,15 @@ async def test_force_fresh_ignores_saved_context(
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.server_tab.build_http_client",
+            "a2a_handler.tui.server.tab.build_http_client",
             return_value=new_http_client,
         ),
-        patch("a2a_handler.tui.server_tab.A2AService") as mock_service_cls,
-        patch("a2a_handler.tui.server_tab.uuid.uuid4", return_value=fresh_context),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.uuid.uuid4", return_value=fresh_context),
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -485,14 +485,14 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.server_tab.build_http_client",
+            "a2a_handler.tui.server.tab.build_http_client",
             return_value=new_http_client,
         ) as mock_build_http_client,
-        patch("a2a_handler.tui.server_tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -531,14 +531,14 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.server_tab.build_http_client",
+            "a2a_handler.tui.server.tab.build_http_client",
             return_value=new_http_client,
         ) as mock_build_http_client,
-        patch("a2a_handler.tui.server_tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -579,14 +579,14 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
     with (
         patch(
-            "a2a_handler.tui.server_tab.load_server_catalog",
+            "a2a_handler.tui.server.tab.load_server_catalog",
             return_value=ServerCatalog(repository_servers=(repo_connection,)),
         ),
         patch(
-            "a2a_handler.tui.server_tab.build_http_client",
+            "a2a_handler.tui.server.tab.build_http_client",
             return_value=new_http_client,
         ) as mock_build_http_client,
-        patch("a2a_handler.tui.server_tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -639,7 +639,7 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         assert workspace is not None
 
         connect_view = workspace.query_one(ConnectionBar)
-        from a2a_handler.tui.server_types import MANUAL_SERVER_ID
+        from a2a_handler.tui.server.types import MANUAL_SERVER_ID
 
         server_select = connect_view.query_one("#server-select", Select)
         server_select.value = MANUAL_SERVER_ID

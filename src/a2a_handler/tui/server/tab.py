@@ -35,8 +35,8 @@ from a2a_handler.service import (
 )
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
-from a2a_handler.tui.server_resolution import resolve_saved_conversation
-from a2a_handler.tui.server_types import (
+from a2a_handler.tui.server.session import resolve_saved_conversation
+from a2a_handler.tui.server.types import (
     MANUAL_SERVER_ID,
     RECENT_SERVER_LIMIT,
     RESUME_HISTORY_LENGTH,
@@ -46,7 +46,7 @@ from a2a_handler.tui.server_types import (
     build_http_client,
     build_recent_server,
 )
-from a2a_handler.tui.server_views import ConnectionBar, ServerView
+from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
 logger = get_logger(__name__)
 

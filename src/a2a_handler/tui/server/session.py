@@ -8,7 +8,7 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
 )
 from a2a_handler.session import AgentSession
-from a2a_handler.tui.server_types import SavedConversation
+from a2a_handler.tui.server.types import SavedConversation
 
 logger = get_logger(__name__)
 

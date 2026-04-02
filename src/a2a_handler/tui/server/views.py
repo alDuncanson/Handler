@@ -10,7 +10,7 @@ from textual.widgets import Button, Input, Select, Static
 
 from a2a_handler.servers import ServerDefinition, ServerSource, server_source_label
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
-from a2a_handler.tui.server_types import MANUAL_SERVER_ID
+from a2a_handler.tui.server.types import MANUAL_SERVER_ID
 
 CONFIGURED_SERVER_SOURCES = (
     ServerSource.REPOSITORY,
