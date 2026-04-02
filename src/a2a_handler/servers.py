@@ -29,6 +29,7 @@ from a2a_handler.common.input_validation import (
     InputValidationError,
     reject_control_chars,
     validate_agent_url,
+    validate_token_url,
 )
 
 logger = get_logger(__name__)
@@ -412,7 +413,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
         if not token_url:
             raise ServerConfigError("oauth2 auth requires token_url")
         try:
-            reject_control_chars(token_url, "auth.token_url")
+            validate_token_url(token_url)
         except InputValidationError as error:
             raise ServerConfigError(error.message) from error
 

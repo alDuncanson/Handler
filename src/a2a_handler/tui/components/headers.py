@@ -39,7 +39,7 @@ class HeadersPanel(Vertical):
                 name, value = parse_header_string(line)
                 headers[name] = value
             except ValueError:
-                logger.warning("Skipping invalid custom header: %s", line)
+                logger.warning("Skipping invalid custom header entry")
 
         return headers or None
 

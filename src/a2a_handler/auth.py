@@ -13,6 +13,12 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from a2a_handler.common.input_validation import (
+    check_key_file_permissions,
+    validate_header_name,
+    validate_token_url,
+)
+
 if TYPE_CHECKING:
     import httpx
 
@@ -45,6 +51,23 @@ class AuthCredentials:
     scopes: list[str] | None = None  # For OAuth2: optional scopes
     custom_headers: dict[str, str] | None = None  # Additional headers for any auth type
 
+    def __repr__(self) -> str:
+        """Redacted repr to prevent secret leakage in logs and tracebacks."""
+        redacted = {
+            "auth_type": self.auth_type.value,
+            "header_name": self.header_name,
+            "cert_path": self.cert_path,
+            "key_path": self.key_path,
+            "ca_cert_path": self.ca_cert_path,
+            "token_url": self.token_url,
+        }
+        for field in ("value", "client_id", "client_secret"):
+            val = getattr(self, field)
+            redacted[field] = "***" if val else None
+        if self.custom_headers:
+            redacted["custom_headers"] = {k: "***" for k in self.custom_headers}
+        return f"AuthCredentials({redacted})"
+
     def to_headers(self) -> dict[str, str]:
         """Generate HTTP headers for this credential.
 
@@ -52,6 +75,8 @@ class AuthCredentials:
             Dictionary of headers to include in requests
         """
         headers: dict[str, str] = {}
+        if self.custom_headers:
+            headers.update(self.custom_headers)
         if self.auth_type == AuthType.BEARER and self.value:
             headers["Authorization"] = f"Bearer {self.value}"
         elif self.auth_type == AuthType.OAUTH2 and self.value:
@@ -59,8 +84,6 @@ class AuthCredentials:
         elif self.auth_type == AuthType.API_KEY:
             header = self.header_name or "X-API-Key"
             headers[header] = self.value
-        if self.custom_headers:
-            headers.update(self.custom_headers)
         return headers
 
     def build_ssl_context(self) -> ssl.SSLContext:
@@ -87,6 +110,7 @@ class AuthCredentials:
             raise ValueError("Token fetch is only valid for OAuth2 credentials")
         if not self.token_url or not self.client_id or not self.client_secret:
             raise ValueError("token_url, client_id, and client_secret are required")
+        validate_token_url(self.token_url)
 
         data: dict[str, str] = {
             "grant_type": "client_credentials",
@@ -158,6 +182,7 @@ def parse_header_string(header: str) -> tuple[str, str]:
     value = value.strip()
     if not name:
         raise ValueError(f"Empty header name in: {header}")
+    validate_header_name(name, "custom_header")
     return name, value
 
 
@@ -195,6 +220,7 @@ def create_mtls_auth(
         raise FileNotFoundError(f"Client private key not found: {key_path}")
     if ca_cert_path and not Path(ca_cert_path).is_file():
         raise FileNotFoundError(f"CA certificate not found: {ca_cert_path}")
+    check_key_file_permissions(key_path)
 
     return AuthCredentials(
         auth_type=AuthType.MTLS,

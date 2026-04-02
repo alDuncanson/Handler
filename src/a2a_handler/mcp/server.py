@@ -58,8 +58,9 @@ def _build_http_client(
         return httpx.AsyncClient(
             timeout=timeout,
             verify=credentials.build_ssl_context(),
+            trust_env=False,
         )
-    return httpx.AsyncClient(timeout=timeout)
+    return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 
 def _resolve_credentials(

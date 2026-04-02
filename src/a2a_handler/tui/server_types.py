@@ -70,8 +70,9 @@ def build_http_client(
         return httpx.AsyncClient(
             timeout=timeout_seconds,
             verify=credentials.build_ssl_context(),
+            trust_env=False,
         )
-    return httpx.AsyncClient(timeout=timeout_seconds)
+    return httpx.AsyncClient(timeout=timeout_seconds, trust_env=False)
 
 
 def build_recent_server(agent_url: str) -> ServerDefinition:

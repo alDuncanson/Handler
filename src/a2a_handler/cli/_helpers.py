@@ -36,8 +36,9 @@ def build_http_client(
         return httpx.AsyncClient(
             timeout=timeout,
             verify=credentials.build_ssl_context(),
+            trust_env=False,
         )
-    return httpx.AsyncClient(timeout=timeout)
+    return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 
 def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> None:
