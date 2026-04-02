@@ -10,7 +10,7 @@ Provides commands for interacting with A2A agents:
 - session list/show/clear: Manage saved conversation sessions
 
 Authentication is configured per-server via `handler server add` or
-supplied ad-hoc with --bearer / --api-key flags.
+supplied ad-hoc with --bearer-env / --api-key-env flags.
 """
 
 import truststore
@@ -18,6 +18,7 @@ import truststore
 truststore.inject_into_ssl()
 
 import logging
+import os
 
 logging.getLogger().setLevel(logging.WARNING)
 
@@ -101,7 +102,9 @@ def version() -> None:
 
 
 @cli.command()
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token for agent auth")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token for agent auth"
+)
 @click.option(
     "--server",
     "-s",
@@ -111,7 +114,7 @@ def version() -> None:
 )
 @click.option("--url", help="URL to pre-connect on startup")
 def tui(
-    bearer_token: str | None,
+    bearer_env: str | None,
     connect_servers: tuple[str, ...],
     url: str | None,
 ) -> None:
@@ -123,10 +126,11 @@ def tui(
       $ handler tui --server my_agent
       $ handler tui --server my_agent --server other_agent
       $ handler tui --url http://localhost:8000
-      $ handler tui --bearer TOKEN
+      $ handler tui --bearer-env MY_TOKEN
     """
     log.info("Launching TUI")
     logging.getLogger().handlers = []
+    bearer_token = os.environ.get(bearer_env) if bearer_env else None
     app = HandlerTUI(
         initial_bearer_token=bearer_token,
         connect_servers=connect_servers or None,

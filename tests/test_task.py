@@ -1,7 +1,10 @@
 """Tests for task CLI commands."""
 
+import os
+
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch as mock_patch
 
 from click.testing import CliRunner
 from a2a.types import (
@@ -134,18 +137,19 @@ class TestTaskGet:
             mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                task,
-                [
-                    "get",
-                    "--url",
-                    "http://localhost:8000",
-                    "--task",
-                    "task-123",
-                    "--bearer",
-                    "my-token",
-                ],
-            )
+            with mock_patch.dict(os.environ, {"TEST_BEARER": "my-token"}):
+                result = runner.invoke(
+                    task,
+                    [
+                        "get",
+                        "--url",
+                        "http://localhost:8000",
+                        "--task",
+                        "task-123",
+                        "--bearer-env",
+                        "TEST_BEARER",
+                    ],
+                )
 
             assert result.exit_code == 0
             # Verify the service was created with credentials
@@ -169,18 +173,19 @@ class TestTaskGet:
             mock_service.get_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                task,
-                [
-                    "get",
-                    "--url",
-                    "http://localhost:8000",
-                    "--task",
-                    "task-123",
-                    "--api-key",
-                    "my-key",
-                ],
-            )
+            with mock_patch.dict(os.environ, {"TEST_API_KEY": "my-key"}):
+                result = runner.invoke(
+                    task,
+                    [
+                        "get",
+                        "--url",
+                        "http://localhost:8000",
+                        "--task",
+                        "task-123",
+                        "--api-key-env",
+                        "TEST_API_KEY",
+                    ],
+                )
 
             assert result.exit_code == 0
 
@@ -316,18 +321,19 @@ class TestTaskCancel:
             mock_service.cancel_task.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                task,
-                [
-                    "cancel",
-                    "--url",
-                    "http://localhost:8000",
-                    "--task",
-                    "task-123",
-                    "--bearer",
-                    "token",
-                ],
-            )
+            with mock_patch.dict(os.environ, {"TEST_BEARER": "token"}):
+                result = runner.invoke(
+                    task,
+                    [
+                        "cancel",
+                        "--url",
+                        "http://localhost:8000",
+                        "--task",
+                        "task-123",
+                        "--bearer-env",
+                        "TEST_BEARER",
+                    ],
+                )
 
             assert result.exit_code == 0
 
@@ -395,18 +401,19 @@ class TestTaskResubscribe:
             mock_service.resubscribe = mock_resubscribe
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                task,
-                [
-                    "resubscribe",
-                    "--url",
-                    "http://localhost:8000",
-                    "--task",
-                    "task-123",
-                    "--api-key",
-                    "my-key",
-                ],
-            )
+            with mock_patch.dict(os.environ, {"TEST_API_KEY": "my-key"}):
+                result = runner.invoke(
+                    task,
+                    [
+                        "resubscribe",
+                        "--url",
+                        "http://localhost:8000",
+                        "--task",
+                        "task-123",
+                        "--api-key-env",
+                        "TEST_API_KEY",
+                    ],
+                )
 
             assert result.exit_code == 0
 

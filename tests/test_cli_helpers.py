@@ -1,5 +1,6 @@
 """Tests for CLI helper functions."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import click
@@ -164,24 +165,26 @@ class TestResolveAgentTarget:
         assert url == "http://localhost:8000"
         assert creds is None
 
-    def test_url_with_bearer_returns_credentials(self):
-        """Test that --url with --bearer returns bearer credentials."""
-        url, creds = resolve_agent_target(
-            url="http://localhost:8000",
-            server=None,
-            bearer_token="my-token",
-        )
+    def test_url_with_bearer_env_returns_credentials(self):
+        """Test that --url with --bearer-env returns bearer credentials."""
+        with patch.dict(os.environ, {"TEST_BEARER": "my-token"}):
+            url, creds = resolve_agent_target(
+                url="http://localhost:8000",
+                server=None,
+                bearer_env="TEST_BEARER",
+            )
         assert url == "http://localhost:8000"
         assert creds is not None
         assert creds.auth_type == AuthType.BEARER
 
-    def test_url_with_api_key_returns_credentials(self):
-        """Test that --url with --api-key returns api key credentials."""
-        url, creds = resolve_agent_target(
-            url="http://localhost:8000",
-            server=None,
-            api_key="my-key",
-        )
+    def test_url_with_api_key_env_returns_credentials(self):
+        """Test that --url with --api-key-env returns api key credentials."""
+        with patch.dict(os.environ, {"TEST_API_KEY": "my-key"}):
+            url, creds = resolve_agent_target(
+                url="http://localhost:8000",
+                server=None,
+                api_key_env="TEST_API_KEY",
+            )
         assert url == "http://localhost:8000"
         assert creds is not None
         assert creds.auth_type == AuthType.API_KEY
@@ -225,8 +228,8 @@ class TestResolveAgentTarget:
             assert creds is not None
             assert creds.auth_type == AuthType.BEARER
 
-    def test_server_with_cli_bearer_overrides_server_auth(self):
-        """Test that CLI --bearer overrides server auth config."""
+    def test_server_with_cli_bearer_env_overrides_server_auth(self):
+        """Test that CLI --bearer-env overrides server auth config."""
         server_def = ServerDefinition(
             server_id="global:handler_dev",
             source=ServerSource.GLOBAL,
@@ -239,11 +242,12 @@ class TestResolveAgentTarget:
         )
         catalog = ServerCatalog(global_servers=(server_def,))
 
-        with patch(
-            "a2a_handler.cli._helpers.load_server_catalog", return_value=catalog
+        with (
+            patch("a2a_handler.cli._helpers.load_server_catalog", return_value=catalog),
+            patch.dict(os.environ, {"OVERRIDE_TOKEN": "override-token"}),
         ):
             url, creds = resolve_agent_target(
-                url=None, server="handler_dev", bearer_token="override-token"
+                url=None, server="handler_dev", bearer_env="OVERRIDE_TOKEN"
             )
             assert url == "http://localhost:8000"
             assert creds is not None

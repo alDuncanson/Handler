@@ -50,16 +50,20 @@ def task() -> None:
     "json_params",
     help="Raw JSON params object for agent-friendly invocation",
 )
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def task_get(
     agent_url: Optional[str],
     server_name: Optional[str],
     task_id: str,
     history_length: Optional[int],
     json_params: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Retrieve the current status of a task.
 
@@ -73,7 +77,7 @@ def task_get(
     payload: dict[str, Any] = {}
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
@@ -82,7 +86,7 @@ def task_get(
             payload = parse_json_object(json_params, "params")
             reject_unknown_keys(
                 payload,
-                {"task_id", "history_length", "bearer_token", "api_key"},
+                {"task_id", "history_length"},
                 "params",
             )
         payload_task_id = payload.get("task_id")
@@ -93,19 +97,7 @@ def task_get(
         if history_length is None and isinstance(payload_history_length, int):
             history_length = payload_history_length
 
-        payload_bearer_token = payload.get("bearer_token")
-        if not bearer_token and isinstance(payload_bearer_token, str):
-            bearer_token = payload_bearer_token
-
-        payload_api_key = payload.get("api_key")
-        if not api_key and isinstance(payload_api_key, str):
-            api_key = payload_api_key
-
         validate_resource_id(task_id, "task_id")
-        if bearer_token:
-            reject_control_chars(bearer_token, "bearer_token")
-        if api_key:
-            reject_control_chars(api_key, "api_key")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -131,14 +123,18 @@ def task_get(
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--task", "task_id", required=True, help="Task ID to cancel")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def task_cancel(
     agent_url: Optional[str],
     server_name: Optional[str],
     task_id: str,
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Request cancellation of a task.
 
@@ -150,16 +146,12 @@ def task_cancel(
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
         validate_agent_url(resolved_url)
         validate_resource_id(task_id, "task_id")
-        if bearer_token:
-            reject_control_chars(bearer_token, "bearer_token")
-        if api_key:
-            reject_control_chars(api_key, "api_key")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -187,14 +179,18 @@ def task_cancel(
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--task", "task_id", required=True, help="Task ID to resubscribe to")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def task_resubscribe(
     agent_url: Optional[str],
     server_name: Optional[str],
     task_id: str,
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Resubscribe to a task's SSE stream after disconnection.
 
@@ -206,16 +202,12 @@ def task_resubscribe(
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
         validate_agent_url(resolved_url)
         validate_resource_id(task_id, "task_id")
-        if bearer_token:
-            reject_control_chars(bearer_token, "bearer_token")
-        if api_key:
-            reject_control_chars(api_key, "api_key")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -268,16 +260,20 @@ def task_notification() -> None:
     "--webhook-url", required=True, help="Webhook URL to receive notifications"
 )
 @click.option("--token", "-t", help="Authentication token for the webhook")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def notification_set(
     agent_url: Optional[str],
     server_name: Optional[str],
     task_id: str,
     webhook_url: str,
     token: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Configure a push notification webhook for a task.
 
@@ -289,7 +285,7 @@ def notification_set(
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
@@ -298,10 +294,6 @@ def notification_set(
         validate_webhook_url(webhook_url)
         if token:
             reject_control_chars(token, "token")
-        if bearer_token:
-            reject_control_chars(bearer_token, "bearer_token")
-        if api_key:
-            reject_control_chars(api_key, "api_key")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -330,15 +322,19 @@ def notification_set(
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--task", "task_id", required=True, help="Task ID")
 @click.option("--config-id", "-c", help="Specific push notification config ID")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def notification_get(
     agent_url: Optional[str],
     server_name: Optional[str],
     task_id: str,
     config_id: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Get the push notification configuration for a task.
 
@@ -350,7 +346,7 @@ def notification_get(
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
@@ -358,10 +354,6 @@ def notification_get(
         validate_resource_id(task_id, "task_id")
         if config_id:
             validate_resource_id(config_id, "config_id")
-        if bearer_token:
-            reject_control_chars(bearer_token, "bearer_token")
-        if api_key:
-            reject_control_chars(api_key, "api_key")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error

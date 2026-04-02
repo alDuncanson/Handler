@@ -1,6 +1,8 @@
 """Tests for CLI message commands."""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch as mock_patch
 
 import pytest
 from click.testing import CliRunner
@@ -164,18 +166,19 @@ class TestMessageSend:
             mock_service.send.return_value = mock_task
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                message,
-                [
-                    "send",
-                    "--url",
-                    "http://localhost:8000",
-                    "--text",
-                    "Hello",
-                    "--bearer",
-                    "my-token",
-                ],
-            )
+            with mock_patch.dict(os.environ, {"TEST_BEARER": "my-token"}):
+                result = runner.invoke(
+                    message,
+                    [
+                        "send",
+                        "--url",
+                        "http://localhost:8000",
+                        "--text",
+                        "Hello",
+                        "--bearer-env",
+                        "TEST_BEARER",
+                    ],
+                )
 
             assert result.exit_code == 0
             call_kwargs = mock_service_cls.call_args.kwargs

@@ -233,8 +233,8 @@ def server_show(name: str, source: str | None) -> None:
 @server.command("add")
 @click.argument("name")
 @click.option("--url", required=True, help="Server URL")
-@click.option("--bearer", "bearer_token", help="Bearer token for authentication")
-@click.option("--api-key", help="API key for authentication")
+@click.option("--bearer-env", help="Env var containing bearer token for authentication")
+@click.option("--api-key-env", help="Env var containing API key for authentication")
 @click.option(
     "--api-key-header",
     default="X-API-Key",
@@ -259,8 +259,8 @@ def server_show(name: str, source: str | None) -> None:
 def server_add(
     name: str,
     url: str,
-    bearer_token: str | None,
-    api_key: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
     api_key_header: str,
     cert_path: str | None,
     key_path: str | None,
@@ -272,8 +272,8 @@ def server_add(
     \b
     Examples:
       $ handler server add my_agent --url http://localhost:8000
-      $ handler server add my_agent --url http://localhost:8000 --bearer TOKEN
-      $ handler server add my_agent --url http://localhost:8000 --api-key KEY
+      $ handler server add my_agent --url http://localhost:8000 --bearer-env MY_TOKEN
+      $ handler server add my_agent --url http://localhost:8000 --api-key-env MY_KEY
       $ handler server add my_agent --url http://localhost:8000 --cert client.crt --key client.key
       $ handler server add my_agent --url http://localhost:8000 --repository
     """
@@ -294,10 +294,10 @@ def server_add(
 
     if cert_path and key_path:
         entry["auth"] = {"type": "mtls", "cert": cert_path, "key": key_path}
-    elif bearer_token:
-        entry["auth"] = {"type": "bearer", "value": bearer_token}
-    elif api_key:
-        auth: dict[str, object] = {"type": "api_key", "value": api_key}
+    elif bearer_env:
+        entry["auth"] = {"type": "bearer", "env": bearer_env}
+    elif api_key_env:
+        auth: dict[str, object] = {"type": "api_key", "env": api_key_env}
         if api_key_header != "X-API-Key":
             auth["header"] = api_key_header
         entry["auth"] = auth

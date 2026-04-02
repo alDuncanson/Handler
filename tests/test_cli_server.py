@@ -147,43 +147,56 @@ class TestServerAdd:
         assert data["servers"]["demo"]["url"] == "http://localhost:8000"
 
     def test_add_with_bearer(self, runner: CliRunner, servers_dir: Path) -> None:
+        import os
         from unittest.mock import patch
+        from unittest.mock import patch as mock_patch
 
         path = servers_dir / "servers.toml"
         with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
-            result = runner.invoke(
-                server,
-                ["add", "demo", "--url", "http://localhost:8000", "--bearer", "tok"],
-            )
+            with mock_patch.dict(os.environ, {"TEST_BEARER": "tok"}):
+                result = runner.invoke(
+                    server,
+                    [
+                        "add",
+                        "demo",
+                        "--url",
+                        "http://localhost:8000",
+                        "--bearer-env",
+                        "TEST_BEARER",
+                    ],
+                )
 
         assert result.exit_code == 0
         data = tomllib.loads(path.read_text())
         assert data["servers"]["demo"]["auth"]["type"] == "bearer"
-        assert data["servers"]["demo"]["auth"]["value"] == "tok"
+        assert data["servers"]["demo"]["auth"]["env"] == "TEST_BEARER"
 
     def test_add_with_api_key(self, runner: CliRunner, servers_dir: Path) -> None:
+        import os
         from unittest.mock import patch
+        from unittest.mock import patch as mock_patch
 
         path = servers_dir / "servers.toml"
         with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
-            result = runner.invoke(
-                server,
-                [
-                    "add",
-                    "demo",
-                    "--url",
-                    "http://localhost:8000",
-                    "--api-key",
-                    "key-123",
-                    "--api-key-header",
-                    "X-Custom",
-                ],
-            )
+            with mock_patch.dict(os.environ, {"TEST_API_KEY": "key-123"}):
+                result = runner.invoke(
+                    server,
+                    [
+                        "add",
+                        "demo",
+                        "--url",
+                        "http://localhost:8000",
+                        "--api-key-env",
+                        "TEST_API_KEY",
+                        "--api-key-header",
+                        "X-Custom",
+                    ],
+                )
 
         assert result.exit_code == 0
         data = tomllib.loads(path.read_text())
         assert data["servers"]["demo"]["auth"]["type"] == "api_key"
-        assert data["servers"]["demo"]["auth"]["value"] == "key-123"
+        assert data["servers"]["demo"]["auth"]["env"] == "TEST_API_KEY"
         assert data["servers"]["demo"]["auth"]["header"] == "X-Custom"
 
     def test_add_with_mtls(self, runner: CliRunner, servers_dir: Path) -> None:

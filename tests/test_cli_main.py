@@ -1,6 +1,8 @@
 """Tests for top-level CLI commands."""
 
+import os
 from unittest.mock import patch
+from unittest.mock import patch as mock_patch
 
 import pytest
 from click.testing import CliRunner
@@ -17,7 +19,8 @@ def runner() -> CliRunner:
 def test_tui_passes_bearer_token_to_app(runner: CliRunner) -> None:
     """TUI command passes bearer token through to app initialization."""
     with patch("a2a_handler.cli.HandlerTUI") as mock_tui_cls:
-        result = runner.invoke(cli, ["tui", "--bearer", "token-123"])
+        with mock_patch.dict(os.environ, {"TEST_BEARER": "token-123"}):
+            result = runner.invoke(cli, ["tui", "--bearer-env", "TEST_BEARER"])
 
         assert result.exit_code == 0
         mock_tui_cls.assert_called_once_with(

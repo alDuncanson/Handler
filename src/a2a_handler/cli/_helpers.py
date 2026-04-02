@@ -1,5 +1,6 @@
 """Shared utilities for CLI commands."""
 
+import os
 import sys
 
 import httpx
@@ -100,18 +101,33 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         print(f"Error [{error_code}]: {message}", file=sys.stderr)
 
 
+def _resolve_env_secret(env_var: str, label: str) -> str:
+    """Read a secret from an environment variable."""
+    value = os.environ.get(env_var)
+    if not value:
+        raise click.UsageError(
+            f"Environment variable {env_var} is not set (needed for {label})"
+        )
+    return value
+
+
 def resolve_agent_target(
     url: str | None,
     server: str | None,
-    bearer_token: str | None = None,
-    api_key: str | None = None,
+    bearer_env: str | None = None,
+    api_key_env: str | None = None,
 ) -> tuple[str, AuthCredentials | None]:
     """Resolve agent URL and credentials from --url or --server flag.
 
-    CLI flag auth (``--bearer``, ``--api-key``) overrides server auth.
+    CLI flag auth (``--bearer-env``, ``--api-key-env``) overrides server auth.
     """
     if url and server:
         raise click.UsageError("Provide either --url or --server, not both.")
+
+    bearer_token = (
+        _resolve_env_secret(bearer_env, "bearer auth") if bearer_env else None
+    )
+    api_key = _resolve_env_secret(api_key_env, "API key auth") if api_key_env else None
 
     if url:
         credentials: AuthCredentials | None = None

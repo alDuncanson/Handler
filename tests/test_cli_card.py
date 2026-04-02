@@ -1,9 +1,11 @@
 """Tests for CLI card commands."""
 
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch as mock_patch
 
 import pytest
 from click.testing import CliRunner
@@ -106,10 +108,17 @@ class TestCardGet:
             mock_service.get_card.return_value = mock_card
             mock_service_cls.return_value = mock_service
 
-            result = runner.invoke(
-                card,
-                ["get", "--url", "http://localhost:8000", "--bearer", "test-token"],
-            )
+            with mock_patch.dict(os.environ, {"TEST_BEARER_TOKEN": "test-token"}):
+                result = runner.invoke(
+                    card,
+                    [
+                        "get",
+                        "--url",
+                        "http://localhost:8000",
+                        "--bearer-env",
+                        "TEST_BEARER_TOKEN",
+                    ],
+                )
 
             assert result.exit_code == 0
             call_kwargs = mock_service_cls.call_args

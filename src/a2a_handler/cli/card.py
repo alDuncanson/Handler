@@ -34,13 +34,17 @@ def card() -> None:
 @card.command("get")
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def card_get(
     agent_url: Optional[str],
     server_name: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Retrieve an agent's card.
 
@@ -48,12 +52,12 @@ def card_get(
     Examples:
       $ handler card get --server my_agent
       $ handler card get --url http://localhost:8000
-      $ handler card get --url http://localhost:8000 --bearer TOKEN
+      $ handler card get --url http://localhost:8000 --bearer-env MY_TOKEN
     """
     output = Output()
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
@@ -98,14 +102,18 @@ def _format_agent_card(card_data: object, output: Output) -> None:
 @click.option("--url", "agent_url", help="Agent URL to validate")
 @click.option("--file", "file_path", help="File path to validate")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 def card_validate(
     agent_url: Optional[str],
     file_path: Optional[str],
     server_name: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
 ) -> None:
     """Validate an agent card from URL or file.
 
@@ -133,7 +141,7 @@ def card_validate(
         return
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:

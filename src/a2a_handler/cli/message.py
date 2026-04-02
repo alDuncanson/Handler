@@ -64,8 +64,12 @@ def message() -> None:
 )
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 @click.option(
     "--header",
     "-H",
@@ -84,8 +88,8 @@ def message_send(
     use_session: bool,
     push_url: Optional[str],
     push_token: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
     headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message to an agent and receive a response.
@@ -96,13 +100,13 @@ def message_send(
       $ handler message send --url http://localhost:8000 --text "Hello"
       $ handler message send --server my_agent --text "Hello" --stream
       $ handler message send --server my_agent --text "Follow up" --continue
-      $ handler message send --url http://localhost:8000 --bearer TOKEN --text "Hi"
+      $ handler message send --url http://localhost:8000 --bearer-env MY_TOKEN --text "Hi"
     """
     output = Output()
     payload: dict[str, Any] = {}
 
     resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_token, api_key
+        agent_url, server_name, bearer_env, api_key_env
     )
 
     try:
@@ -120,8 +124,6 @@ def message_send(
                     "use_session",
                     "push_url",
                     "push_token",
-                    "bearer_token",
-                    "api_key",
                 },
                 "json_payload",
             )
@@ -159,14 +161,6 @@ def message_send(
         if not push_token and isinstance(payload_push_token, str):
             push_token = payload_push_token
 
-        payload_bearer_token = payload.get("bearer_token")
-        if not bearer_token and isinstance(payload_bearer_token, str):
-            bearer_token = payload_bearer_token
-
-        payload_api_key = payload.get("api_key")
-        if not api_key and isinstance(payload_api_key, str):
-            api_key = payload_api_key
-
         if context_id:
             validate_resource_id(context_id, "context_id")
         if task_id:
@@ -175,10 +169,6 @@ def message_send(
             validate_webhook_url(push_url)
         if push_token:
             reject_control_chars(push_token, "push_token")
-        if bearer_token:
-            reject_control_chars(bearer_token, "bearer_token")
-        if api_key:
-            reject_control_chars(api_key, "api_key")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -263,8 +253,12 @@ def message_send(
 )
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
-@click.option("--bearer", "-b", "bearer_token", help="Bearer token (overrides saved)")
-@click.option("--api-key", "-k", help="API key (overrides saved)")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
 @click.option(
     "--header",
     "-H",
@@ -283,8 +277,8 @@ def message_stream(
     use_session: bool,
     push_url: Optional[str],
     push_token: Optional[str],
-    bearer_token: Optional[str],
-    api_key: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
     headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message and stream the response in real-time.
@@ -306,8 +300,8 @@ def message_stream(
         use_session=use_session,
         push_url=push_url,
         push_token=push_token,
-        bearer_token=bearer_token,
-        api_key=api_key,
+        bearer_env=bearer_env,
+        api_key_env=api_key_env,
         headers=headers,
     )
 
