@@ -20,16 +20,13 @@ truststore.inject_into_ssl()
 import logging
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 logging.getLogger().setLevel(logging.WARNING)
 
 import click
 
 from a2a_handler import __version__
 from a2a_handler.common import Output, configure_output, get_logger, setup_logging
+from a2a_handler.common.dotenv import load_runtime_dotenv
 from a2a_handler.common.output import OutputFormat
 from a2a_handler.tui import HandlerTUI
 
@@ -70,6 +67,7 @@ def cli(
     quiet: bool,
 ) -> None:
     """Handler - A2A protocol client CLI."""
+    load_runtime_dotenv()
     ctx.ensure_object(dict)
     ctx.obj["output_format"] = output_format
     ctx.obj["quiet"] = quiet

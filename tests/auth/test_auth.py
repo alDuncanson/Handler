@@ -238,13 +238,11 @@ class TestOAuth2Auth:
         assert creds.scopes == ["read"]
         assert creds.value == ""
 
-    def test_fetch_oauth2_token_rejects_non_oauth2(self) -> None:
+    async def test_fetch_oauth2_token_rejects_non_oauth2(self) -> None:
         """fetch_oauth2_token rejects non-OAuth2 credentials."""
         creds = AuthCredentials(auth_type=AuthType.BEARER, value="token")
         with pytest.raises(ValueError, match="OAuth2"):
-            import asyncio
-
-            asyncio.get_event_loop().run_until_complete(creds.fetch_oauth2_token())
+            await creds.fetch_oauth2_token()
 
     async def test_fetch_oauth2_token_success(self) -> None:
         """fetch_oauth2_token posts client credentials and stores token."""

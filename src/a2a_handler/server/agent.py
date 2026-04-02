@@ -2,11 +2,11 @@
 
 import os
 
-from dotenv import load_dotenv
 from google.adk.agents.llm_agent import Agent
 from google.adk.models.lite_llm import LiteLlm
 
 from a2a_handler.common import get_logger
+from a2a_handler.common.dotenv import load_runtime_dotenv
 
 logger = get_logger(__name__)
 
@@ -23,7 +23,7 @@ def create_language_model(model: str | None = None) -> LiteLlm:
     Returns:
         LiteLlm instance configured for Ollama
     """
-    load_dotenv()
+    load_runtime_dotenv()
 
     effective_model = model or os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
     ollama_api_base = os.getenv("OLLAMA_API_BASE", DEFAULT_OLLAMA_API_BASE)

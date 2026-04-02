@@ -179,6 +179,95 @@ async def test_initial_bearer_token_seeds_first_server_auth_panel() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_connected_oauth2_server_populates_auth_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto-connected OAuth2 servers should sync resolved credentials into Auth."""
+    monkeypatch.setenv("CLIENT_ID", "resolved-client-id")
+    monkeypatch.setenv("CLIENT_SECRET", "resolved-client-secret")
+
+    plain_server = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="plain",
+        agent_url="https://plain.example.com",
+    )
+    oauth_server = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="oauth",
+        agent_url="https://oauth.example.com",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://oauth.example.com/token",
+            client_id_env="CLIENT_ID",
+            client_secret_env="CLIENT_SECRET",
+            scopes=["read", "write"],
+        ),
+    )
+
+    app = HandlerTUI()
+    connected_credentials: dict[str, object | None] = {}
+
+    def build_http_client_side_effect(*args: object, **kwargs: object) -> AsyncMock:
+        return AsyncMock()
+
+    def service_side_effect(
+        http_client: AsyncMock,
+        agent_url: str,
+        credentials: object | None = None,
+    ) -> AsyncMock:
+        connected_credentials[agent_url] = credentials
+        service = AsyncMock()
+        mock_card = Mock()
+        mock_card.name = f"Agent for {agent_url}"
+        mock_card.protocol_version = None
+        mock_card.version = None
+        mock_card.model_dump.return_value = {"name": mock_card.name}
+        service.get_card.return_value = mock_card
+        return service
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tabs.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(plain_server, oauth_server)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(plain_server, oauth_server)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            side_effect=build_http_client_side_effect,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService", side_effect=service_side_effect),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            servers = app.query_one(ServerTabs).iter_servers()
+            oauth_tab = next(
+                server
+                for server in servers
+                if server.current_agent_url == "https://oauth.example.com"
+            )
+
+            credentials = (
+                oauth_tab.query_one(ServerView).messages_panel().get_auth_credentials()
+            )
+
+            assert oauth_tab.is_connected
+            assert credentials is not None
+            assert credentials.auth_type == AuthType.OAUTH2
+            assert credentials.token_url == "https://oauth.example.com/token"
+            assert credentials.client_id == "resolved-client-id"
+            assert credentials.client_secret == "resolved-client-secret"
+            assert credentials.scopes == ["read", "write"]
+
+            connected_oauth = connected_credentials["https://oauth.example.com"]
+            assert connected_oauth is not None
+            assert getattr(connected_oauth, "auth_type") == AuthType.OAUTH2
+
+
+@pytest.mark.asyncio
 async def test_new_server_button_adds_server_tab() -> None:
     """The shell should allow creating another server tab."""
     app = HandlerTUI()
@@ -651,6 +740,3 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         messages_panel = workspace.query_one(TabbedMessagesPanel)
         texts = _chat_texts(messages_panel)
         assert any("valid http(s) URL" in t for t in texts)
-
-
-
