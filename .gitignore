@@ -45,6 +45,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+snapshot_report.html
 
 # UV
 .uv/
