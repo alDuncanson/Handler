@@ -174,16 +174,16 @@ class HandlerTUI(App[Any]):
             await server.handle_connect_button()
 
     async def action_save_connections(self) -> None:
-        """Save current connections to the workspace .handler/servers.toml."""
+        """Add current connections to this repo's .handler/servers.toml."""
         server_tabs = self.query_one(ServerTabs)
         connected = [s for s in server_tabs.iter_servers() if s.is_connected]
         if not connected:
-            self.notify("No connected servers to save", severity="warning")
+            self.notify("No connected servers to add", severity="warning")
             return
 
         try:
             count = save_connections_to_workspace(connected)
-            self.notify(f"Saved {count} server(s) to .handler/servers.toml")
+            self.notify(f"Added {count} server(s) to .handler/servers.toml")
         except Exception as error:
             self.notify(f"Failed to save: {error}", severity="error")
 
@@ -214,8 +214,8 @@ class HandlerTUI(App[Any]):
         connected = [s for s in server_tabs.iter_servers() if s.is_connected]
         if connected:
             yield SystemCommand(
-                "Save Connections to Workspace",
-                "Add current server connections to .handler/servers.toml",
+                "Git Add Servers",
+                "Add connected servers to this repo's .handler/servers.toml",
                 self.action_save_connections,
             )
 

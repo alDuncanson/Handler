@@ -196,10 +196,22 @@ async def test_command_palette_is_centered_instead_of_full_width() -> None:
         await pilot.pause(1)
 
         palette = app.screen_stack[-1]
+        input_row = palette.query_one("#--input")
+        input_widget = palette.query_one("#--input Input", Input)
         command_list = palette.query_one("CommandList")
+        search_icon = palette.query_one("SearchIcon")
 
         assert command_list.region.width < app.screen.region.width
         assert command_list.region.x > 0
+        assert input_widget.styles.border_left[0] == ""
+        assert command_list.styles.border_left[0] == ""
+        assert input_row.styles.padding.left == 1
+        assert input_row.styles.padding.right == 1
+        assert input_row.styles.padding.top == 1
+        assert input_row.region.height >= 3
+        assert input_widget.region.y == input_row.region.y + 1
+        assert search_icon.styles.display == "none"
+        assert input_row.styles.content_align_vertical == "middle"
 
 
 @pytest.mark.asyncio
@@ -232,7 +244,7 @@ async def test_system_commands_filter_builtin_layout_entries_and_offer_connect_a
         assert "Inspect Layout" in titles
         assert "Connect" in titles
         assert "Resume Saved Context" not in titles
-        assert "Save Connections to Workspace" not in titles
+        assert "Git Add Servers" not in titles
 
 
 @pytest.mark.asyncio
@@ -286,7 +298,7 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
             assert "Connect" in titles
             assert "Resume Saved Context" not in titles
             assert "Close Server 2" in titles
-            assert "Save Connections to Workspace" in titles
+            assert "Git Add Servers" in titles
 
             switch_command = next(
                 command
@@ -1210,7 +1222,7 @@ async def test_action_save_connections_warns_when_nothing_is_connected() -> None
 
             mock_save.assert_not_called()
             app.notify.assert_called_once_with(
-                "No connected servers to save",
+                "No connected servers to add",
                 severity="warning",
             )
 
@@ -1262,7 +1274,7 @@ async def test_action_save_connections_persists_connected_servers() -> None:
             assert len(saved_servers) == 1
             assert saved_servers[0].is_connected is True
             app.notify.assert_called_once_with(
-                "Saved 1 server(s) to .handler/servers.toml"
+                "Added 1 server(s) to .handler/servers.toml"
             )
 
 
