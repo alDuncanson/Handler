@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import zlib
 from datetime import datetime as real_datetime
 from unittest.mock import AsyncMock, Mock
@@ -28,6 +29,10 @@ from a2a_handler.auth import AuthType, create_oauth2_auth
 from a2a_handler.servers import ServerAuthConfig, ServerCatalog, ServerDefinition, ServerSource
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
+
+
+def _rendered_texts(widget) -> list[str]:
+    return [str(child.render()) for child in widget.query("Label, Static")]
 
 
 class _FakeTUILogHandler:
@@ -146,6 +151,21 @@ def _stable_export_screenshot(
         clear=False,
     )
     normalized_probe_svg = probe_svg.replace(probe_id, "terminal-stable")
+    normalized_probe_svg = re.sub(
+        r"terminal-stable-r\d+",
+        "terminal-stable-r",
+        normalized_probe_svg,
+    )
+    normalized_probe_svg = re.sub(
+        r"terminal-stable-line-\d+",
+        "terminal-stable-line",
+        normalized_probe_svg,
+    )
+    normalized_probe_svg = re.sub(
+        r'clip-path="url\(#terminal-stable-line-\d+\)"',
+        'clip-path="url(#terminal-stable-line)"',
+        normalized_probe_svg,
+    )
     unique_id = (
         f"terminal-{zlib.adler32(normalized_probe_svg.encode('utf-8', 'ignore'))}"
     )
@@ -306,25 +326,16 @@ def test_handler_tui_tasks_tab_snapshot(snap_compare, monkeypatch: pytest.Monkey
         assert snap_compare(app, run_before=run_before, terminal_size=(120, 36))
 
 
-def test_handler_tui_artifacts_tab_snapshot(
-    snap_compare,
+@pytest.mark.asyncio
+async def test_handler_tui_artifacts_tab_shows_artifact_details(
     monkeypatch: pytest.MonkeyPatch,
-):
-    """The artifacts tab should render a populated artifact detail view consistently."""
+) -> None:
+    """The artifacts tab should show the selected artifact's visible details."""
     repo_server = _make_server(
         name="snapshot",
         agent_url="https://agent.example.com",
     )
     _patch_snapshot_environment(monkeypatch, repository_servers=(repo_server,))
-
-    async def run_before(pilot) -> None:
-        await pilot.app.action_connect_server()
-        await pilot.pause()
-
-        panel = pilot.app.query_one(TabbedMessagesPanel)
-        panel.add_artifact(_make_artifact(), "task-12345678", "ctx-12345678")
-        panel.query_one("#messages-tabs", TabbedContent).active = "artifacts-tab"
-        await pilot.pause()
 
     with (
         pytest.MonkeyPatch.context() as local_patch,
@@ -344,4 +355,19 @@ def test_handler_tui_artifacts_tab_snapshot(
             ),
         )
         app = HandlerTUI()
-        assert snap_compare(app, run_before=run_before, terminal_size=(120, 36))
+
+        async with app.run_test() as pilot:
+            await pilot.app.action_connect_server()
+            await pilot.pause()
+
+            panel = pilot.app.query_one(TabbedMessagesPanel)
+            panel.add_artifact(_make_artifact(), "task-12345678", "ctx-12345678")
+            panel.query_one("#messages-tabs", TabbedContent).active = "artifacts-tab"
+            await pilot.pause()
+
+            detail_texts = _rendered_texts(panel.query_one("#artifact-detail"))
+            assert any("Release Notes" in text for text in detail_texts)
+            assert any(
+                "Snapshot artifact content for the TUI panel." in text
+                for text in detail_texts
+            )

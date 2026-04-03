@@ -25,6 +25,14 @@ PICKER_GROUP_LABELS = {
 MANUAL_SERVER_LABEL = "URL..."
 
 
+def _picker_option_label(server_def: ServerDefinition) -> str:
+    """Build a plain-text picker label that stays readable in Textual selects."""
+    source_label = PICKER_GROUP_LABELS[server_def.source]
+    if server_def.source == ServerSource.RECENT:
+        return f"{source_label}: {server_def.label} (resume)"
+    return f"{source_label}: {server_def.label}"
+
+
 class ConnectionBar(Container):
     """Compact connection bar for selecting and opening a server."""
 
@@ -91,11 +99,8 @@ class ConnectionBar(Container):
                 ServerSource.RECENT: recent_servers,
             }[source]
             if servers:
-                group_label = PICKER_GROUP_LABELS[source]
                 for server_def in servers:
-                    options.append(
-                        (f"[{group_label}] {server_def.label}", server_def.server_id)
-                    )
+                    options.append((_picker_option_label(server_def), server_def.server_id))
 
         options.append((MANUAL_SERVER_LABEL, MANUAL_SERVER_ID))
 

@@ -586,6 +586,59 @@ async def test_recent_connections_are_loaded_from_session_recency(
 
 
 @pytest.mark.asyncio
+async def test_picker_labels_show_source_and_resume_intent(
+    patch_server_sources: Mock,
+) -> None:
+    """Picker labels should distinguish fresh server entries from resumable recent ones."""
+    patch_server_sources.list_all.return_value = [
+        AgentSession(
+            agent_url="https://echo.example.com",
+            context_id="ctx-saved-123456",
+            task_id="task-saved-654321",
+            last_used_at="2024-01-02T03:04:05+00:00",
+        )
+    ]
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="echo_agent",
+        agent_url="https://echo.example.com",
+    )
+    global_connection = _make_server(
+        source=ServerSource.GLOBAL,
+        name="dev_agent",
+        agent_url="https://dev.example.com",
+    )
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(
+            repository_servers=(repo_connection,),
+            global_servers=(global_connection,),
+        ),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            select = workspace.query_one("#server-select", Select)
+            labels = [
+                prompt
+                for prompt, value in select._options
+                if value is not Select.BLANK and isinstance(prompt, str)
+            ]
+
+            assert labels == [
+                "Repository: echo_agent",
+                "User: dev_agent",
+                "Recent: echo_agent (resume)",
+                "URL...",
+            ]
+
+
+@pytest.mark.asyncio
 async def test_connect_starts_fresh_even_when_saved_session_exists(
     patch_server_sources: Mock,
 ) -> None:
