@@ -71,12 +71,16 @@ def build_http_client(
     return httpx.AsyncClient(timeout=timeout_seconds, trust_env=False)
 
 
-def build_recent_server(agent_url: str) -> ServerDefinition:
+def build_recent_server(
+    agent_url: str,
+    base_server: ServerDefinition | None = None,
+) -> ServerDefinition:
     """Create a runtime-only server option for recent usage."""
     return ServerDefinition(
         server_id=f"recent:{agent_url}",
         source=ServerSource.RECENT,
-        name=None,
+        name=base_server.name if base_server is not None else None,
         agent_url=agent_url,
+        auth=base_server.auth if base_server is not None else None,
         origin_label=server_source_label(ServerSource.RECENT),
     )

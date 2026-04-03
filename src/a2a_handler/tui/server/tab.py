@@ -25,6 +25,7 @@ from a2a_handler.common.input_validation import (
 from a2a_handler.servers import (
     ServerCatalog,
     ServerDefinition,
+    ServerSource,
     load_server_catalog,
     resolve_server_credentials,
 )
@@ -201,8 +202,10 @@ class ServerTab(Container):
             *self._server_catalog.repository_servers,
             *self._server_catalog.global_servers,
         )
+        configured_servers_by_url: dict[str, ServerDefinition] = {}
         for server_def in configured_servers:
             self._servers_by_id[server_def.server_id] = server_def
+            configured_servers_by_url.setdefault(server_def.agent_url, server_def)
             credentials, warning = resolve_server_credentials(server_def)
             if credentials:
                 self._server_credentials[server_def.server_id] = credentials
@@ -210,14 +213,33 @@ class ServerTab(Container):
                 self._server_warnings[server_def.server_id] = warning
                 logger.warning("Server %s: %s", server_def.label, warning)
 
-        configured_urls = self._server_catalog.all_configured_urls()
         recent_servers: list[ServerDefinition] = []
-        for agent_url in get_session_store().recent_agent_urls(RECENT_SERVER_LIMIT):
-            if agent_url in configured_urls:
+        for session in get_session_store().list_all():
+            if len(recent_servers) >= RECENT_SERVER_LIMIT:
+                break
+            if not session.last_used_at:
                 continue
-            recent_server = build_recent_server(agent_url)
+            saved_conversation, _warning = resolve_saved_conversation(
+                session,
+                session.agent_url,
+            )
+            if saved_conversation is None:
+                continue
+            base_server = configured_servers_by_url.get(session.agent_url)
+            recent_server = build_recent_server(
+                session.agent_url,
+                base_server=base_server,
+            )
             recent_servers.append(recent_server)
             self._servers_by_id[recent_server.server_id] = recent_server
+            if base_server is None:
+                continue
+            credentials = self._server_credentials.get(base_server.server_id)
+            warning = self._server_warnings.get(base_server.server_id)
+            if credentials:
+                self._server_credentials[recent_server.server_id] = credentials
+            if warning:
+                self._server_warnings[recent_server.server_id] = warning
 
         connection_bar = self._get_connection_bar()
         connection_bar.set_server_catalog(
@@ -251,21 +273,17 @@ class ServerTab(Container):
         server_view.agent_card_panel().update_card(None)
         server_view.input_panel().set_enabled(False)
 
-    def can_resume_saved_context(self) -> bool:
-        """Return True when the selected server has a valid saved context to resume."""
-        agent_url = self._get_connection_bar().get_url()
-        if not agent_url:
-            return False
-        saved_conversation, warning = resolve_saved_conversation(
-            get_session_store().find(agent_url),
-            agent_url,
-        )
-        return saved_conversation is not None and warning is None
-
     def _build_connect_error_message(self, error: InputValidationError) -> str:
         if error.suggestion:
             return f"{error.message}. {error.suggestion}"
         return error.message
+
+    def _selection_resumes_saved_context(
+        self,
+        selected_server: ServerDefinition | None,
+    ) -> bool:
+        """Recent entries are explicit resume targets; other selections start fresh."""
+        return selected_server is not None and selected_server.source == ServerSource.RECENT
 
     async def _connect_to_agent(
         self,
@@ -297,8 +315,8 @@ class ServerTab(Container):
 
     async def _apply_connected_ui(
         self,
+        conversation_summary: str,
         warning: str | None = None,
-        resumed: bool = False,
         saved_conversation: SavedConversation | None = None,
     ) -> None:
         agent_card = self.state.agent_card
@@ -308,14 +326,11 @@ class ServerTab(Container):
         await server_view.reset_session()
         server_view.agent_card_panel().update_card(agent_card)
 
-        if resumed and saved_conversation is not None:
+        if saved_conversation is not None:
             await self._hydrate_resumed_history(server_view, saved_conversation)
 
         if warning:
             server_view.messages_panel().add_system_message(warning)
-        conversation_summary = (
-            "resumed saved context" if resumed else "fresh server context"
-        )
         server_view.messages_panel().add_system_message(
             f"Conversation: {conversation_summary}"
         )
@@ -354,10 +369,11 @@ class ServerTab(Container):
         if self.is_connected:
             self._refresh_status_badges()
 
-    async def handle_connect_button(self, resume_session: bool = False) -> None:
+    async def handle_connect_button(self) -> None:
         connection_bar = self._get_connection_bar()
         selected_server = connection_bar.get_selected_server()
         agent_url = connection_bar.get_url()
+        should_resume_session = self._selection_resumes_saved_context(selected_server)
 
         messages_panel = self._get_server_view().messages_panel()
 
@@ -365,7 +381,7 @@ class ServerTab(Container):
             if connection_bar._is_manual_selected():
                 messages_panel.add_system_message("Please enter an agent URL")
             else:
-                messages_panel.add_system_message("Choose a server or switch to Manual")
+                messages_panel.add_system_message("Choose a server or select URL")
             return
 
         try:
@@ -375,8 +391,7 @@ class ServerTab(Container):
             return
 
         saved_conversation: SavedConversation | None = None
-        session_warning: str | None = None
-        if resume_session:
+        if should_resume_session:
             saved_conversation, session_warning = resolve_saved_conversation(
                 get_session_store().find(agent_url),
                 agent_url,
@@ -386,7 +401,7 @@ class ServerTab(Container):
                 return
             if saved_conversation is None:
                 messages_panel.add_system_message(
-                    "No saved context is available for this server."
+                    "No saved context is available for this recent session."
                 )
                 return
 
@@ -395,24 +410,29 @@ class ServerTab(Container):
         try:
             credentials = messages_panel.get_auth_credentials()
 
-            if credentials is None and selected_server is not None:
+            if selected_server is None:
+                auth_source = "manual override" if credentials is not None else "none"
+            elif selected_server.source == ServerSource.RECENT:
+                auth_source = (
+                    "recent session default"
+                    if credentials is not None
+                    else "recent session (no default auth)"
+                )
+            elif credentials is None:
                 auth_source = (
                     f"{selected_server.origin_label.lower()} server "
                     f"'{selected_server.label}' (no default auth)"
                 )
-            elif selected_server is not None:
+            else:
                 auth_source = (
                     f"{selected_server.origin_label.lower()} server "
                     f"'{selected_server.label}' default"
                 )
-            else:
-                auth_source = "manual override" if credentials is not None else "none"
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
             context_id = str(uuid.uuid4())
             resumed_task_id: str | None = None
-            resumed = resume_session and saved_conversation is not None
-            if resumed:
+            if saved_conversation is not None:
                 assert saved_conversation is not None
                 context_id = saved_conversation.context_id
                 resumed_task_id = saved_conversation.task_id
@@ -426,8 +446,11 @@ class ServerTab(Container):
             self.state.mode = ServerConnectionMode.CONNECTED
 
             await self._apply_connected_ui(
-                None,
-                resumed=resumed,
+                conversation_summary=(
+                    "resumed recent session"
+                    if saved_conversation is not None
+                    else "fresh server context"
+                ),
                 saved_conversation=saved_conversation,
             )
             self._persist_session_state()

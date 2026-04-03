@@ -219,11 +219,6 @@ async def test_system_commands_filter_builtin_layout_entries_and_offer_connect_a
             ]
         ),
     )
-    patch_server_sources.find.return_value = AgentSession(
-        agent_url="http://localhost:8000",
-        context_id="ctx-saved-123456",
-        task_id="task-saved-654321",
-    )
     app = HandlerTUI()
 
     async with app.run_test() as pilot:
@@ -236,7 +231,7 @@ async def test_system_commands_filter_builtin_layout_entries_and_offer_connect_a
         assert "Minimize" not in titles
         assert "Inspect Layout" in titles
         assert "Connect" in titles
-        assert "Resume Saved Context" in titles
+        assert "Resume Saved Context" not in titles
         assert "Save Connections to Workspace" not in titles
 
 
@@ -552,36 +547,57 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
 async def test_recent_connections_are_loaded_from_session_recency(
     patch_server_sources: Mock,
 ) -> None:
-    """Recent servers should appear in the single server selector."""
-    patch_server_sources.recent_agent_urls.return_value = ["https://recent.example.com"]
+    """Recent sessions should appear in the picker, even for configured URLs."""
+    patch_server_sources.list_all.return_value = [
+        AgentSession(
+            agent_url="https://recent.example.com",
+            context_id="ctx-saved-123456",
+            task_id="task-saved-654321",
+            last_used_at="2024-01-02T03:04:05+00:00",
+        )
+    ]
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="recent",
+        agent_url="https://recent.example.com",
+    )
     app = HandlerTUI()
 
-    async with app.run_test() as pilot:
-        await pilot.pause()
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
 
-        workspace = app.query_one(ServerTabs).get_active_server()
-        assert workspace is not None
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
 
-        connect_view = workspace.query_one(ConnectionBar)
-        server_select = connect_view.query_one("#server-select", Select)
-        server_select.value = "recent:https://recent.example.com"
+            connect_view = workspace.query_one(ConnectionBar)
+            server_select = connect_view.query_one("#server-select", Select)
+            server_select.value = "recent:https://recent.example.com"
+            await pilot.pause()
 
-        selected = connect_view.get_selected_server()
-        assert selected is not None
-        assert selected.source == ServerSource.RECENT
-        assert selected.agent_url == "https://recent.example.com"
+            selected = connect_view.get_selected_server()
+            assert selected is not None
+            assert selected.source == ServerSource.RECENT
+            assert selected.agent_url == "https://recent.example.com"
+            assert selected.label == "recent"
 
 
 @pytest.mark.asyncio
 async def test_connect_starts_fresh_even_when_saved_session_exists(
     patch_server_sources: Mock,
 ) -> None:
-    """A plain connect should ignore saved session state unless the user resumes explicitly."""
-    patch_server_sources.find.return_value = AgentSession(
+    """Configured server entries should still start fresh when a recent session exists."""
+    saved_session = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
+        last_used_at="2024-01-02T03:04:05+00:00",
     )
+    patch_server_sources.find.return_value = saved_session
+    patch_server_sources.list_all.return_value = [saved_session]
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
         name="agent",
@@ -630,15 +646,18 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
 
 
 @pytest.mark.asyncio
-async def test_resume_saved_context_hydrates_task_history_but_not_completed_task_id(
+async def test_connecting_recent_session_hydrates_task_history_but_not_completed_task_id(
     patch_server_sources: Mock,
 ) -> None:
-    """Explicit resume should preload history while treating completed tasks as immutable."""
-    patch_server_sources.find.return_value = AgentSession(
+    """Selecting a recent session should preload history without reusing a completed task."""
+    saved_session = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
+        last_used_at="2024-01-02T03:04:05+00:00",
     )
+    patch_server_sources.find.return_value = saved_session
+    patch_server_sources.list_all.return_value = [saved_session]
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
         name="agent",
@@ -692,8 +711,12 @@ async def test_resume_saved_context_hydrates_task_history_but_not_completed_task
 
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
+            workspace.query_one("#server-select", Select).value = (
+                "recent:https://agent.example.com"
+            )
+            await pilot.pause()
 
-            await app.action_resume_saved_context()
+            await workspace.handle_connect_button()
             await pilot.pause()
 
             live_view = workspace.query_one(ServerView)
@@ -709,20 +732,23 @@ async def test_resume_saved_context_hydrates_task_history_but_not_completed_task
                 history_length=100,
             )
             assert any(
-                "resumed saved context" in text.lower() for text in chat_texts
+                "resumed recent session" in text.lower() for text in chat_texts
             )
 
 
 @pytest.mark.asyncio
-async def test_resume_saved_context_clears_missing_saved_task_id(
+async def test_connecting_recent_session_clears_missing_saved_task_id(
     patch_server_sources: Mock,
 ) -> None:
-    """Explicit resume should keep the context while dropping a missing saved task."""
-    patch_server_sources.find.return_value = AgentSession(
+    """Recent-session connect should keep the context while dropping a missing task."""
+    saved_session = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
         task_id="task-saved-654321",
+        last_used_at="2024-01-02T03:04:05+00:00",
     )
+    patch_server_sources.find.return_value = saved_session
+    patch_server_sources.list_all.return_value = [saved_session]
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
         name="agent",
@@ -755,8 +781,12 @@ async def test_resume_saved_context_clears_missing_saved_task_id(
 
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
+            workspace.query_one("#server-select", Select).value = (
+                "recent:https://agent.example.com"
+            )
+            await pilot.pause()
 
-            await app.action_resume_saved_context()
+            await workspace.handle_connect_button()
             await pilot.pause()
 
             assert workspace.state.current_context_id == "ctx-saved-123456"
@@ -772,23 +802,6 @@ async def test_resume_saved_context_clears_missing_saved_task_id(
             assert any(
                 "saved task could not be loaded" in text.lower() for text in texts
             )
-
-
-@pytest.mark.asyncio
-async def test_resume_saved_context_command_warns_when_no_session_exists() -> None:
-    """The explicit resume action should warn instead of silently starting fresh."""
-    app = HandlerTUI()
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.notify = Mock()  # type: ignore[method-assign]
-
-        await app.action_resume_saved_context()
-
-        app.notify.assert_called_once_with(
-            "No saved context available to resume",
-            severity="warning",
-        )
 
 
 @pytest.mark.asyncio

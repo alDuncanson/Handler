@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import zlib
 from datetime import datetime as real_datetime
 from unittest.mock import AsyncMock, Mock
 
@@ -18,6 +20,8 @@ from a2a.types import (
     TaskStatus,
     TextPart,
 )
+from rich.console import Console
+from textual.app import App as TextualApp
 from textual.widgets import TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
@@ -107,6 +111,47 @@ def _make_artifact() -> Artifact:
     )
 
 
+def _stable_export_screenshot(
+    app: TextualApp,
+    *,
+    title: str | None = None,
+    simplify: bool = False,
+) -> str:
+    """Export snapshots with a stable SVG id derived from normalized SVG output."""
+    assert app._driver is not None
+    width, height = app.size
+
+    console = Console(
+        width=width,
+        height=height,
+        file=io.StringIO(),
+        force_terminal=True,
+        color_system="truecolor",
+        record=True,
+        legacy_windows=False,
+        safe_box=False,
+    )
+    screen_render = app.screen._compositor.render_update(
+        full=True,
+        screen_stack=app._background_screens,
+        simplify=simplify,
+    )
+    console.print(screen_render)
+
+    screenshot_title = title or app.title
+    probe_id = "terminal-probe"
+    probe_svg = console.export_svg(
+        title=screenshot_title,
+        unique_id=probe_id,
+        clear=False,
+    )
+    normalized_probe_svg = probe_svg.replace(probe_id, "terminal-stable")
+    unique_id = (
+        f"terminal-{zlib.adler32(normalized_probe_svg.encode('utf-8', 'ignore'))}"
+    )
+    return console.export_svg(title=screenshot_title, unique_id=unique_id)
+
+
 def _patch_snapshot_environment(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -132,6 +177,7 @@ def _patch_snapshot_environment(
     monkeypatch.setattr(app_module, "save_theme", lambda theme: None)
     monkeypatch.setattr(app_module, "install_tui_log_handler", lambda level: fake_handler)
     monkeypatch.setattr(logging_module, "_tui_handler", None)
+    monkeypatch.setattr(TextualApp, "export_screenshot", _stable_export_screenshot)
 
     monkeypatch.setattr(tab_module, "load_server_catalog", lambda: catalog)
     monkeypatch.setattr(tabs_module, "load_server_catalog", lambda: catalog)

@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Select, Static
 
-from a2a_handler.servers import ServerDefinition, ServerSource, server_source_label
+from a2a_handler.servers import ServerDefinition, ServerSource
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.types import MANUAL_SERVER_ID
 
@@ -17,6 +17,12 @@ CONFIGURED_SERVER_SOURCES = (
     ServerSource.GLOBAL,
     ServerSource.RECENT,
 )
+PICKER_GROUP_LABELS = {
+    ServerSource.REPOSITORY: "Repository",
+    ServerSource.GLOBAL: "User",
+    ServerSource.RECENT: "Recent",
+}
+MANUAL_SERVER_LABEL = "URL..."
 
 
 class ConnectionBar(Container):
@@ -30,7 +36,7 @@ class ConnectionBar(Container):
         with Vertical(id="connect-shell"):
             with Horizontal(id="server-bar"):
                 yield Select(
-                    [("Choose a server...", Select.BLANK)],
+                    [("Choose a server or URL...", Select.BLANK)],
                     allow_blank=True,
                     id="server-select",
                 )
@@ -85,13 +91,13 @@ class ConnectionBar(Container):
                 ServerSource.RECENT: recent_servers,
             }[source]
             if servers:
-                group_label = server_source_label(source)
+                group_label = PICKER_GROUP_LABELS[source]
                 for server_def in servers:
                     options.append(
                         (f"[{group_label}] {server_def.label}", server_def.server_id)
                     )
 
-        options.append(("─── Enter URL manually...", MANUAL_SERVER_ID))
+        options.append((MANUAL_SERVER_LABEL, MANUAL_SERVER_ID))
 
         select = self.query_one("#server-select", Select)
         select.set_options(options)
@@ -115,7 +121,7 @@ class ConnectionBar(Container):
             manual_input.add_class("hidden")
 
     def get_selected_server(self) -> ServerDefinition | None:
-        """Return the currently selected configured server, if any."""
+        """Return the currently selected picker entry, if any."""
         select = self.query_one("#server-select", Select)
         if select.value == Select.BLANK:
             return None
