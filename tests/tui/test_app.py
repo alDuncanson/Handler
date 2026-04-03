@@ -17,6 +17,7 @@ from a2a.types import (
     TaskStatus,
     TextPart,
 )
+from textual.app import App as TextualApp, SystemCommand
 from textual.widgets import Input, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
@@ -29,7 +30,7 @@ from a2a_handler.servers import (
 from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
-from a2a_handler.tui.components import TabbedMessagesPanel
+from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.tabs import ServerTabs
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
@@ -65,6 +66,23 @@ def _missing_task_error(task_id: str) -> A2AClientJSONRPCError:
                 message=f"Task {task_id} was specified but does not exist",
             ),
             id="request-1",
+            jsonrpc="2.0",
+        )
+    )
+
+
+def _completed_task_error(task_id: str) -> A2AClientJSONRPCError:
+    return A2AClientJSONRPCError(
+        JSONRPCErrorResponse(
+            error=JSONRPCError(
+                code=-32002,
+                data=None,
+                message=(
+                    f"Messages sent to task {task_id} in a terminal state "
+                    "cannot accept further messages"
+                ),
+            ),
+            id="request-2",
             jsonrpc="2.0",
         )
     )
@@ -182,6 +200,165 @@ async def test_command_palette_is_centered_instead_of_full_width() -> None:
 
         assert command_list.region.width < app.screen.region.width
         assert command_list.region.x > 0
+
+
+@pytest.mark.asyncio
+async def test_system_commands_filter_builtin_layout_entries_and_offer_connect_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_server_sources: Mock,
+) -> None:
+    """App commands should hide builtin maximize/minimize while exposing connect flows."""
+    monkeypatch.setattr(
+        TextualApp,
+        "get_system_commands",
+        lambda self, screen: iter(
+            [
+                SystemCommand("Maximize", "builtin", lambda: None),
+                SystemCommand("Minimize", "builtin", lambda: None),
+                SystemCommand("Inspect Layout", "builtin", lambda: None),
+            ]
+        ),
+    )
+    patch_server_sources.find.return_value = AgentSession(
+        agent_url="http://localhost:8000",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+    )
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        commands = list(app.get_system_commands(app.screen))
+        titles = [command.title for command in commands]
+
+        assert "Maximize" not in titles
+        assert "Minimize" not in titles
+        assert "Inspect Layout" in titles
+        assert "Connect" in titles
+        assert "Resume Saved Context" in titles
+        assert "Save Connections to Workspace" not in titles
+
+
+@pytest.mark.asyncio
+async def test_system_commands_include_save_close_and_switch_for_multi_server_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """System commands should reflect multi-server state and allow switching tabs."""
+    monkeypatch.setattr(
+        TextualApp,
+        "get_system_commands",
+        lambda self, screen: iter(()),
+    )
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+            await app.action_new_server()
+            await pilot.pause()
+
+            commands = list(app.get_system_commands(app.screen))
+            titles = [command.title for command in commands]
+
+            assert "Connect" in titles
+            assert "Resume Saved Context" not in titles
+            assert "Close Server 2" in titles
+            assert "Save Connections to Workspace" in titles
+
+            switch_command = next(
+                command
+                for command in commands
+                if command.title.startswith("Switch to ")
+            )
+            switch_command.callback()
+            await pilot.pause()
+
+            tabs = app.query_one("#server-tabs", Tabs)
+            assert tabs.active == "server-tab-1"
+
+
+@pytest.mark.asyncio
+async def test_check_action_only_enables_maximize_for_maximizable_panels() -> None:
+    """Maximize should only be advertised when focus is inside activity or card panels."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert app.check_action("toggle_maximize", ()) is False
+
+        workspace = app.query_one(ServerTabs).get_active_server()
+        assert workspace is not None
+
+        workspace.query_one(AgentCardPanel).focus()
+        await pilot.pause()
+        assert app.check_action("toggle_maximize", ()) is True
+
+        workspace.query_one(TabbedMessagesPanel).focus()
+        await pilot.pause()
+        assert app.check_action("toggle_maximize", ()) is True
+
+        workspace.query_one("#manual-agent-url", Input).focus()
+        await pilot.pause()
+        assert app.check_action("toggle_maximize", ()) is False
+
+
+@pytest.mark.asyncio
+async def test_action_toggle_maximize_maximizes_then_restores_focused_panel() -> None:
+    """The maximize action should target the focused activity panel and then restore it."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        workspace = app.query_one(ServerTabs).get_active_server()
+        assert workspace is not None
+
+        messages_panel = workspace.query_one(TabbedMessagesPanel)
+        messages_panel.focus()
+        await pilot.pause()
+
+        app.screen.maximize = Mock()  # type: ignore[method-assign]
+        app.screen.minimize = Mock()  # type: ignore[method-assign]
+
+        app.action_toggle_maximize()
+
+        app.screen.maximize.assert_called_once_with(messages_panel)
+        assert app._is_maximized is True
+
+        app.action_toggle_maximize()
+
+        app.screen.minimize.assert_called_once_with()
+        assert app._is_maximized is False
+
 
 
 @pytest.mark.asyncio
@@ -396,10 +573,10 @@ async def test_recent_connections_are_loaded_from_session_recency(
 
 
 @pytest.mark.asyncio
-async def test_auto_resume_when_saved_session_exists(
+async def test_connect_starts_fresh_even_when_saved_session_exists(
     patch_server_sources: Mock,
 ) -> None:
-    """Auto-resume should use saved context when a session exists."""
+    """A plain connect should ignore saved session state unless the user resumes explicitly."""
     patch_server_sources.find.return_value = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
@@ -415,6 +592,7 @@ async def test_auto_resume_when_saved_session_exists(
     mock_card = Mock()
     mock_card.name = "Demo Agent"
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    fresh_context = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
     with (
         patch(
@@ -426,6 +604,7 @@ async def test_auto_resume_when_saved_session_exists(
             return_value=new_http_client,
         ),
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+        patch("a2a_handler.tui.server.tab.uuid.uuid4", return_value=fresh_context),
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -440,19 +619,21 @@ async def test_auto_resume_when_saved_session_exists(
             await workspace.handle_connect_button()
             await pilot.pause()
 
-            assert workspace.state.current_context_id == "ctx-saved-123456"
+            assert workspace.state.current_context_id == str(fresh_context)
+            assert workspace.state.current_task_id is None
             patch_server_sources.set_conversation.assert_called_with(
                 "https://agent.example.com",
-                "ctx-saved-123456",
-                "task-saved-654321",
+                str(fresh_context),
+                None,
             )
+            mock_service.get_task.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_auto_resume_hydrates_saved_task_history(
+async def test_resume_saved_context_hydrates_task_history_but_not_completed_task_id(
     patch_server_sources: Mock,
 ) -> None:
-    """Auto-resume should preload prior task history into the live workspace."""
+    """Explicit resume should preload history while treating completed tasks as immutable."""
     patch_server_sources.find.return_value = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
@@ -512,26 +693,31 @@ async def test_auto_resume_hydrates_saved_task_history(
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            await workspace.handle_connect_button()
+            await app.action_resume_saved_context()
             await pilot.pause()
 
             live_view = workspace.query_one(ServerView)
             messages_panel = live_view.query_one(TabbedMessagesPanel)
             chat_texts = _chat_texts(messages_panel)
 
+            assert workspace.state.current_context_id == "ctx-saved-123456"
+            assert workspace.state.current_task_id is None
             assert sum("What can you do?" in text for text in chat_texts) == 1
             assert any("I can help with handler tasks." in text for text in chat_texts)
             mock_service.get_task.assert_awaited_once_with(
                 "task-saved-654321",
                 history_length=100,
             )
+            assert any(
+                "resumed saved context" in text.lower() for text in chat_texts
+            )
 
 
 @pytest.mark.asyncio
-async def test_auto_resume_clears_missing_saved_task_id(
+async def test_resume_saved_context_clears_missing_saved_task_id(
     patch_server_sources: Mock,
 ) -> None:
-    """Missing saved tasks should fall back to the saved context only."""
+    """Explicit resume should keep the context while dropping a missing saved task."""
     patch_server_sources.find.return_value = AgentSession(
         agent_url="https://agent.example.com",
         context_id="ctx-saved-123456",
@@ -570,7 +756,7 @@ async def test_auto_resume_clears_missing_saved_task_id(
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            await workspace.handle_connect_button()
+            await app.action_resume_saved_context()
             await pilot.pause()
 
             assert workspace.state.current_context_id == "ctx-saved-123456"
@@ -586,6 +772,23 @@ async def test_auto_resume_clears_missing_saved_task_id(
             assert any(
                 "saved task could not be loaded" in text.lower() for text in texts
             )
+
+
+@pytest.mark.asyncio
+async def test_resume_saved_context_command_warns_when_no_session_exists() -> None:
+    """The explicit resume action should warn instead of silently starting fresh."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = Mock()  # type: ignore[method-assign]
+
+        await app.action_resume_saved_context()
+
+        app.notify.assert_called_once_with(
+            "No saved context available to resume",
+            severity="warning",
+        )
 
 
 @pytest.mark.asyncio
@@ -679,15 +882,10 @@ async def test_send_retries_without_stale_task_id(
 
 
 @pytest.mark.asyncio
-async def test_force_fresh_ignores_saved_context(
+async def test_send_retries_without_completed_task_id(
     patch_server_sources: Mock,
 ) -> None:
-    """Force fresh via command palette should ignore saved context."""
-    patch_server_sources.find.return_value = AgentSession(
-        agent_url="https://agent.example.com",
-        context_id="ctx-saved-123456",
-        task_id="task-saved-654321",
-    )
+    """Terminal-task errors should fall back to context-only continuation."""
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
         name="agent",
@@ -697,8 +895,16 @@ async def test_force_fresh_ignores_saved_context(
     new_http_client = AsyncMock()
     mock_card = Mock()
     mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
-    fresh_context = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.agent,
+        parts=[Part(root=TextPart(text="Recovered from terminal task"))],
+        context_id="ctx-saved-123456",
+        task_id=None,
+    )
 
     with (
         patch(
@@ -710,10 +916,15 @@ async def test_force_fresh_ignores_saved_context(
             return_value=new_http_client,
         ),
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
-        patch("a2a_handler.tui.server.tab.uuid.uuid4", return_value=fresh_context),
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
+        mock_service.send.side_effect = [
+            _completed_task_error("task-completed-1"),
+            response_message,
+        ]
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -722,15 +933,42 @@ async def test_force_fresh_ignores_saved_context(
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            await workspace.handle_connect_button(force_fresh=True)
+            await workspace.handle_connect_button()
             await pilot.pause()
 
-            assert workspace.state.current_context_id == str(fresh_context)
-            patch_server_sources.set_conversation.assert_called_with(
+            workspace.state.current_context_id = "ctx-saved-123456"
+            workspace.state.current_task_id = "task-completed-1"
+            patch_server_sources.set_conversation.reset_mock()
+
+            workspace.query_one("#message-input", Input).value = "Hello again"
+            workspace.handle_send_button()
+            await pilot.pause()
+
+            assert mock_service.send.await_args_list == [
+                call(
+                    "Hello again",
+                    context_id="ctx-saved-123456",
+                    task_id="task-completed-1",
+                ),
+                call(
+                    "Hello again",
+                    context_id="ctx-saved-123456",
+                    task_id=None,
+                ),
+            ]
+            assert workspace.state.current_task_id is None
+            assert patch_server_sources.set_conversation.call_args == call(
                 "https://agent.example.com",
-                str(fresh_context),
+                "ctx-saved-123456",
                 None,
             )
+
+            messages_panel = workspace.query_one(TabbedMessagesPanel)
+            texts = _chat_texts(messages_panel)
+            assert any(
+                "retrying with the saved context only" in text.lower() for text in texts
+            )
+            assert any("Recovered from terminal task" in text for text in texts)
 
 
 @pytest.mark.asyncio
@@ -893,6 +1131,125 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
 
 @pytest.mark.asyncio
+async def test_action_save_connections_warns_when_nothing_is_connected() -> None:
+    """Saving without any live connections should surface a warning instead of writing config."""
+    app = HandlerTUI()
+
+    with patch("a2a_handler.tui.app.save_connections_to_workspace") as mock_save:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.notify = Mock()  # type: ignore[method-assign]
+
+            await app.action_save_connections()
+
+            mock_save.assert_not_called()
+            app.notify.assert_called_once_with(
+                "No connected servers to save",
+                severity="warning",
+            )
+
+
+@pytest.mark.asyncio
+async def test_action_save_connections_persists_connected_servers() -> None:
+    """Saving connected servers should pass them to the workspace writer and notify success."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+        patch(
+            "a2a_handler.tui.app.save_connections_to_workspace",
+            return_value=1,
+        ) as mock_save,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+            app.notify = Mock()  # type: ignore[method-assign]
+
+            await app.action_save_connections()
+
+            saved_servers = mock_save.call_args.args[0]
+            assert len(saved_servers) == 1
+            assert saved_servers[0].is_connected is True
+            app.notify.assert_called_once_with(
+                "Saved 1 server(s) to .handler/servers.toml"
+            )
+
+
+@pytest.mark.asyncio
+async def test_action_save_connections_reports_write_failures() -> None:
+    """Workspace save errors should be surfaced to the user as error notifications."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+        patch(
+            "a2a_handler.tui.app.save_connections_to_workspace",
+            side_effect=RuntimeError("disk full"),
+        ),
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+            app.notify = Mock()  # type: ignore[method-assign]
+
+            await app.action_save_connections()
+
+            app.notify.assert_called_once_with(
+                "Failed to save: disk full",
+                severity="error",
+            )
+
+
+@pytest.mark.asyncio
 async def test_connect_validates_agent_url_before_service_call() -> None:
     """Malformed URLs should be rejected from the connect view."""
     app = HandlerTUI()
@@ -916,3 +1273,150 @@ async def test_connect_validates_agent_url_before_service_call() -> None:
         messages_panel = workspace.query_one(TabbedMessagesPanel)
         texts = _chat_texts(messages_panel)
         assert any("valid http(s) URL" in t for t in texts)
+
+
+@pytest.mark.asyncio
+async def test_pressing_enter_in_manual_url_connects_active_server() -> None:
+    """Submitting the manual URL field should trigger the same connect flow."""
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Manual Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Manual Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            manual_input = workspace.query_one("#manual-agent-url", Input)
+            manual_input.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert workspace.is_connected
+            assert workspace.current_agent_url == "http://localhost:8000"
+            mock_service.get_card.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_send_button_submits_typed_message_through_ui() -> None:
+    """Typing into the compose input and clicking send should drive the worker flow."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.agent,
+        parts=[Part(root=TextPart(text="Hello from the agent"))],
+        context_id="ctx-response",
+        task_id="task-response",
+    )
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.send.return_value = response_message
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            initial_context_id = workspace.state.current_context_id
+            assert initial_context_id is not None
+
+            await pilot.click("#message-input")
+            await pilot.press(
+                "H",
+                "e",
+                "l",
+                "l",
+                "o",
+                "space",
+                "a",
+                "g",
+                "e",
+                "n",
+                "t",
+            )
+            await pilot.click("#send-btn")
+            await pilot.pause()
+
+            mock_service.send.assert_awaited_once_with(
+                "Hello agent",
+                context_id=initial_context_id,
+                task_id=None,
+            )
+            assert workspace.query_one("#message-input", Input).value == ""
+            assert workspace.state.current_context_id == "ctx-response"
+            assert workspace.state.current_task_id == "task-response"
+
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("Hello agent" in text for text in chat_texts)
+            assert any("Hello from the agent" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_close_server_action_removes_active_server_tab() -> None:
+    """Closing the active server should remove the tab and switch back."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+n")
+        await pilot.pause()
+
+        tabs = app.query_one("#server-tabs", Tabs)
+        assert tabs.tab_count == 2
+        assert tabs.active == "server-tab-2"
+
+        await app.action_close_server()
+        await pilot.pause()
+
+        assert tabs.tab_count == 1
+        assert tabs.active == "server-tab-1"
+
+        active_server = app.query_one(ServerTabs).get_active_server()
+        assert active_server is not None
+        assert active_server.server_id == "server-1"

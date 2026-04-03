@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 from a2a.client.errors import A2AClientJSONRPCError
-from a2a.types import AgentCard, Message as A2AMessage, Role, Task
+from a2a.types import AgentCard, Message as A2AMessage, Role, Task, TaskState
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -33,6 +33,7 @@ from a2a_handler.service import (
     extract_text_from_message_parts,
     response_context_id,
     response_task_id,
+    response_state,
 )
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
@@ -250,6 +251,17 @@ class ServerTab(Container):
         server_view.agent_card_panel().update_card(None)
         server_view.input_panel().set_enabled(False)
 
+    def can_resume_saved_context(self) -> bool:
+        """Return True when the selected server has a valid saved context to resume."""
+        agent_url = self._get_connection_bar().get_url()
+        if not agent_url:
+            return False
+        saved_conversation, warning = resolve_saved_conversation(
+            get_session_store().find(agent_url),
+            agent_url,
+        )
+        return saved_conversation is not None and warning is None
+
     def _build_connect_error_message(self, error: InputValidationError) -> str:
         if error.suggestion:
             return f"{error.message}. {error.suggestion}"
@@ -342,8 +354,7 @@ class ServerTab(Container):
         if self.is_connected:
             self._refresh_status_badges()
 
-    @on(Button.Pressed, "#connect-btn")
-    async def handle_connect_button(self, force_fresh: bool = False) -> None:
+    async def handle_connect_button(self, resume_session: bool = False) -> None:
         connection_bar = self._get_connection_bar()
         selected_server = connection_bar.get_selected_server()
         agent_url = connection_bar.get_url()
@@ -362,6 +373,22 @@ class ServerTab(Container):
         except InputValidationError as error:
             messages_panel.add_system_message(self._build_connect_error_message(error))
             return
+
+        saved_conversation: SavedConversation | None = None
+        session_warning: str | None = None
+        if resume_session:
+            saved_conversation, session_warning = resolve_saved_conversation(
+                get_session_store().find(agent_url),
+                agent_url,
+            )
+            if session_warning:
+                messages_panel.add_system_message(session_warning)
+                return
+            if saved_conversation is None:
+                messages_panel.add_system_message(
+                    "No saved context is available for this server."
+                )
+                return
 
         connection_bar.set_status(f"Connecting to {agent_url}...")
 
@@ -382,19 +409,9 @@ class ServerTab(Container):
                 auth_source = "manual override" if credentials is not None else "none"
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
-
-            session = get_session_store().find(agent_url)
-            saved_conversation, session_warning = resolve_saved_conversation(
-                session, agent_url
-            )
-
-            resumed = (
-                not force_fresh
-                and saved_conversation is not None
-                and session_warning is None
-            )
             context_id = str(uuid.uuid4())
             resumed_task_id: str | None = None
+            resumed = resume_session and saved_conversation is not None
             if resumed:
                 assert saved_conversation is not None
                 context_id = saved_conversation.context_id
@@ -407,17 +424,13 @@ class ServerTab(Container):
             self.state.auth_source = auth_source
             self.state.connected_server_def = selected_server
             self.state.mode = ServerConnectionMode.CONNECTED
-            self._persist_session_state()
-
-            combined_warning = None
-            if session_warning:
-                combined_warning = session_warning
 
             await self._apply_connected_ui(
-                combined_warning,
+                None,
                 resumed=resumed,
                 saved_conversation=saved_conversation,
             )
+            self._persist_session_state()
             self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 
         except Exception as error:
@@ -431,6 +444,10 @@ class ServerTab(Container):
             self.state.agent_card = None
             self.state.agent_url = None
             self._refresh_status_badges()
+
+    @on(Button.Pressed, "#connect-btn")
+    async def _handle_connect_pressed(self) -> None:
+        await self.handle_connect_button()
 
     @on(Input.Submitted, "#message-input")
     def handle_message_submit(self) -> None:
@@ -477,15 +494,17 @@ class ServerTab(Container):
                     task_id=self.state.current_task_id,
                 )
             except Exception as error:
-                if self.state.current_task_id and self._is_missing_task_error(error):
+                if self.state.current_task_id and self._is_uncontinuable_task_error(
+                    error
+                ):
                     logger.info(
-                        "Retrying %s without stale task_id %s",
+                        "Retrying %s without active task_id %s",
                         self.server_id,
                         self.state.current_task_id,
                     )
                     self._clear_current_task_id()
                     messages_panel.add_system_message(
-                        "Saved task is no longer available; retrying with the saved context only."
+                        "Saved task can no longer accept messages; retrying with the saved context only."
                     )
                     response = await self._agent_service.send(
                         message_text,
@@ -556,12 +575,22 @@ class ServerTab(Container):
         self.state.current_task_id = None
         self._persist_session_state()
 
-    def _is_missing_task_error(self, error: Exception) -> bool:
-        """Return True when the server rejects a stale task continuation."""
+    def _is_uncontinuable_task_error(self, error: Exception) -> bool:
+        """Return True when the server rejects continuing the current task."""
         if not isinstance(error, A2AClientJSONRPCError):
             return False
         message = str(getattr(error.error, "message", "")).lower()
-        return "task" in message and "does not exist" in message
+        if "task" in message and (
+            "does not exist" in message or "not found" in message
+        ):
+            return True
+        terminal_markers = (
+            "terminal state",
+            "cannot accept further messages",
+            "already completed",
+            "task is completed",
+        )
+        return any(marker in message for marker in terminal_markers)
 
     def _load_task_into_live_view(self, server_view: ServerView, task: Task) -> None:
         messages_panel = server_view.messages_panel()
@@ -642,3 +671,11 @@ class ServerTab(Container):
             return
 
         self._load_task_into_live_view(server_view, task)
+        if response_state(task) in {
+            TaskState.completed,
+            TaskState.failed,
+            TaskState.canceled,
+            TaskState.rejected,
+        }:
+            if self.state.current_task_id == task.id:
+                self._clear_current_task_id()

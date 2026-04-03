@@ -168,16 +168,20 @@ class HandlerTUI(App[Any]):
         await self.query_one(ServerTabs).close_server()
 
     async def action_connect_server(self) -> None:
-        """Trigger the connect button on the active server."""
+        """Connect the active server with a fresh context."""
         server = self.query_one(ServerTabs).get_active_server()
         if server is not None and not server.is_connected:
             await server.handle_connect_button()
 
-    async def action_start_fresh(self) -> None:
-        """Connect the active server without resuming any saved session."""
+    async def action_resume_saved_context(self) -> None:
+        """Connect the active server and explicitly resume a saved context."""
         server = self.query_one(ServerTabs).get_active_server()
-        if server is not None and not server.is_connected:
-            await server.handle_connect_button(force_fresh=True)
+        if server is None or server.is_connected:
+            return
+        if not server.can_resume_saved_context():
+            self.notify("No saved context available to resume", severity="warning")
+            return
+        await server.handle_connect_button(resume_session=True)
 
     async def action_save_connections(self) -> None:
         """Save current connections to the workspace .handler/servers.toml."""
@@ -206,15 +210,15 @@ class HandlerTUI(App[Any]):
         if active is not None and not active.is_connected:
             yield SystemCommand(
                 "Connect",
-                "Connect the active server to an A2A agent",
+                "Connect the active server with a fresh context",
                 self.action_connect_server,
             )
 
-        if active is not None and not active.is_connected:
+        if active is not None and not active.is_connected and active.can_resume_saved_context():
             yield SystemCommand(
-                "Start Fresh",
-                "Connect without resuming any saved session",
-                self.action_start_fresh,
+                "Resume Saved Context",
+                "Connect and continue the selected server's saved context",
+                self.action_resume_saved_context,
             )
 
         if active is not None and len(server_tabs.iter_servers()) > 1:
