@@ -1,11 +1,25 @@
 """Tests for the A2A service layer module."""
 
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
-from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    Message,
+    Part,
+    PushNotificationConfig,
+    Role,
+    Task,
+    TaskPushNotificationConfig,
+    TaskState,
+    TaskStatus,
+    TextPart,
+)
 from typing import cast
 
-from a2a_handler.auth import create_bearer_auth
+from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
@@ -21,6 +35,7 @@ from a2a_handler.service import (
     response_state,
     response_task_id,
 )
+from a2a_handler.service import AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH
 
 
 def _make_task(
@@ -441,6 +456,16 @@ class _FakePushConfigClient:
         return push_config
 
 
+class _FakeGetPushConfigClient:
+    def __init__(self, result: TaskPushNotificationConfig) -> None:
+        self.result = result
+        self.params = None
+
+    async def get_task_callback(self, params):
+        self.params = params
+        return self.result
+
+
 @pytest.mark.asyncio
 class TestA2AServiceStreamingCompatibility:
     async def test_stream_handles_tuple_with_none_update(self):
@@ -596,6 +621,138 @@ class TestA2AServiceAuthHeaders:
             response = await http_client.get("/ping")
 
         assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+class TestA2AServiceOAuthAndCards:
+    async def test_ensure_oauth2_token_fetches_and_applies_new_header(self) -> None:
+        """Refreshing OAuth2 credentials should update headers and invalidate the SDK client."""
+        credentials = create_oauth2_auth(
+            "https://auth.example.com/token",
+            "client-id",
+            "client-secret",
+        )
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="http://example.com",
+                credentials=credentials,
+            )
+            service._cached_client = object()  # type: ignore[assignment]
+
+            async def _fetch_token() -> str:
+                credentials.value = "oauth-access-token"
+                return credentials.value
+
+            credentials.fetch_oauth2_token = _fetch_token  # type: ignore[method-assign]
+
+            await service.ensure_oauth2_token()
+
+        assert http_client.headers["Authorization"] == "Bearer oauth-access-token"
+        assert service._applied_auth_headers == {"Authorization"}
+        assert service._cached_client is None
+
+    async def test_ensure_oauth2_token_skips_fetch_when_token_is_still_valid(self) -> None:
+        """A valid cached OAuth token should not be fetched again."""
+        credentials = create_oauth2_auth(
+            "https://auth.example.com/token",
+            "client-id",
+            "client-secret",
+            access_token="cached-token",
+        )
+        credentials._token_expires_at = float("inf")
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="http://example.com",
+                credentials=credentials,
+            )
+            cached_client = object()
+            service._cached_client = cached_client  # type: ignore[assignment]
+            fetch_token = AsyncMock()
+            credentials.fetch_oauth2_token = fetch_token  # type: ignore[method-assign]
+
+            await service.ensure_oauth2_token()
+
+        fetch_token.assert_not_awaited()
+        assert service._cached_client is cached_client
+        assert http_client.headers["Authorization"] == "Bearer cached-token"
+
+    async def test_get_card_falls_back_to_previous_well_known_path(self, monkeypatch) -> None:
+        """Older agents served at the legacy card path should still resolve successfully."""
+        card = AgentCard(
+            name="Fallback Agent",
+            description="Legacy card path",
+            url="http://example.com",
+            version="1.0.0",
+            default_input_modes=["text"],
+            default_output_modes=["text"],
+            capabilities=AgentCapabilities(streaming=True, push_notifications=True),
+            skills=[],
+        )
+        seen_paths: list[str] = []
+
+        class _Resolver:
+            def __init__(self, _http_client, _agent_url, agent_card_path=None) -> None:
+                self.agent_card_path = agent_card_path or AGENT_CARD_WELL_KNOWN_PATH
+                seen_paths.append(self.agent_card_path)
+
+            async def get_agent_card(self):
+                if self.agent_card_path == AGENT_CARD_WELL_KNOWN_PATH:
+                    raise httpx.HTTPStatusError(
+                        "missing",
+                        request=httpx.Request("GET", "http://example.com/.well-known/agent-card.json"),
+                        response=httpx.Response(404),
+                    )
+                return card
+
+        monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(http_client=http_client, agent_url="http://example.com")
+
+            first = await service.get_card()
+            second = await service.get_card()
+
+        assert first is card
+        assert second is card
+        assert seen_paths == [AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH]
+        assert service.supports_streaming is True
+        assert service.supports_push_notifications is True
+
+    async def test_get_push_config_passes_task_and_config_id_to_client(self) -> None:
+        """Push config lookup should preserve both the task ID and optional config ID."""
+        expected = TaskPushNotificationConfig(
+            task_id="task-123",
+            push_notification_config=PushNotificationConfig(
+                url="https://example.com/webhook",
+                token="token-123",
+            ),
+        )
+        fake_client = _FakeGetPushConfigClient(expected)
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="http://example.com",
+            )
+
+            async def _get_client():
+                return fake_client
+
+            service._get_or_create_client = _get_client  # type: ignore[method-assign]
+
+            result = await service.get_push_config(
+                "task-123",
+                config_id="config-456",
+            )
+
+        assert result == expected
+        assert fake_client.params is not None
+        assert fake_client.params.id == "task-123"
+        assert fake_client.params.push_notification_config_id == "config-456"
 
     async def test_clear_credentials_removes_auth_header_from_requests(self):
         """Test clearing credentials removes auth header from outgoing requests."""
