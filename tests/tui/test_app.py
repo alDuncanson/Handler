@@ -1760,6 +1760,117 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
 
 
 @pytest.mark.asyncio
+async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
+    patch_server_sources: Mock,
+) -> None:
+    """Completed task responses should keep the context but drop the task ID."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    first_response = Task(
+        id="task-response-1",
+        context_id="ctx-response",
+        status=TaskStatus(state=TaskState.completed),
+        history=[
+            Message(
+                message_id="msg-agent-1",
+                role=Role.agent,
+                parts=[Part(root=TextPart(text="First completed reply"))],
+                context_id="ctx-response",
+                task_id="task-response-1",
+            )
+        ],
+    )
+    second_response = Task(
+        id="task-response-2",
+        context_id="ctx-response",
+        status=TaskStatus(state=TaskState.completed),
+        history=[
+            Message(
+                message_id="msg-agent-2",
+                role=Role.agent,
+                parts=[Part(root=TextPart(text="Second completed reply"))],
+                context_id="ctx-response",
+                task_id="task-response-2",
+            )
+        ],
+    )
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.send.side_effect = [first_response, second_response]
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            initial_context_id = workspace.state.current_context_id
+            assert initial_context_id is not None
+
+            workspace.query_one("#message-input", Input).value = "Hello once"
+            workspace.handle_send_button()
+            await pilot.pause()
+
+            assert workspace.state.current_context_id == "ctx-response"
+            assert workspace.state.current_task_id is None
+            assert patch_server_sources.set_conversation.call_args == call(
+                "https://agent.example.com",
+                "ctx-response",
+                None,
+            )
+
+            workspace.query_one("#message-input", Input).value = "Hello twice"
+            workspace.handle_send_button()
+            await pilot.pause()
+
+            assert mock_service.send.await_args_list == [
+                call(
+                    "Hello once",
+                    context_id=initial_context_id,
+                    task_id=None,
+                ),
+                call(
+                    "Hello twice",
+                    context_id="ctx-response",
+                    task_id=None,
+                ),
+            ]
+
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert not any(
+                "retrying with the saved context only" in text.lower() for text in texts
+            )
+
+
+@pytest.mark.asyncio
 async def test_close_server_action_removes_active_server_tab() -> None:
     """Closing the active server should remove the tab and switch back."""
     app = HandlerTUI()

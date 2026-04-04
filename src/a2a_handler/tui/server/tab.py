@@ -32,6 +32,7 @@ from a2a_handler.servers import (
 from a2a_handler.service import (
     A2AService,
     extract_text_from_message_parts,
+    is_terminal,
     response_context_id,
     response_task_id,
     response_state,
@@ -677,7 +678,8 @@ class ServerTab(Container):
             ctx_id = response_context_id(response)
             if ctx_id:
                 self.state.current_context_id = ctx_id
-            self.state.current_task_id = response_task_id(response)
+            next_task_id = response_task_id(response)
+            self.state.current_task_id = None if is_terminal(response) else next_task_id
             self._persist_session_state()
 
             messages_panel.add_agent_message(response)
