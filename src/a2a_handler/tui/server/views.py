@@ -62,6 +62,7 @@ class ConnectionBar(Container):
                     classes="conn-badge badge-muted",
                 )
                 yield Static("", id="badge-agent", classes="conn-badge hidden")
+                yield Static("", id="badge-source", classes="conn-badge hidden")
                 yield Static("", id="badge-auth", classes="conn-badge hidden")
                 yield Static("", id="badge-protocol", classes="conn-badge hidden")
                 yield Static("", id="badge-version", classes="conn-badge hidden")
@@ -174,7 +175,8 @@ class ConnectionBar(Container):
     def set_connected_status(
         self,
         agent_name: str,
-        auth_source: str = "none",
+        source_label: str = "",
+        auth_label: str = "",
         protocol_version: str | None = None,
         agent_version: str | None = None,
     ) -> None:
@@ -182,10 +184,11 @@ class ConnectionBar(Container):
         self.set_connect_button_state(True)
         self._set_badge("badge-status", "● Connected", "badge-success")
         self._set_badge("badge-agent", agent_name)
-        self._set_badge("badge-auth", auth_source)
+        self._set_badge("badge-source", source_label)
+        self._set_badge("badge-auth", auth_label)
         self._set_badge(
             "badge-protocol",
-            f"A2A {protocol_version}" if protocol_version else "",
+            f"A2A v{protocol_version}" if protocol_version else "",
         )
         self._set_badge(
             "badge-version",
@@ -197,6 +200,7 @@ class ConnectionBar(Container):
         self.set_connect_button_state(False)
         self._set_badge("badge-status", "● Disconnected", "badge-muted")
         self._set_badge("badge-agent", "")
+        self._set_badge("badge-source", "")
         self._set_badge("badge-auth", "")
         self._set_badge("badge-protocol", "")
         self._set_badge("badge-version", "")

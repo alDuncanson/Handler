@@ -46,7 +46,6 @@ class ServerState:
     agent_url: str | None = None
     current_context_id: str | None = None
     current_task_id: str | None = None
-    auth_source: str = "none"
     connected_server_def: ServerDefinition | None = None
 
 

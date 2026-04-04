@@ -333,6 +333,38 @@ class ServerTab(Container):
             return self.state.connected_server_def
         return None
 
+    def _connection_source_label(
+        self,
+        connected_server: ServerDefinition | None,
+    ) -> str:
+        """Return a short label for where the live connection came from."""
+        if connected_server is None:
+            return "URL"
+        source_labels = {
+            ServerSource.REPOSITORY: "Repo",
+            ServerSource.GLOBAL: "User",
+            ServerSource.RECENT: "Recent",
+            ServerSource.MANUAL: "URL",
+        }
+        return source_labels[connected_server.source]
+
+    def _auth_badge_label(self, credentials: AuthCredentials | None) -> str:
+        """Return a concise auth badge label for the active credentials."""
+        if credentials is None:
+            return ""
+        if credentials.auth_type == AuthType.MTLS:
+            return "mTLS"
+        if credentials.auth_type == AuthType.OAUTH2:
+            return "OAuth 2.0"
+        if credentials.auth_type == AuthType.API_KEY:
+            return "API Key"
+        if credentials.auth_type == AuthType.BEARER:
+            if credentials.value:
+                return "Bearer"
+            if credentials.custom_headers:
+                return "Headers"
+        return ""
+
     def _sync_auth_to_server(self, server_id: str) -> None:
         """Sync the auth panel to show the selected server's credentials."""
         messages_panel = self._get_server_view().messages_panel()
@@ -365,30 +397,6 @@ class ServerTab(Container):
     ) -> bool:
         """Recent entries are explicit resume targets; other selections start fresh."""
         return selected_server is not None and selected_server.source == ServerSource.RECENT
-
-    def _describe_auth_source(
-        self,
-        selected_server: ServerDefinition | None,
-        credentials: AuthCredentials | None,
-    ) -> str:
-        """Describe where the current auth configuration came from."""
-        if selected_server is None:
-            return "manual override" if credentials is not None else "none"
-        if selected_server.source == ServerSource.RECENT:
-            return (
-                "recent session default"
-                if credentials is not None
-                else "recent session (no default auth)"
-            )
-        if credentials is None:
-            return (
-                f"{selected_server.origin_label.lower()} server "
-                f"'{selected_server.label}' (no default auth)"
-            )
-        return (
-            f"{selected_server.origin_label.lower()} server "
-            f"'{selected_server.label}' default"
-        )
 
     async def _connect_to_agent(
         self,
@@ -487,7 +495,6 @@ class ServerTab(Container):
             agent_url=self.state.agent_url,
             current_context_id=self.state.current_context_id,
             current_task_id=self.state.current_task_id,
-            auth_source=self.state.auth_source,
             connected_server_def=self.state.connected_server_def,
         )
 
@@ -523,7 +530,6 @@ class ServerTab(Container):
 
         try:
             credentials = messages_panel.get_auth_credentials()
-            auth_source = self._describe_auth_source(selected_server, credentials)
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
             context_id = str(uuid.uuid4())
@@ -537,7 +543,6 @@ class ServerTab(Container):
             self.state.agent_url = agent_url
             self.state.current_context_id = context_id
             self.state.current_task_id = resumed_task_id
-            self.state.auth_source = auth_source
             self.state.connected_server_def = selected_server
             self.state.mode = ServerConnectionMode.CONNECTED
 
@@ -570,7 +575,6 @@ class ServerTab(Container):
                 self.state.current_task_id = None
                 self.state.current_context_id = None
                 self.state.connected_server_def = None
-                self.state.auth_source = "none"
                 self._refresh_status_badges()
 
     @on(Button.Pressed, "#connect-btn")
@@ -680,9 +684,12 @@ class ServerTab(Container):
             self._show_disconnected_state()
             return
 
+        auth_credentials = server_view.messages_panel().get_auth_credentials()
+
         server_view.connection_bar().set_connected_status(
             agent_name=self.state.agent_card.name,
-            auth_source=self.state.auth_source,
+            source_label=self._connection_source_label(self.state.connected_server_def),
+            auth_label=self._auth_badge_label(auth_credentials),
             protocol_version=self.state.agent_card.protocol_version,
             agent_version=self.state.agent_card.version,
         )

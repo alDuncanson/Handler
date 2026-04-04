@@ -1100,7 +1100,11 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
             assert credentials is not None
             assert credentials.auth_type == AuthType.BEARER
             assert credentials.value == "profile-token"
-            assert workspace.state.auth_source == "repository server 'staging' default"
+
+            source_badge = workspace.query_one("#badge-source", Static)
+            auth_badge = workspace.query_one("#badge-auth", Static)
+            assert "Repo" in str(source_badge.content)
+            assert "Bearer" in str(auth_badge.content)
 
 
 @pytest.mark.asyncio
@@ -1150,6 +1154,11 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
             assert credentials is not None
             assert credentials.auth_type == AuthType.BEARER
             assert credentials.value == "manual-token"
+
+            source_badge = workspace.query_one("#badge-source", Static)
+            auth_badge = workspace.query_one("#badge-auth", Static)
+            assert "Repo" in str(source_badge.content)
+            assert "Bearer" in str(auth_badge.content)
 
 
 @pytest.mark.asyncio
@@ -1205,9 +1214,13 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
             status_badge = workspace.query_one("#badge-status", Static)
             agent_badge = workspace.query_one("#badge-agent", Static)
+            source_badge = workspace.query_one("#badge-source", Static)
+            auth_badge = workspace.query_one("#badge-auth", Static)
             assert "Connected" in str(status_badge.content)
             assert status_badge.has_class("badge-success")
             assert "Demo Agent" in str(agent_badge.content)
+            assert "Repo" in str(source_badge.content)
+            assert auth_badge.has_class("hidden")
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(
                 new_http_client,

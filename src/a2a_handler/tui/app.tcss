@@ -135,13 +135,18 @@ ConnectionBar {
     color: $text;
 }
 
+#badge-source {
+    background: $secondary 24%;
+    color: $text;
+}
+
 #badge-auth {
     background: $accent 24%;
     color: $text;
 }
 
 #badge-protocol {
-    background: $secondary 24%;
+    background: $surface;
     color: $text;
 }
 
