@@ -59,6 +59,14 @@ def _server_to_dict(server_def: ServerDefinition) -> dict[str, object]:
             auth["key_path"] = server_def.auth.key_path
         if server_def.auth.ca_cert_path:
             auth["ca_cert_path"] = server_def.auth.ca_cert_path
+        if server_def.auth.token_url:
+            auth["token_url"] = server_def.auth.token_url
+        if server_def.auth.client_id_env:
+            auth["client_id_env"] = server_def.auth.client_id_env
+        if server_def.auth.client_secret_env:
+            auth["client_secret_env"] = server_def.auth.client_secret_env
+        if server_def.auth.scopes:
+            auth["scopes"] = list(server_def.auth.scopes)
         data["auth"] = auth
     else:
         data["auth"] = None
@@ -122,6 +130,82 @@ def _as_toml_table(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
     return cast(dict[str, object], value)
+
+
+def _build_server_auth_entry(
+    *,
+    bearer_env: str | None,
+    api_key_env: str | None,
+    api_key_header: str,
+    cert_path: str | None,
+    key_path: str | None,
+    oauth2_token_url: str | None,
+    oauth2_client_id_env: str | None,
+    oauth2_client_secret_env: str | None,
+    oauth2_scopes: tuple[str, ...],
+) -> tuple[dict[str, object] | None, str | None]:
+    """Build the auth table for a new server or return a validation error."""
+    has_mtls = cert_path is not None or key_path is not None
+    has_oauth2 = any(
+        (
+            oauth2_token_url,
+            oauth2_client_id_env,
+            oauth2_client_secret_env,
+            oauth2_scopes,
+        )
+    )
+    configured_methods = sum(
+        bool(enabled)
+        for enabled in (
+            bearer_env,
+            api_key_env,
+            has_mtls,
+            has_oauth2,
+        )
+    )
+    if configured_methods > 1:
+        return None, "Choose only one auth method when adding a server"
+
+    if has_mtls:
+        if not cert_path or not key_path:
+            return None, "mTLS auth requires both --cert and --key"
+        return {"type": "mtls", "cert": cert_path, "key": key_path}, None
+
+    if bearer_env:
+        return {"type": "bearer", "env": bearer_env}, None
+
+    if api_key_env:
+        auth: dict[str, object] = {"type": "api_key", "env": api_key_env}
+        if api_key_header != "X-API-Key":
+            auth["header"] = api_key_header
+        return auth, None
+
+    if has_oauth2:
+        missing_flags = [
+            flag
+            for flag, value in (
+                ("--oauth2-token-url", oauth2_token_url),
+                ("--oauth2-client-id-env", oauth2_client_id_env),
+                ("--oauth2-client-secret-env", oauth2_client_secret_env),
+            )
+            if not value
+        ]
+        if missing_flags:
+            return None, (
+                "OAuth2 auth requires " + ", ".join(missing_flags)
+            )
+
+        auth = {
+            "type": "oauth2",
+            "token_url": oauth2_token_url,
+            "client_id_env": oauth2_client_id_env,
+            "client_secret_env": oauth2_client_secret_env,
+        }
+        if oauth2_scopes:
+            auth["scopes"] = list(oauth2_scopes)
+        return auth, None
+
+    return None, None
 
 
 def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
@@ -251,6 +335,21 @@ def server_show(name: str, source: str | None) -> None:
 )
 @click.option("--cert", "cert_path", help="Client certificate path for mTLS")
 @click.option("--key", "key_path", help="Client private key path for mTLS")
+@click.option("--oauth2-token-url", help="OAuth2 token URL for client credentials")
+@click.option(
+    "--oauth2-client-id-env",
+    help="Env var containing the OAuth2 client ID",
+)
+@click.option(
+    "--oauth2-client-secret-env",
+    help="Env var containing the OAuth2 client secret",
+)
+@click.option(
+    "--oauth2-scope",
+    "oauth2_scopes",
+    multiple=True,
+    help="OAuth2 scope to request (repeatable)",
+)
 @click.option(
     "--global",
     "use_global",
@@ -272,6 +371,10 @@ def server_add(
     api_key_header: str,
     cert_path: str | None,
     key_path: str | None,
+    oauth2_token_url: str | None,
+    oauth2_client_id_env: str | None,
+    oauth2_client_secret_env: str | None,
+    oauth2_scopes: tuple[str, ...],
     use_global: bool,
     use_repository: bool,
 ) -> None:
@@ -283,6 +386,7 @@ def server_add(
       $ handler server add my_agent --url http://localhost:8000 --bearer-env MY_TOKEN
       $ handler server add my_agent --url http://localhost:8000 --api-key-env MY_KEY
       $ handler server add my_agent --url http://localhost:8000 --cert client.crt --key client.key
+      $ handler server add my_agent --url http://localhost:8000 --oauth2-token-url https://auth.example.com/token --oauth2-client-id-env CLIENT_ID --oauth2-client-secret-env CLIENT_SECRET --oauth2-scope read
       $ handler server add my_agent --url http://localhost:8000 --repository
     """
     output = Output()
@@ -300,15 +404,22 @@ def server_add(
         servers = {}
     entry: dict[str, object] = {"url": url}
 
-    if cert_path and key_path:
-        entry["auth"] = {"type": "mtls", "cert": cert_path, "key": key_path}
-    elif bearer_env:
-        entry["auth"] = {"type": "bearer", "env": bearer_env}
-    elif api_key_env:
-        auth: dict[str, object] = {"type": "api_key", "env": api_key_env}
-        if api_key_header != "X-API-Key":
-            auth["header"] = api_key_header
-        entry["auth"] = auth
+    auth_entry, auth_error = _build_server_auth_entry(
+        bearer_env=bearer_env,
+        api_key_env=api_key_env,
+        api_key_header=api_key_header,
+        cert_path=cert_path,
+        key_path=key_path,
+        oauth2_token_url=oauth2_token_url,
+        oauth2_client_id_env=oauth2_client_id_env,
+        oauth2_client_secret_env=oauth2_client_secret_env,
+        oauth2_scopes=oauth2_scopes,
+    )
+    if auth_error:
+        output.error(code="invalid_auth", message=auth_error)
+        return
+    if auth_entry is not None:
+        entry["auth"] = auth_entry
 
     servers[name] = entry
     data["servers"] = servers

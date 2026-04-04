@@ -124,6 +124,44 @@ class TestServerShow:
         assert result.exit_code == 0
         assert "not found" in result.output.lower()
 
+    def test_show_includes_oauth2_metadata(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        from a2a_handler.servers import load_server_catalog
+
+        servers_file = servers_dir / "servers.toml"
+        servers_file.write_text(
+            """
+version = 1
+
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "oauth2"
+token_url = "https://auth.example.com/token"
+client_id_env = "CLIENT_ID"
+client_secret_env = "CLIENT_SECRET"
+scopes = ["read", "write"]
+""".strip()
+        )
+
+        with patch(
+            "a2a_handler.cli.server.load_server_catalog",
+            return_value=load_server_catalog(servers_dir),
+        ):
+            result = runner.invoke(server, ["show", "demo"])
+
+        assert result.exit_code == 0
+        assert "oauth2" in result.output
+        assert "https://auth.example.com/token" in result.output
+        assert "CLIENT_ID" in result.output
+        assert "CLIENT_SECRET" in result.output
+        assert "read" in result.output
+        assert "write" in result.output
+
 
 # ---------------------------------------------------------------------------
 # server add
@@ -223,6 +261,63 @@ class TestServerAdd:
         assert data["servers"]["demo"]["auth"]["type"] == "mtls"
         assert data["servers"]["demo"]["auth"]["cert"] == "/path/to/cert.pem"
         assert data["servers"]["demo"]["auth"]["key"] == "/path/to/key.pem"
+
+    def test_add_with_oauth2(self, runner: CliRunner, servers_dir: Path) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://agent.example.com",
+                    "--oauth2-token-url",
+                    "https://auth.example.com/token",
+                    "--oauth2-client-id-env",
+                    "CLIENT_ID",
+                    "--oauth2-client-secret-env",
+                    "CLIENT_SECRET",
+                    "--oauth2-scope",
+                    "read",
+                    "--oauth2-scope",
+                    "write",
+                ],
+            )
+
+        assert result.exit_code == 0
+        data = tomllib.loads(path.read_text())
+        auth = data["servers"]["demo"]["auth"]
+        assert auth["type"] == "oauth2"
+        assert auth["token_url"] == "https://auth.example.com/token"
+        assert auth["client_id_env"] == "CLIENT_ID"
+        assert auth["client_secret_env"] == "CLIENT_SECRET"
+        assert auth["scopes"] == ["read", "write"]
+
+    def test_add_rejects_partial_oauth2(self, runner: CliRunner, servers_dir: Path) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://agent.example.com",
+                    "--oauth2-token-url",
+                    "https://auth.example.com/token",
+                    "--oauth2-client-id-env",
+                    "CLIENT_ID",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "OAuth2 auth requires" in result.output
+        assert not path.exists()
 
     def test_add_appends_to_existing_file(
         self, runner: CliRunner, servers_file: Path
