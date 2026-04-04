@@ -196,7 +196,7 @@ class HandlerTUI(App[Any]):
 
         self.push_screen(
             TextPromptScreen(
-                "Rename Workspace Server",
+                "Rename Saved Workspace Server",
                 "Update this repo's saved server name.",
                 value=workspace_server.name,
                 placeholder="workspace_server",
@@ -220,7 +220,7 @@ class HandlerTUI(App[Any]):
         try:
             rename_workspace_server(current_name, new_name)
             self._refresh_server_catalogs()
-            self.notify(f"Renamed workspace server to {new_name}")
+            self.notify(f"Renamed saved workspace server to {new_name}")
         except Exception as error:
             self.notify(f"Failed to rename workspace server: {error}", severity="error")
 
@@ -234,8 +234,11 @@ class HandlerTUI(App[Any]):
 
         self.push_screen(
             ConfirmScreen(
-                "Remove Workspace Server",
-                f"Remove '{workspace_server.name}' from this repo's .handler/servers.toml?",
+                "Remove Saved Workspace Server",
+                (
+                    f"Remove '{workspace_server.name}' from this repo's "
+                    ".handler/servers.toml? The live tab will stay open until you close it."
+                ),
                 confirm_label="Remove",
             ),
             callback=lambda confirmed: self._handle_remove_workspace_server_result(
@@ -256,7 +259,9 @@ class HandlerTUI(App[Any]):
         try:
             remove_workspace_server(current_name)
             self._refresh_server_catalogs()
-            self.notify(f"Removed workspace server '{current_name}'")
+            self.notify(
+                f"Removed saved workspace server '{current_name}'. Live tab stays open."
+            )
         except Exception as error:
             self.notify(f"Failed to remove workspace server: {error}", severity="error")
 

@@ -35,13 +35,16 @@ def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
     workspace_server = active.get_selected_workspace_server() if active is not None else None
     if workspace_server is not None and workspace_server.name:
         yield SystemCommand(
-            "Rename Workspace Server",
+            "Rename Saved Workspace Server",
             f"Rename '{workspace_server.name}' in this repo's .handler/servers.toml",
             app.action_rename_workspace_server,
         )
         yield SystemCommand(
-            "Remove Workspace Server",
-            f"Remove '{workspace_server.name}' from this repo's .handler/servers.toml",
+            "Remove Saved Workspace Server",
+            (
+                f"Remove '{workspace_server.name}' from this repo's "
+                ".handler/servers.toml without closing the live tab"
+            ),
             app.action_remove_workspace_server,
         )
 

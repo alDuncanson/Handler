@@ -298,8 +298,8 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
             assert "Connect" in titles
             assert "Resume Saved Context" not in titles
             assert "Start Fresh Conversation" not in titles
-            assert "Rename Workspace Server" in titles
-            assert "Remove Workspace Server" in titles
+            assert "Rename Saved Workspace Server" in titles
+            assert "Remove Saved Workspace Server" in titles
             assert "Close Server 2" in titles
             assert "Git Add Servers" in titles
 
@@ -1449,7 +1449,9 @@ async def test_action_rename_workspace_server_uses_prompt_and_refreshes_catalog(
 
             mock_rename.assert_called_once_with("demo", "renamed_demo")
             workspace.refresh_server_catalog.assert_called_once_with()
-            app.notify.assert_called_once_with("Renamed workspace server to renamed_demo")
+            app.notify.assert_called_once_with(
+                "Renamed saved workspace server to renamed_demo"
+            )
 
 
 @pytest.mark.asyncio
@@ -1487,7 +1489,9 @@ async def test_action_remove_workspace_server_confirms_before_refreshing_catalog
 
             mock_remove.assert_called_once_with("demo")
             workspace.refresh_server_catalog.assert_called_once_with()
-            app.notify.assert_called_once_with("Removed workspace server 'demo'")
+            app.notify.assert_called_once_with(
+                "Removed saved workspace server 'demo'. Live tab stays open."
+            )
 
 
 @pytest.mark.asyncio
