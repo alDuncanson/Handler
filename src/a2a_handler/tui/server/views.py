@@ -62,10 +62,10 @@ class ConnectionBar(Container):
                     classes="conn-badge badge-muted",
                 )
                 yield Static("", id="badge-agent", classes="conn-badge hidden")
+                yield Static("", id="badge-version", classes="conn-badge hidden")
                 yield Static("", id="badge-source", classes="conn-badge hidden")
                 yield Static("", id="badge-auth", classes="conn-badge hidden")
                 yield Static("", id="badge-protocol", classes="conn-badge hidden")
-                yield Static("", id="badge-version", classes="conn-badge hidden")
 
     def on_mount(self) -> None:
         for widget in self.query("#server-status-row"):

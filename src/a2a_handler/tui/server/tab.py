@@ -368,12 +368,12 @@ class ServerTab(Container):
     ) -> str:
         """Return a short label for where the live connection came from."""
         if connected_server is None:
-            return "URL"
+            return "Direct URL"
         source_labels = {
-            ServerSource.REPOSITORY: "Repo",
-            ServerSource.GLOBAL: "User",
-            ServerSource.RECENT: "Recent",
-            ServerSource.MANUAL: "URL",
+            ServerSource.REPOSITORY: "Repository Server",
+            ServerSource.GLOBAL: "User Server",
+            ServerSource.RECENT: "Recent Session",
+            ServerSource.MANUAL: "Direct URL",
         }
         return source_labels[connected_server.source]
 

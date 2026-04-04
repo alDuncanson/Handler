@@ -744,6 +744,8 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
     new_http_client = AsyncMock()
     mock_card = Mock()
     mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
     fresh_context = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
@@ -804,6 +806,8 @@ async def test_connecting_recent_session_hydrates_task_history_but_not_completed
     new_http_client = AsyncMock()
     mock_card = Mock()
     mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
     resumed_task = Task(
         id="task-saved-654321",
@@ -1167,7 +1171,7 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
 
             source_badge = workspace.query_one("#badge-source", Static)
             auth_badge = workspace.query_one("#badge-auth", Static)
-            assert "Repo" in str(source_badge.content)
+            assert "Repository Server" in str(source_badge.content)
             assert "Bearer" in str(auth_badge.content)
 
 
@@ -1221,7 +1225,7 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 
             source_badge = workspace.query_one("#badge-source", Static)
             auth_badge = workspace.query_one("#badge-auth", Static)
-            assert "Repo" in str(source_badge.content)
+            assert "Repository Server" in str(source_badge.content)
             assert "Bearer" in str(auth_badge.content)
 
 
@@ -1237,6 +1241,8 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
     new_http_client = AsyncMock()
     mock_card = Mock()
     mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
 
     with (
@@ -1278,13 +1284,25 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
 
             status_badge = workspace.query_one("#badge-status", Static)
             agent_badge = workspace.query_one("#badge-agent", Static)
+            version_badge = workspace.query_one("#badge-version", Static)
             source_badge = workspace.query_one("#badge-source", Static)
             auth_badge = workspace.query_one("#badge-auth", Static)
             assert "Connected" in str(status_badge.content)
             assert status_badge.has_class("badge-success")
             assert "Demo Agent" in str(agent_badge.content)
-            assert "Repo" in str(source_badge.content)
+            assert version_badge.has_class("hidden")
+            assert "Repository Server" in str(source_badge.content)
             assert auth_badge.has_class("hidden")
+
+            status_row_ids = [child.id for child in workspace.query_one("#server-status-row").children]
+            assert status_row_ids == [
+                "badge-status",
+                "badge-agent",
+                "badge-version",
+                "badge-source",
+                "badge-auth",
+                "badge-protocol",
+            ]
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(
                 new_http_client,
