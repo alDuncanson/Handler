@@ -178,6 +178,14 @@ class HandlerTUI(App[Any]):
         if server is not None and not server.is_connected:
             await server.handle_connect_button()
 
+    async def action_reconnect_server(self) -> None:
+        """Reconnect the active server using the current picker selection."""
+        server = self._get_active_server()
+        if server is None or not server.is_connected:
+            self.notify("Connect to a server before reconnecting", severity="warning")
+            return
+        await server.handle_connect_button()
+
     async def action_start_fresh_conversation(self) -> None:
         """Reset the active server to a fresh conversation context."""
         server = self._get_active_server()
@@ -185,6 +193,51 @@ class HandlerTUI(App[Any]):
             self.notify("Connect to a server before starting fresh", severity="warning")
             return
         await server.start_fresh_conversation()
+
+    def action_forget_saved_session(self) -> None:
+        """Forget the saved session for the selected or active server URL."""
+        server = self._get_active_server()
+        session_target = server.get_saved_session_target() if server else None
+        if session_target is None:
+            self.notify("Choose a recent session or connected server to forget", severity="warning")
+            return
+
+        agent_url, target_label = session_target
+        self.push_screen(
+            ConfirmScreen(
+                "Forget Saved Session",
+                (
+                    f"Forget the saved session for '{target_label}'? "
+                    "The live tab will stay open."
+                ),
+                confirm_label="Forget",
+            ),
+            callback=lambda confirmed: self._handle_forget_saved_session_result(
+                agent_url,
+                target_label,
+                confirmed,
+            ),
+        )
+
+    def _handle_forget_saved_session_result(
+        self,
+        agent_url: str,
+        target_label: str,
+        confirmed: bool,
+    ) -> None:
+        """Apply a forget-session result after the confirmation screen is dismissed."""
+        if not confirmed:
+            return
+
+        server = self._get_active_server()
+        if server is None:
+            return
+
+        try:
+            server.forget_saved_session(agent_url)
+            self.notify(f"Forgot saved session for '{target_label}'. Live tab stays open.")
+        except Exception as error:
+            self.notify(f"Failed to forget saved session: {error}", severity="error")
 
     def action_rename_workspace_server(self) -> None:
         """Rename the selected repository-local workspace server."""

@@ -27,9 +27,23 @@ def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
 
     if active is not None and active.is_connected:
         yield SystemCommand(
+            "Reconnect",
+            "Reconnect the active server using the selected server or recent session",
+            app.action_reconnect_server,
+        )
+        yield SystemCommand(
             "Start Fresh Conversation",
             "Clear the current context and task while staying connected",
             app.action_start_fresh_conversation,
+        )
+
+    saved_session_target = active.get_saved_session_target() if active is not None else None
+    if saved_session_target is not None:
+        _, target_label = saved_session_target
+        yield SystemCommand(
+            "Forget Saved Session",
+            f"Forget the saved recent session for '{target_label}'",
+            app.action_forget_saved_session,
         )
 
     workspace_server = active.get_selected_workspace_server() if active is not None else None

@@ -321,6 +321,70 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
 
 
 @pytest.mark.asyncio
+async def test_system_commands_include_reconnect_and_forget_saved_session(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_server_sources: Mock,
+) -> None:
+    """Connected servers with saved context should offer reconnect and forget actions."""
+    monkeypatch.setattr(
+        TextualApp,
+        "get_system_commands",
+        lambda self, screen: iter(()),
+    )
+    saved_session = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+        last_used_at="2024-01-02T03:04:05+00:00",
+    )
+    patch_server_sources.find.side_effect = (
+        lambda agent_url: saved_session
+        if agent_url == "https://agent.example.com"
+        else None
+    )
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            commands = list(app.get_system_commands(app.screen))
+            titles = [command.title for command in commands]
+
+            assert "Connect" not in titles
+            assert "Reconnect" in titles
+            assert "Start Fresh Conversation" in titles
+            assert "Forget Saved Session" in titles
+
+
+@pytest.mark.asyncio
 async def test_check_action_only_enables_maximize_for_maximizable_panels() -> None:
     """Maximize should only be advertised when focus is inside activity or card panels."""
     app = HandlerTUI()
@@ -1491,6 +1555,59 @@ async def test_action_remove_workspace_server_confirms_before_refreshing_catalog
             workspace.refresh_server_catalog.assert_called_once_with()
             app.notify.assert_called_once_with(
                 "Removed saved workspace server 'demo'. Live tab stays open."
+            )
+
+
+@pytest.mark.asyncio
+async def test_action_forget_saved_session_confirms_before_refreshing_catalog(
+    patch_server_sources: Mock,
+) -> None:
+    """Forgetting a saved session should confirm, clear storage, and refresh recents."""
+    saved_session = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-saved-123456",
+        task_id="task-saved-654321",
+        last_used_at="2024-01-02T03:04:05+00:00",
+    )
+    patch_server_sources.find.side_effect = (
+        lambda agent_url: saved_session
+        if agent_url == "https://agent.example.com"
+        else None
+    )
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            def fake_push_screen(screen, callback=None, wait_for_dismiss=False):
+                assert callback is not None
+                callback(True)
+                return None
+
+            app.push_screen = Mock(side_effect=fake_push_screen)  # type: ignore[method-assign]
+            app.notify = Mock()  # type: ignore[method-assign]
+            workspace.refresh_server_catalog = Mock()  # type: ignore[method-assign]
+
+            app.action_forget_saved_session()
+
+            patch_server_sources.clear.assert_called_once_with(
+                "https://agent.example.com"
+            )
+            workspace.refresh_server_catalog.assert_called_once_with()
+            app.notify.assert_called_once_with(
+                "Forgot saved session for 'demo'. Live tab stays open."
             )
 
 

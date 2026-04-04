@@ -333,6 +333,34 @@ class ServerTab(Container):
             return self.state.connected_server_def
         return None
 
+    def get_saved_session_target(self) -> tuple[str, str] | None:
+        """Return the current saved-session target URL and label, if one exists."""
+        session_store = get_session_store()
+        connection_bar = self._get_connection_bar()
+        selected = connection_bar.get_selected_server()
+        if selected is not None and session_store.find(selected.agent_url) is not None:
+            return selected.agent_url, selected.label
+
+        if self.state.agent_url is not None and session_store.find(self.state.agent_url) is not None:
+            if self.state.connected_server_def is not None:
+                label = self.state.connected_server_def.label
+            elif self.state.agent_card is not None:
+                label = self.state.agent_card.name
+            else:
+                label = self.state.agent_url
+            return self.state.agent_url, label
+
+        manual_url = connection_bar.query_one("#manual-agent-url", Input).value.strip()
+        if manual_url and session_store.find(manual_url) is not None:
+            return manual_url, manual_url
+
+        return None
+
+    def forget_saved_session(self, agent_url: str) -> None:
+        """Forget a saved session and refresh recent-server picker state."""
+        get_session_store().clear(agent_url)
+        self.refresh_server_catalog()
+
     def _connection_source_label(
         self,
         connected_server: ServerDefinition | None,
