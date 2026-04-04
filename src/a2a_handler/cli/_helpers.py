@@ -139,19 +139,28 @@ def resolve_agent_target(
 
     if server:
         catalog = load_server_catalog()
-        for server_def in (
-            *catalog.repository_servers,
-            *catalog.global_servers,
-        ):
-            if server_def.name == server:
-                if bearer_token:
-                    return server_def.agent_url, create_bearer_auth(bearer_token)
-                if api_key:
-                    return server_def.agent_url, create_api_key_auth(api_key)
-                creds, warning = resolve_server_credentials(server_def)
-                if warning:
-                    log.warning(warning)
-                return server_def.agent_url, creds
+        matches = [
+            server_def
+            for server_def in (
+                *catalog.repository_servers,
+                *catalog.global_servers,
+            )
+            if server_def.name == server
+        ]
+        if len(matches) > 1:
+            raise click.UsageError(
+                f"Server '{server}' exists in multiple sources; use --url or rename one entry."
+            )
+        if matches:
+            server_def = matches[0]
+            if bearer_token:
+                return server_def.agent_url, create_bearer_auth(bearer_token)
+            if api_key:
+                return server_def.agent_url, create_api_key_auth(api_key)
+            creds, warning = resolve_server_credentials(server_def)
+            if warning:
+                log.warning(warning)
+            return server_def.agent_url, creds
         raise click.UsageError(f"Server '{server}' not found in servers.toml.")
 
     raise click.UsageError("Provide --url or --server.")

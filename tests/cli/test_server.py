@@ -237,6 +237,31 @@ class TestServerAdd:
         assert data["servers"]["demo"]["auth"]["env"] == "TEST_API_KEY"
         assert data["servers"]["demo"]["auth"]["header"] == "X-Custom"
 
+    def test_add_rejects_reserved_api_key_header(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "http://localhost:8000",
+                    "--api-key-env",
+                    "TEST_API_KEY",
+                    "--api-key-header",
+                    "Authorization",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "reserved header" in result.output.lower()
+        assert not path.exists()
+
     def test_add_with_mtls(self, runner: CliRunner, servers_dir: Path) -> None:
         from unittest.mock import patch
 
@@ -296,7 +321,9 @@ class TestServerAdd:
         assert auth["client_secret_env"] == "CLIENT_SECRET"
         assert auth["scopes"] == ["read", "write"]
 
-    def test_add_rejects_partial_oauth2(self, runner: CliRunner, servers_dir: Path) -> None:
+    def test_add_rejects_partial_oauth2(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"

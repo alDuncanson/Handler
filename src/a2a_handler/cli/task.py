@@ -20,6 +20,7 @@ from a2a.types import Task
 from a2a_handler.service import (
     A2AService,
     protocol_dump,
+    push_config_dump,
 )
 
 from ._helpers import (
@@ -308,7 +309,7 @@ def notification_set(
                 service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 config = await service.set_push_config(task_id, webhook_url, token)
-                output.json(config.model_dump(mode="json", exclude_none=True))
+                output.json(push_config_dump(config))
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -368,7 +369,7 @@ def notification_get(
                 service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 config = await service.get_push_config(task_id, config_id)
-                output.json(config.model_dump(mode="json", exclude_none=True))
+                output.json(push_config_dump(config))
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)

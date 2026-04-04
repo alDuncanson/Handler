@@ -84,8 +84,16 @@ class TestAuthHelpers:
 
     def test_create_api_key_auth_custom(self) -> None:
         """create_api_key_auth with custom header."""
-        creds = create_api_key_auth("my-key", header_name="Authorization")
-        assert creds.header_name == "Authorization"
+        creds = create_api_key_auth("my-key", header_name="X-Custom-Key")
+        assert creds.header_name == "X-Custom-Key"
+
+    def test_create_api_key_auth_rejects_reserved_headers(self) -> None:
+        """Reserved headers must not be usable for API key auth."""
+        with pytest.raises(InputValidationError) as error:
+            create_api_key_auth("my-key", header_name="Authorization")
+        raised = error.value
+        assert isinstance(raised, InputValidationError)
+        assert raised.code == "reserved_header"
 
 
 class TestMTLSAuth:

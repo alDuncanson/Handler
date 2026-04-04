@@ -62,6 +62,28 @@ header = "X-Custom-Key"
     assert servers[1].auth.header_name == "X-Custom-Key"
 
 
+def test_load_servers_skips_reserved_api_key_header(tmp_path: Path) -> None:
+    """Reserved API key headers are rejected during server parsing."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.bad]
+url = "https://api.example.com"
+
+[servers.bad.auth]
+type = "api_key"
+value = "inline-api-key"
+header = "Authorization"
+""".strip()
+    )
+
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    assert servers == []
+
+
 def test_load_servers_skips_invalid_entries(tmp_path: Path) -> None:
     """Invalid server entries are skipped while valid ones load."""
     server_path = tmp_path / "servers.toml"

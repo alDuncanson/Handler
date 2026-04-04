@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
+from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.servers import ServerAuthConfig
 
 if TYPE_CHECKING:
@@ -164,7 +165,16 @@ def save_connections_to_workspace(
         else:
             server_view = server_tab._try_get_server_view()
             if server_view is not None:
-                panel_credentials = server_view.messages_panel().get_auth_credentials()
+                try:
+                    panel_credentials = (
+                        server_view.messages_panel().get_auth_credentials()
+                    )
+                except InputValidationError:
+                    logger.warning(
+                        "Skipping auth metadata for %s due to invalid auth input",
+                        agent_url,
+                    )
+                    panel_credentials = None
                 if panel_credentials is not None:
                     skeleton = _credentials_to_skeleton_dict(panel_credentials)
                     if skeleton:

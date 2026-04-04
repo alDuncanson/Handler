@@ -13,6 +13,8 @@ from textual.widgets import Button, ContentSwitcher, Tab, Tabs
 from a2a_handler.servers import load_server_catalog
 from a2a_handler.tui.server.tab import ServerTab
 
+_PATCH_COMPAT_LOAD_SERVER_CATALOG = load_server_catalog
+
 
 class ServerTabs(Container):
     """Top-level server shell managing multiple server tabs."""
@@ -62,17 +64,9 @@ class ServerTabs(Container):
                 auto_connect_url=self._connect_url,
             )
         else:
-            catalog = load_server_catalog()
-            if catalog.repository_servers:
-                for server_def in catalog.repository_servers:
-                    await self.create_server(
-                        initial_bearer_token=self._initial_bearer_token,
-                        auto_connect_server=server_def.name,
-                    )
-            else:
-                await self.create_server(
-                    initial_bearer_token=self._initial_bearer_token,
-                )
+            await self.create_server(
+                initial_bearer_token=self._initial_bearer_token,
+            )
 
     def iter_servers(self) -> list[ServerTab]:
         return list(self.query(ServerTab))

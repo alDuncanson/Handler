@@ -179,6 +179,31 @@ def protocol_dump(response: A2AResponse) -> dict[str, object]:
     return response.model_dump(mode="json", exclude_none=True)
 
 
+def _truncate_secret(value: str) -> str:
+    """Return a short preview for secrets without exposing the full value."""
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def push_config_dump(config: TaskPushNotificationConfig) -> dict[str, object]:
+    """Serialize push-config data while redacting webhook auth tokens."""
+    data = config.model_dump(mode="json", exclude_none=True)
+    push_notification_config = data.get("pushNotificationConfig")
+    if not isinstance(push_notification_config, dict):
+        return data
+
+    token = push_notification_config.get("token")
+    if not isinstance(token, str) or not token:
+        return data
+
+    redacted_config = dict(push_notification_config)
+    redacted_config["token"] = _truncate_secret(token)
+    redacted = dict(data)
+    redacted["pushNotificationConfig"] = redacted_config
+    return redacted
+
+
 class A2AService:
     """High-level service for A2A protocol operations.
 

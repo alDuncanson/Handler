@@ -10,6 +10,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
+from a2a_handler.tui.components.logs import LogsPanel
 from a2a_handler.tui.components import ArtifactsPanel, TabbedMessagesPanel, TasksPanel
 
 
@@ -23,7 +24,7 @@ def _chat_texts(panel: TabbedMessagesPanel) -> list[str]:
 
 
 def _log_lines(panel: TabbedMessagesPanel) -> list[str]:
-    logs_panel = panel.query_one("#logs-panel")
+    logs_panel = panel.query_one("#logs-panel", LogsPanel)
     return [str(line) for line in logs_panel.lines]
 
 
@@ -99,7 +100,8 @@ class _MessagesPanelHarness(App[None]):
 async def test_tasks_panel_updates_detail_view_and_copies_ids() -> None:
     """Selecting a task should expose its details and keep copy actions wired to the selection."""
     app = _TasksPanelHarness()
-    app.copy_to_clipboard = Mock()
+    copy_mock = Mock()
+    setattr(app, "copy_to_clipboard", copy_mock)
     task = _make_task()
 
     async with app.run_test() as pilot:
@@ -125,7 +127,7 @@ async def test_tasks_panel_updates_detail_view_and_copies_ids() -> None:
         panel.action_copy_task_id()
         panel.action_copy_context_id()
 
-        assert app.copy_to_clipboard.call_args_list == [
+        assert copy_mock.call_args_list == [
             call("task-123"),
             call("ctx-123"),
         ]
@@ -135,7 +137,8 @@ async def test_tasks_panel_updates_detail_view_and_copies_ids() -> None:
 async def test_artifacts_panel_updates_detail_view_and_copies_ids() -> None:
     """Artifact details and copy actions should follow the selected artifact entry."""
     app = _ArtifactsPanelHarness()
-    app.copy_to_clipboard = Mock()
+    copy_mock = Mock()
+    setattr(app, "copy_to_clipboard", copy_mock)
     artifact = _make_artifact()
 
     async with app.run_test() as pilot:
@@ -165,7 +168,7 @@ async def test_artifacts_panel_updates_detail_view_and_copies_ids() -> None:
         panel.action_copy_artifact_id()
         panel.action_copy_task_id()
 
-        assert app.copy_to_clipboard.call_args_list == [
+        assert copy_mock.call_args_list == [
             call("artifact-123"),
             call("task-123"),
         ]
@@ -292,7 +295,8 @@ async def test_messages_panel_action_availability_tracks_the_active_tab() -> Non
 async def test_messages_panel_tab_actions_follow_the_selected_tab() -> None:
     """Scrolling and copy actions should target the visible task or artifact list only."""
     app = _MessagesPanelHarness()
-    app.copy_to_clipboard = Mock()
+    copy_mock = Mock()
+    setattr(app, "copy_to_clipboard", copy_mock)
     older_task = _make_task("task-older", "ctx-older")
     newer_task = _make_task("task-newer", "ctx-newer")
     older_artifact = _make_artifact("artifact-older", name="Older Artifact")
@@ -309,7 +313,7 @@ async def test_messages_panel_tab_actions_follow_the_selected_tab() -> None:
         await pilot.pause()
 
         panel.action_copy_task_id()
-        assert app.copy_to_clipboard.call_args_list == []
+        assert copy_mock.call_args_list == []
 
         panel.query_one("#messages-tabs", TabbedContent).active = "tasks-tab"
         await pilot.pause()
@@ -365,7 +369,7 @@ async def test_messages_panel_tab_actions_follow_the_selected_tab() -> None:
             == "artifact-newer"
         )
 
-        assert app.copy_to_clipboard.call_args_list == [
+        assert copy_mock.call_args_list == [
             call("task-older"),
             call("ctx-older"),
             call("artifact-older"),

@@ -18,12 +18,14 @@ from a2a_handler.common.input_validation import (
     InputValidationError,
     reject_control_chars,
     validate_agent_url,
+    validate_header_name,
     validate_resource_id,
     validate_webhook_url,
 )
 from a2a_handler.service import (
     A2AService,
     protocol_dump,
+    push_config_dump,
     response_context_id,
     response_task_id,
 )
@@ -81,15 +83,27 @@ def _resolve_credentials(
     elif api_key:
         credentials = create_api_key_auth(api_key)
     if custom_headers:
+        validated_headers: dict[str, str] = {}
+        for name, value in custom_headers.items():
+            if not isinstance(name, str) or not isinstance(value, str):
+                raise ValueError(
+                    "invalid_headers: custom_headers must map string names to string values"
+                )
+            try:
+                validate_header_name(name, f"custom_headers[{name}]")
+                reject_control_chars(value, f"custom_headers[{name}]")
+            except InputValidationError as error:
+                raise _validation_error(error) from error
+            validated_headers[name] = value
         if credentials is None:
             credentials = AuthCredentials(
                 auth_type=AuthType.BEARER,
-                custom_headers=custom_headers,
+                custom_headers=validated_headers,
             )
         else:
             credentials = replace(credentials)
             merged = dict(credentials.custom_headers or {})
-            merged.update(custom_headers)
+            merged.update(validated_headers)
             credentials.custom_headers = merged
 
     return credentials
@@ -466,7 +480,7 @@ def create_mcp_server() -> FastMCP:
             service = A2AService(http_client, agent_url, credentials=credentials)
             config = await service.set_push_config(task_id, webhook_url, webhook_token)
 
-            return config.model_dump(mode="json", exclude_none=True)
+            return push_config_dump(config)
 
     @mcp.tool()
     async def get_task_notification(
@@ -525,7 +539,7 @@ def create_mcp_server() -> FastMCP:
             service = A2AService(http_client, agent_url, credentials=credentials)
             config = await service.get_push_config(task_id, config_id)
 
-            return config.model_dump(mode="json", exclude_none=True)
+            return push_config_dump(config)
 
     @mcp.tool()
     async def list_sessions() -> dict:

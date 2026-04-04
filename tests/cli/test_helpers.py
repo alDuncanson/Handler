@@ -253,6 +253,31 @@ class TestResolveAgentTarget:
             assert creds is not None
             assert creds.value == "override-token"
 
+    def test_server_name_collision_raises_usage_error(self):
+        """Duplicate server names across sources must fail closed."""
+        repo_server = ServerDefinition(
+            server_id="repository:shared",
+            source=ServerSource.REPOSITORY,
+            name="shared",
+            agent_url="https://repo.example.com",
+        )
+        global_server = ServerDefinition(
+            server_id="global:shared",
+            source=ServerSource.GLOBAL,
+            name="shared",
+            agent_url="https://global.example.com",
+        )
+        catalog = ServerCatalog(
+            repository_servers=(repo_server,),
+            global_servers=(global_server,),
+        )
+
+        with (
+            patch("a2a_handler.cli._helpers.load_server_catalog", return_value=catalog),
+            pytest.raises(click.UsageError, match="multiple sources"),
+        ):
+            resolve_agent_target(url=None, server="shared")
+
     def test_server_not_found_raises_usage_error(self):
         """Test that unknown server name raises UsageError."""
         catalog = ServerCatalog()

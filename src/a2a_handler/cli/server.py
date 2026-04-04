@@ -12,6 +12,10 @@ from typing import Optional, cast
 import click
 
 from a2a_handler.common import Output, get_logger
+from a2a_handler.common.input_validation import (
+    InputValidationError,
+    validate_header_name,
+)
 from a2a_handler.server import run_server
 from a2a_handler.servers import (
     SERVERS_FILENAME,
@@ -175,6 +179,10 @@ def _build_server_auth_entry(
         return {"type": "bearer", "env": bearer_env}, None
 
     if api_key_env:
+        try:
+            validate_header_name(api_key_header, "api_key_header")
+        except InputValidationError as error:
+            return None, error.message
         auth: dict[str, object] = {"type": "api_key", "env": api_key_env}
         if api_key_header != "X-API-Key":
             auth["header"] = api_key_header
@@ -191,9 +199,7 @@ def _build_server_auth_entry(
             if not value
         ]
         if missing_flags:
-            return None, (
-                "OAuth2 auth requires " + ", ".join(missing_flags)
-            )
+            return None, ("OAuth2 auth requires " + ", ".join(missing_flags))
 
         auth = {
             "type": "oauth2",

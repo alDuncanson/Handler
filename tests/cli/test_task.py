@@ -462,6 +462,8 @@ class TestTaskNotificationSet:
 
             assert result.exit_code == 0
             assert '"taskId"' in result.output
+            assert "secret-token" not in result.output
+            assert "secr...oken" in result.output
 
     def test_notification_set_with_token(self, runner):
         """Test notification set with authentication token."""
@@ -508,6 +510,8 @@ class TestTaskNotificationSet:
             mock_service.set_push_config.assert_called_once_with(
                 "task-123", "http://webhook.example.com", "webhook-token"
             )
+            assert "webhook-token" not in result.output
+            assert "webh...oken" in result.output
 
     def test_notification_set_requires_webhook_url(self, runner):
         """Test that notification set requires --webhook-url."""
@@ -571,6 +575,8 @@ class TestTaskNotificationGet:
             assert result.exit_code == 0
             assert "task-123" in result.output
             assert "http://webhook.example.com" in result.output
+            assert "secret-token" not in result.output
+            assert "secr...oken" in result.output
 
     def test_notification_get_with_config_id(self, runner):
         """Test notification get with specific config ID."""

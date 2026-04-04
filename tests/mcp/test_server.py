@@ -261,6 +261,19 @@ async def test_send_message_with_bearer_token() -> None:
     assert kwargs["credentials"] is not None
 
 
+@pytest.mark.asyncio
+async def test_send_message_rejects_reserved_custom_header() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "send_message")
+
+    with pytest.raises(ValueError, match="reserved_header"):
+        await fn(
+            agent_url="http://localhost:8000",
+            message="hi",
+            custom_headers={"Authorization": "Bearer shadow"},
+        )
+
+
 # ---------------------------------------------------------------------------
 # get_task
 # ---------------------------------------------------------------------------
@@ -379,7 +392,7 @@ async def test_set_task_notification_success() -> None:
     assert resp["taskId"] == "task-1"
     pnc = resp["pushNotificationConfig"]
     assert pnc["url"] == "https://hooks.example.com/notify"
-    assert pnc["token"] == "secret-token-value-here-long"
+    assert pnc["token"] == "secr...long"
     assert pnc["id"] == "cfg-1"
 
 
@@ -414,7 +427,7 @@ async def test_get_task_notification_success() -> None:
     assert resp["taskId"] == "task-1"
     pnc = resp["pushNotificationConfig"]
     assert pnc["url"] == "https://hooks.example.com/notify"
-    assert pnc["token"] == "abcdefghij1234567890xyz"
+    assert pnc["token"] == "abcd...0xyz"
     assert pnc["id"] == "cfg-2"
 
 

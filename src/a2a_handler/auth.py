@@ -236,6 +236,7 @@ def create_api_key_auth(
         key: The API key value
         header_name: Header name to use (default: X-API-Key)
     """
+    validate_header_name(header_name, "header_name")
     return AuthCredentials(
         auth_type=AuthType.API_KEY,
         value=key,

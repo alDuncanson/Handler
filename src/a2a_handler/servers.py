@@ -29,6 +29,7 @@ from a2a_handler.common.input_validation import (
     InputValidationError,
     reject_control_chars,
     validate_agent_url,
+    validate_header_name,
     validate_token_url,
 )
 
@@ -482,6 +483,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
             raise ServerConfigError("auth.header must be a non-empty string")
         try:
             reject_control_chars(raw_header_name, "auth.header")
+            validate_header_name(raw_header_name, "auth.header")
         except InputValidationError as error:
             raise ServerConfigError(error.message) from error
         header_name = raw_header_name

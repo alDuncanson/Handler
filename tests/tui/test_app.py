@@ -425,19 +425,20 @@ async def test_action_toggle_maximize_maximizes_then_restores_focused_panel() ->
         messages_panel.focus()
         await pilot.pause()
 
-        app.screen.maximize = Mock()  # type: ignore[method-assign]
-        app.screen.minimize = Mock()  # type: ignore[method-assign]
+        maximize_mock = Mock()
+        minimize_mock = Mock()
+        app.screen.maximize = maximize_mock  # type: ignore[method-assign]
+        app.screen.minimize = minimize_mock  # type: ignore[method-assign]
 
         app.action_toggle_maximize()
 
-        app.screen.maximize.assert_called_once_with(messages_panel)
+        maximize_mock.assert_called_once_with(messages_panel)
         assert app._is_maximized is True
 
         app.action_toggle_maximize()
 
-        app.screen.minimize.assert_called_once_with()
+        minimize_mock.assert_called_once_with()
         assert app._is_maximized is False
-
 
 
 @pytest.mark.asyncio
@@ -463,7 +464,7 @@ async def test_initial_bearer_token_seeds_first_server_auth_panel() -> None:
 async def test_auto_connected_oauth2_server_populates_auth_panel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Auto-connected OAuth2 servers should sync resolved credentials into Auth."""
+    """Explicitly auto-connected OAuth2 servers should sync credentials into Auth."""
     monkeypatch.setenv("CLIENT_ID", "resolved-client-id")
     monkeypatch.setenv("CLIENT_SECRET", "resolved-client-secret")
 
@@ -485,7 +486,7 @@ async def test_auto_connected_oauth2_server_populates_auth_panel(
         ),
     )
 
-    app = HandlerTUI()
+    app = HandlerTUI(connect_servers=("plain", "oauth"))
     connected_credentials: dict[str, object | None] = {}
 
     def build_http_client_side_effect(*args: object, **kwargs: object) -> AsyncMock:
@@ -625,6 +626,35 @@ async def test_repository_connection_tab_is_default_and_selects_first_connection
 
             assert connect_view.get_selected_server() == repo_connection
             assert connect_view.get_url() == "https://staging.example.com"
+
+
+@pytest.mark.asyncio
+async def test_repository_connections_do_not_auto_connect_on_startup() -> None:
+    """Repository servers should be selectable by default but never auto-connect."""
+    app = HandlerTUI()
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="staging",
+        agent_url="https://staging.example.com",
+    )
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch("a2a_handler.tui.server.tab.build_http_client") as mock_http_client,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            assert workspace.is_connected is False
+
+    mock_http_client.assert_not_called()
+    mock_service_cls.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -852,9 +882,9 @@ async def test_connecting_recent_session_hydrates_task_history_but_not_completed
 
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
-            workspace.query_one("#server-select", Select).value = (
-                "recent:https://agent.example.com"
-            )
+            workspace.query_one(
+                "#server-select", Select
+            ).value = "recent:https://agent.example.com"
             await pilot.pause()
 
             await workspace.handle_connect_button()
@@ -872,9 +902,7 @@ async def test_connecting_recent_session_hydrates_task_history_but_not_completed
                 "task-saved-654321",
                 history_length=100,
             )
-            assert any(
-                "resumed recent session" in text.lower() for text in chat_texts
-            )
+            assert any("resumed recent session" in text.lower() for text in chat_texts)
 
 
 @pytest.mark.asyncio
@@ -922,9 +950,9 @@ async def test_connecting_recent_session_clears_missing_saved_task_id(
 
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
-            workspace.query_one("#server-select", Select).value = (
-                "recent:https://agent.example.com"
-            )
+            workspace.query_one(
+                "#server-select", Select
+            ).value = "recent:https://agent.example.com"
             await pilot.pause()
 
             await workspace.handle_connect_button()
@@ -1294,7 +1322,9 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
             assert "Repository Server" in str(source_badge.content)
             assert auth_badge.has_class("hidden")
 
-            status_row_ids = [child.id for child in workspace.query_one("#server-status-row").children]
+            status_row_ids = [
+                child.id for child in workspace.query_one("#server-status-row").children
+            ]
             assert status_row_ids == [
                 "badge-status",
                 "badge-agent",
@@ -1319,12 +1349,13 @@ async def test_action_save_connections_warns_when_nothing_is_connected() -> None
     with patch("a2a_handler.tui.app.save_connections_to_workspace") as mock_save:
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.notify = Mock()  # type: ignore[method-assign]
+            notify_mock = Mock()
+            app.notify = notify_mock  # type: ignore[method-assign]
 
             await app.action_save_connections()
 
             mock_save.assert_not_called()
-            app.notify.assert_called_once_with(
+            notify_mock.assert_called_once_with(
                 "No connected servers to add",
                 severity="warning",
             )
@@ -1369,14 +1400,15 @@ async def test_action_save_connections_persists_connected_servers() -> None:
             await pilot.pause()
             await pilot.click("#connect-btn")
             await pilot.pause()
-            app.notify = Mock()  # type: ignore[method-assign]
+            notify_mock = Mock()
+            app.notify = notify_mock  # type: ignore[method-assign]
 
             await app.action_save_connections()
 
             saved_servers = mock_save.call_args.args[0]
             assert len(saved_servers) == 1
             assert saved_servers[0].is_connected is True
-            app.notify.assert_called_once_with(
+            notify_mock.assert_called_once_with(
                 "Added 1 server(s) to .handler/servers.toml"
             )
 
@@ -1420,11 +1452,12 @@ async def test_action_save_connections_reports_write_failures() -> None:
             await pilot.pause()
             await pilot.click("#connect-btn")
             await pilot.pause()
-            app.notify = Mock()  # type: ignore[method-assign]
+            notify_mock = Mock()
+            app.notify = notify_mock  # type: ignore[method-assign]
 
             await app.action_save_connections()
 
-            app.notify.assert_called_once_with(
+            notify_mock.assert_called_once_with(
                 "Failed to save: disk full",
                 severity="error",
             )
@@ -1473,7 +1506,9 @@ async def test_action_start_fresh_conversation_resets_context_and_task(
 
             original_context_id = workspace.state.current_context_id
             workspace.state.current_task_id = "task-existing"
-            workspace.query_one(TabbedMessagesPanel).add_system_message("Old conversation")
+            workspace.query_one(TabbedMessagesPanel).add_system_message(
+                "Old conversation"
+            )
             patch_server_sources.set_conversation.reset_mock()
 
             await app.action_start_fresh_conversation()
@@ -1497,7 +1532,9 @@ async def test_action_start_fresh_conversation_resets_context_and_task(
 
 
 @pytest.mark.asyncio
-async def test_action_rename_workspace_server_uses_prompt_and_refreshes_catalog() -> None:
+async def test_action_rename_workspace_server_uses_prompt_and_refreshes_catalog() -> (
+    None
+):
     """Renaming a workspace server should prompt, write, and refresh picker state."""
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
@@ -1515,29 +1552,33 @@ async def test_action_rename_workspace_server_uses_prompt_and_refreshes_catalog(
 
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
+
             def fake_push_screen(screen, callback=None, wait_for_dismiss=False):
                 assert callback is not None
                 callback("renamed_demo")
                 return None
 
-            app.push_screen = Mock(side_effect=fake_push_screen)  # type: ignore[method-assign]
-            app.notify = Mock()  # type: ignore[method-assign]
-            workspace.refresh_server_catalog = Mock()  # type: ignore[method-assign]
+            push_screen_mock = Mock(side_effect=fake_push_screen)
+            notify_mock = Mock()
+            refresh_catalog_mock = Mock()
+            app.push_screen = push_screen_mock  # type: ignore[method-assign]
+            app.notify = notify_mock  # type: ignore[method-assign]
+            workspace.refresh_server_catalog = refresh_catalog_mock  # type: ignore[method-assign]
 
-            with patch(
-                "a2a_handler.tui.app.rename_workspace_server"
-            ) as mock_rename:
+            with patch("a2a_handler.tui.app.rename_workspace_server") as mock_rename:
                 app.action_rename_workspace_server()
 
             mock_rename.assert_called_once_with("demo", "renamed_demo")
-            workspace.refresh_server_catalog.assert_called_once_with()
-            app.notify.assert_called_once_with(
+            refresh_catalog_mock.assert_called_once_with()
+            notify_mock.assert_called_once_with(
                 "Renamed saved workspace server to renamed_demo"
             )
 
 
 @pytest.mark.asyncio
-async def test_action_remove_workspace_server_confirms_before_refreshing_catalog() -> None:
+async def test_action_remove_workspace_server_confirms_before_refreshing_catalog() -> (
+    None
+):
     """Removing a workspace server should require confirmation before deleting."""
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
@@ -1555,23 +1596,25 @@ async def test_action_remove_workspace_server_confirms_before_refreshing_catalog
 
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
+
             def fake_push_screen(screen, callback=None, wait_for_dismiss=False):
                 assert callback is not None
                 callback(True)
                 return None
 
-            app.push_screen = Mock(side_effect=fake_push_screen)  # type: ignore[method-assign]
-            app.notify = Mock()  # type: ignore[method-assign]
-            workspace.refresh_server_catalog = Mock()  # type: ignore[method-assign]
+            push_screen_mock = Mock(side_effect=fake_push_screen)
+            notify_mock = Mock()
+            refresh_catalog_mock = Mock()
+            app.push_screen = push_screen_mock  # type: ignore[method-assign]
+            app.notify = notify_mock  # type: ignore[method-assign]
+            workspace.refresh_server_catalog = refresh_catalog_mock  # type: ignore[method-assign]
 
-            with patch(
-                "a2a_handler.tui.app.remove_workspace_server"
-            ) as mock_remove:
+            with patch("a2a_handler.tui.app.remove_workspace_server") as mock_remove:
                 app.action_remove_workspace_server()
 
             mock_remove.assert_called_once_with("demo")
-            workspace.refresh_server_catalog.assert_called_once_with()
-            app.notify.assert_called_once_with(
+            refresh_catalog_mock.assert_called_once_with()
+            notify_mock.assert_called_once_with(
                 "Removed saved workspace server 'demo'. Live tab stays open."
             )
 
@@ -1614,17 +1657,20 @@ async def test_action_forget_saved_session_confirms_before_refreshing_catalog(
                 callback(True)
                 return None
 
-            app.push_screen = Mock(side_effect=fake_push_screen)  # type: ignore[method-assign]
-            app.notify = Mock()  # type: ignore[method-assign]
-            workspace.refresh_server_catalog = Mock()  # type: ignore[method-assign]
+            push_screen_mock = Mock(side_effect=fake_push_screen)
+            notify_mock = Mock()
+            refresh_catalog_mock = Mock()
+            app.push_screen = push_screen_mock  # type: ignore[method-assign]
+            app.notify = notify_mock  # type: ignore[method-assign]
+            workspace.refresh_server_catalog = refresh_catalog_mock  # type: ignore[method-assign]
 
             app.action_forget_saved_session()
 
             patch_server_sources.clear.assert_called_once_with(
                 "https://agent.example.com"
             )
-            workspace.refresh_server_catalog.assert_called_once_with()
-            app.notify.assert_called_once_with(
+            refresh_catalog_mock.assert_called_once_with()
+            notify_mock.assert_called_once_with(
                 "Forgot saved session for 'demo'. Live tab stays open."
             )
 

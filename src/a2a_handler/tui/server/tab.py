@@ -261,7 +261,9 @@ class ServerTab(Container):
         manual_url = connection_bar.query_one("#manual-agent-url", Input).value
         manual_credentials = None
         if manual_selected:
-            manual_credentials = self._get_server_view().messages_panel().get_auth_credentials()
+            manual_credentials = (
+                self._get_server_view().messages_panel().get_auth_credentials()
+            )
 
         self._load_server_catalog(sync_selected_auth=False)
 
@@ -272,7 +274,9 @@ class ServerTab(Container):
                     manual_credentials
                 )
         elif previous_selected is not None:
-            restored = self._find_matching_server(previous_selected, allow_any_source=True)
+            restored = self._find_matching_server(
+                previous_selected, allow_any_source=True
+            )
             if restored is not None:
                 self._select_server(restored)
             else:
@@ -342,7 +346,10 @@ class ServerTab(Container):
         if selected is not None and session_store.find(selected.agent_url) is not None:
             return selected.agent_url, selected.label
 
-        if self.state.agent_url is not None and session_store.find(self.state.agent_url) is not None:
+        if (
+            self.state.agent_url is not None
+            and session_store.find(self.state.agent_url) is not None
+        ):
             if self.state.connected_server_def is not None:
                 label = self.state.connected_server_def.label
             elif self.state.agent_card is not None:
@@ -425,7 +432,10 @@ class ServerTab(Container):
         selected_server: ServerDefinition | None,
     ) -> bool:
         """Recent entries are explicit resume targets; other selections start fresh."""
-        return selected_server is not None and selected_server.source == ServerSource.RECENT
+        return (
+            selected_server is not None
+            and selected_server.source == ServerSource.RECENT
+        )
 
     async def _connect_to_agent(
         self,
@@ -714,7 +724,10 @@ class ServerTab(Container):
             self._show_disconnected_state()
             return
 
-        auth_credentials = server_view.messages_panel().get_auth_credentials()
+        try:
+            auth_credentials = server_view.messages_panel().get_auth_credentials()
+        except InputValidationError:
+            auth_credentials = None
 
         server_view.connection_bar().set_connected_status(
             agent_name=self.state.agent_card.name,
