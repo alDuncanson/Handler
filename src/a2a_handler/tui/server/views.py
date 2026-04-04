@@ -75,6 +75,15 @@ class ConnectionBar(Container):
         connect_button = self.query_one("#connect-btn", Button)
         self.post_message(Button.Pressed(connect_button))
 
+    def set_connect_button_state(self, is_connected: bool) -> None:
+        """Update the connect button label and tone for reconnect flows."""
+        connect_button = self.query_one("#connect-btn", Button)
+        connect_button.label = "RECONNECT" if is_connected else "CONNECT"
+        if is_connected:
+            connect_button.add_class("reconnect")
+            return
+        connect_button.remove_class("reconnect")
+
     def set_server_catalog(
         self,
         repository_servers: tuple[ServerDefinition, ...],
@@ -170,6 +179,7 @@ class ConnectionBar(Container):
         agent_version: str | None = None,
     ) -> None:
         """Show connection info as individual badges."""
+        self.set_connect_button_state(True)
         self._set_badge("badge-status", "● Connected", "badge-success")
         self._set_badge("badge-agent", agent_name)
         self._set_badge("badge-auth", auth_source)
@@ -184,6 +194,7 @@ class ConnectionBar(Container):
 
     def show_disconnected_badges(self) -> None:
         """Reset badges to disconnected state."""
+        self.set_connect_button_state(False)
         self._set_badge("badge-status", "● Disconnected", "badge-muted")
         self._set_badge("badge-agent", "")
         self._set_badge("badge-auth", "")

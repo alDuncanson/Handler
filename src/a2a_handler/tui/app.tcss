@@ -412,7 +412,7 @@ Select:focus SelectCurrent {
 #send-btn,
 #connect-btn {
     width: auto;
-    min-width: 7;
+    min-width: 10;
     background: $accent 20%;
     color: $text;
     text-style: bold;
@@ -425,6 +425,14 @@ Select:focus SelectCurrent {
 #connect-btn:focus {
     background: $accent;
     color: $text;
+}
+
+#connect-btn.reconnect {
+    background: $secondary 24%;
+}
+
+#connect-btn.reconnect:focus {
+    background: $secondary;
 }
 
 #messages-tabs {
@@ -789,6 +797,42 @@ CommandPalette #--results {
 CommandPalette CommandList {
     max-height: 12;
     border: none;
+}
+
+TextPromptScreen,
+ConfirmScreen {
+    align: center middle;
+}
+
+#command-dialog {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: round $secondary 40%;
+}
+
+#command-dialog-title {
+    text-style: bold;
+}
+
+#command-dialog-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#command-dialog-input {
+    margin-bottom: 1;
+}
+
+#command-dialog-buttons {
+    height: auto;
+    align: right middle;
+}
+
+#command-dialog-buttons Button {
+    margin-left: 1;
 }
 
 #auth-panel.hidden {

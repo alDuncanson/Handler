@@ -13,9 +13,14 @@ from textual.widgets import Footer, Tabs
 
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
+from a2a_handler.tui.commands import ConfirmScreen, TextPromptScreen, iter_custom_system_commands
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.save import save_connections_to_workspace
 from a2a_handler.tui.server.tabs import ServerTabs
+from a2a_handler.tui.server.workspace import (
+    remove_workspace_server,
+    rename_workspace_server,
+)
 
 logging.basicConfig(
     level="NOTSET",
@@ -169,9 +174,91 @@ class HandlerTUI(App[Any]):
 
     async def action_connect_server(self) -> None:
         """Connect the active server using the current picker selection."""
-        server = self.query_one(ServerTabs).get_active_server()
+        server = self._get_active_server()
         if server is not None and not server.is_connected:
             await server.handle_connect_button()
+
+    async def action_start_fresh_conversation(self) -> None:
+        """Reset the active server to a fresh conversation context."""
+        server = self._get_active_server()
+        if server is None or not server.is_connected:
+            self.notify("Connect to a server before starting fresh", severity="warning")
+            return
+        await server.start_fresh_conversation()
+
+    def action_rename_workspace_server(self) -> None:
+        """Rename the selected repository-local workspace server."""
+        server = self._get_active_server()
+        workspace_server = server.get_selected_workspace_server() if server else None
+        if workspace_server is None or workspace_server.name is None:
+            self.notify("Choose a workspace server to rename", severity="warning")
+            return
+
+        self.push_screen(
+            TextPromptScreen(
+                "Rename Workspace Server",
+                "Update this repo's saved server name.",
+                value=workspace_server.name,
+                placeholder="workspace_server",
+                confirm_label="Rename",
+            ),
+            callback=lambda new_name: self._handle_rename_workspace_server_result(
+                workspace_server.name,
+                new_name,
+            ),
+        )
+
+    def _handle_rename_workspace_server_result(
+        self,
+        current_name: str,
+        new_name: str | None,
+    ) -> None:
+        """Apply a rename result after the prompt screen is dismissed."""
+        if new_name is None or new_name == current_name:
+            return
+
+        try:
+            rename_workspace_server(current_name, new_name)
+            self._refresh_server_catalogs()
+            self.notify(f"Renamed workspace server to {new_name}")
+        except Exception as error:
+            self.notify(f"Failed to rename workspace server: {error}", severity="error")
+
+    def action_remove_workspace_server(self) -> None:
+        """Remove the selected repository-local workspace server."""
+        server = self._get_active_server()
+        workspace_server = server.get_selected_workspace_server() if server else None
+        if workspace_server is None or workspace_server.name is None:
+            self.notify("Choose a workspace server to remove", severity="warning")
+            return
+
+        self.push_screen(
+            ConfirmScreen(
+                "Remove Workspace Server",
+                f"Remove '{workspace_server.name}' from this repo's .handler/servers.toml?",
+                confirm_label="Remove",
+            ),
+            callback=lambda confirmed: self._handle_remove_workspace_server_result(
+                workspace_server.name,
+                confirmed,
+            ),
+        )
+
+    def _handle_remove_workspace_server_result(
+        self,
+        current_name: str,
+        confirmed: bool,
+    ) -> None:
+        """Apply a remove result after the confirmation screen is dismissed."""
+        if not confirmed:
+            return
+
+        try:
+            remove_workspace_server(current_name)
+            self._refresh_server_catalogs()
+            self.notify(f"Removed workspace server '{current_name}'")
+        except Exception as error:
+            self.notify(f"Failed to remove workspace server: {error}", severity="error")
 
     async def action_save_connections(self) -> None:
         """Add current connections to this repo's .handler/servers.toml."""
@@ -194,42 +281,9 @@ class HandlerTUI(App[Any]):
                 continue
             yield command
 
-        server_tabs = self.query_one(ServerTabs)
-        active = server_tabs.get_active_server()
+        yield from iter_custom_system_commands(self)
 
-        if active is not None and not active.is_connected:
-            yield SystemCommand(
-                "Connect",
-                "Connect the active server using the selected server or recent session",
-                self.action_connect_server,
-            )
-
-        if active is not None and len(server_tabs.iter_servers()) > 1:
-            yield SystemCommand(
-                f"Close {active.title}",
-                "Close the active server tab",
-                self.action_close_server,
-            )
-
-        connected = [s for s in server_tabs.iter_servers() if s.is_connected]
-        if connected:
-            yield SystemCommand(
-                "Git Add Servers",
-                "Add connected servers to this repo's .handler/servers.toml",
-                self.action_save_connections,
-            )
-
-        for server in server_tabs.iter_servers():
-            if active is not None and server is active:
-                continue
-            title = server.title
-            yield SystemCommand(
-                f"Switch to {title}",
-                f"Activate the {title} server tab",
-                self._switch_to_server(server.server_id),
-            )
-
-    def _switch_to_server(self, server_id: str) -> Callable[[], None]:
+    def switch_to_server_callback(self, server_id: str) -> Callable[[], None]:
         """Return a callback that activates the given server tab."""
 
         def callback() -> None:
@@ -240,6 +294,13 @@ class HandlerTUI(App[Any]):
                 tabs.active = tab_id
 
         return callback
+
+    def _get_active_server(self):
+        return self.query_one(ServerTabs).get_active_server()
+
+    def _refresh_server_catalogs(self) -> None:
+        for server in self.query_one(ServerTabs).iter_servers():
+            server.refresh_server_catalog()
 
     async def on_unmount(self) -> None:
         if self._tui_log_handler is not None:

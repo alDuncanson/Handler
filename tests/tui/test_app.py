@@ -18,7 +18,7 @@ from a2a.types import (
     TextPart,
 )
 from textual.app import App as TextualApp, SystemCommand
-from textual.widgets import Input, Select, Static, Tab, Tabs
+from textual.widgets import Button, Input, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.servers import (
@@ -297,8 +297,16 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
 
             assert "Connect" in titles
             assert "Resume Saved Context" not in titles
+            assert "Start Fresh Conversation" not in titles
+            assert "Rename Workspace Server" in titles
+            assert "Remove Workspace Server" in titles
             assert "Close Server 2" in titles
             assert "Git Add Servers" in titles
+
+            connected_server = app.query_one(ServerTabs).query_one("#server-1")
+            connect_button = connected_server.query_one("#connect-btn", Button)
+            assert str(connect_button.label) == "RECONNECT"
+            assert connect_button.has_class("reconnect")
 
             switch_command = next(
                 command
@@ -1325,6 +1333,148 @@ async def test_action_save_connections_reports_write_failures() -> None:
                 "Failed to save: disk full",
                 severity="error",
             )
+
+
+@pytest.mark.asyncio
+async def test_action_start_fresh_conversation_resets_context_and_task(
+    patch_server_sources: Mock,
+) -> None:
+    """Starting fresh should keep the connection while replacing context and task."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            original_context_id = workspace.state.current_context_id
+            workspace.state.current_task_id = "task-existing"
+            workspace.query_one(TabbedMessagesPanel).add_system_message("Old conversation")
+            patch_server_sources.set_conversation.reset_mock()
+
+            await app.action_start_fresh_conversation()
+            await pilot.pause()
+
+            assert workspace.is_connected is True
+            assert workspace.state.current_context_id != original_context_id
+            assert workspace.state.current_task_id is None
+            patch_server_sources.set_conversation.assert_called_once_with(
+                "https://agent.example.com",
+                workspace.state.current_context_id,
+                None,
+            )
+
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any(
+                "Started a fresh conversation on the current server." in text
+                for text in chat_texts
+            )
+            assert not any("Old conversation" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_action_rename_workspace_server_uses_prompt_and_refreshes_catalog() -> None:
+    """Renaming a workspace server should prompt, write, and refresh picker state."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            def fake_push_screen(screen, callback=None, wait_for_dismiss=False):
+                assert callback is not None
+                callback("renamed_demo")
+                return None
+
+            app.push_screen = Mock(side_effect=fake_push_screen)  # type: ignore[method-assign]
+            app.notify = Mock()  # type: ignore[method-assign]
+            workspace.refresh_server_catalog = Mock()  # type: ignore[method-assign]
+
+            with patch(
+                "a2a_handler.tui.app.rename_workspace_server"
+            ) as mock_rename:
+                app.action_rename_workspace_server()
+
+            mock_rename.assert_called_once_with("demo", "renamed_demo")
+            workspace.refresh_server_catalog.assert_called_once_with()
+            app.notify.assert_called_once_with("Renamed workspace server to renamed_demo")
+
+
+@pytest.mark.asyncio
+async def test_action_remove_workspace_server_confirms_before_refreshing_catalog() -> None:
+    """Removing a workspace server should require confirmation before deleting."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            def fake_push_screen(screen, callback=None, wait_for_dismiss=False):
+                assert callback is not None
+                callback(True)
+                return None
+
+            app.push_screen = Mock(side_effect=fake_push_screen)  # type: ignore[method-assign]
+            app.notify = Mock()  # type: ignore[method-assign]
+            workspace.refresh_server_catalog = Mock()  # type: ignore[method-assign]
+
+            with patch(
+                "a2a_handler.tui.app.remove_workspace_server"
+            ) as mock_remove:
+                app.action_remove_workspace_server()
+
+            mock_remove.assert_called_once_with("demo")
+            workspace.refresh_server_catalog.assert_called_once_with()
+            app.notify.assert_called_once_with("Removed workspace server 'demo'")
 
 
 @pytest.mark.asyncio

@@ -192,7 +192,7 @@ class ServerTab(Container):
         if server_view is not None:
             server_view.messages_panel().add_log(line)
 
-    def _load_server_catalog(self) -> None:
+    def _load_server_catalog(self, *, sync_selected_auth: bool = True) -> None:
         self._server_catalog = load_server_catalog()
         self._server_credentials = {}
         self._server_warnings = {}
@@ -249,8 +249,89 @@ class ServerTab(Container):
         )
 
         selected = connection_bar.get_selected_server()
-        if selected is not None:
+        if sync_selected_auth and selected is not None:
             self._sync_auth_to_server(selected.server_id)
+
+    def refresh_server_catalog(self) -> None:
+        """Reload server definitions while preserving the current picker intent."""
+        connection_bar = self._get_connection_bar()
+        previous_selected = connection_bar.get_selected_server()
+        manual_selected = connection_bar._is_manual_selected()
+        manual_url = connection_bar.query_one("#manual-agent-url", Input).value
+        manual_credentials = None
+        if manual_selected:
+            manual_credentials = self._get_server_view().messages_panel().get_auth_credentials()
+
+        self._load_server_catalog(sync_selected_auth=False)
+
+        if manual_selected:
+            self._select_manual_url(manual_url)
+            with self._suppressing_auth_events():
+                self._get_server_view().messages_panel().set_auth_credentials(
+                    manual_credentials
+                )
+        elif previous_selected is not None:
+            restored = self._find_matching_server(previous_selected, allow_any_source=True)
+            if restored is not None:
+                self._select_server(restored)
+            else:
+                selected = connection_bar.get_selected_server()
+                if selected is not None:
+                    self._sync_auth_to_server(selected.server_id)
+
+        if self.state.connected_server_def is not None:
+            self.state.connected_server_def = self._find_matching_server(
+                self.state.connected_server_def
+            )
+        self._refresh_status_badges()
+
+    def _find_matching_server(
+        self,
+        previous_server: ServerDefinition,
+        *,
+        allow_any_source: bool = False,
+    ) -> ServerDefinition | None:
+        exact = self._servers_by_id.get(previous_server.server_id)
+        if exact is not None:
+            return exact
+
+        for server_def in self._servers_by_id.values():
+            if (
+                server_def.source == previous_server.source
+                and server_def.agent_url == previous_server.agent_url
+            ):
+                return server_def
+
+        if allow_any_source:
+            for server_def in self._servers_by_id.values():
+                if server_def.agent_url == previous_server.agent_url:
+                    return server_def
+        return None
+
+    def _select_server(self, server_def: ServerDefinition) -> None:
+        """Select a specific configured server in the picker."""
+        connection_bar = self._get_connection_bar()
+        select = connection_bar.query_one("#server-select", Select)
+        with connection_bar.prevent(Select.Changed):
+            select.value = server_def.server_id
+        connection_bar._sync_manual_input()
+        self._sync_auth_to_server(server_def.server_id)
+
+    def get_selected_workspace_server(self) -> ServerDefinition | None:
+        """Return the repo-local server selected in the picker, if any."""
+        selected = self._get_connection_bar().get_selected_server()
+        if selected is not None and selected.source == ServerSource.REPOSITORY:
+            return selected
+        if selected is not None and selected.source == ServerSource.RECENT:
+            for server_def in self._server_catalog.repository_servers:
+                if server_def.agent_url == selected.agent_url:
+                    return server_def
+        if (
+            self.state.connected_server_def is not None
+            and self.state.connected_server_def.source == ServerSource.REPOSITORY
+        ):
+            return self.state.connected_server_def
+        return None
 
     def _sync_auth_to_server(self, server_id: str) -> None:
         """Sync the auth panel to show the selected server's credentials."""
@@ -284,6 +365,30 @@ class ServerTab(Container):
     ) -> bool:
         """Recent entries are explicit resume targets; other selections start fresh."""
         return selected_server is not None and selected_server.source == ServerSource.RECENT
+
+    def _describe_auth_source(
+        self,
+        selected_server: ServerDefinition | None,
+        credentials: AuthCredentials | None,
+    ) -> str:
+        """Describe where the current auth configuration came from."""
+        if selected_server is None:
+            return "manual override" if credentials is not None else "none"
+        if selected_server.source == ServerSource.RECENT:
+            return (
+                "recent session default"
+                if credentials is not None
+                else "recent session (no default auth)"
+            )
+        if credentials is None:
+            return (
+                f"{selected_server.origin_label.lower()} server "
+                f"'{selected_server.label}' (no default auth)"
+            )
+        return (
+            f"{selected_server.origin_label.lower()} server "
+            f"'{selected_server.label}' default"
+        )
 
     async def _connect_to_agent(
         self,
@@ -376,6 +481,15 @@ class ServerTab(Container):
         should_resume_session = self._selection_resumes_saved_context(selected_server)
 
         messages_panel = self._get_server_view().messages_panel()
+        previous_state = ServerState(
+            mode=self.state.mode,
+            agent_card=self.state.agent_card,
+            agent_url=self.state.agent_url,
+            current_context_id=self.state.current_context_id,
+            current_task_id=self.state.current_task_id,
+            auth_source=self.state.auth_source,
+            connected_server_def=self.state.connected_server_def,
+        )
 
         if not agent_url:
             if connection_bar._is_manual_selected():
@@ -409,25 +523,7 @@ class ServerTab(Container):
 
         try:
             credentials = messages_panel.get_auth_credentials()
-
-            if selected_server is None:
-                auth_source = "manual override" if credentials is not None else "none"
-            elif selected_server.source == ServerSource.RECENT:
-                auth_source = (
-                    "recent session default"
-                    if credentials is not None
-                    else "recent session (no default auth)"
-                )
-            elif credentials is None:
-                auth_source = (
-                    f"{selected_server.origin_label.lower()} server "
-                    f"'{selected_server.label}' (no default auth)"
-                )
-            else:
-                auth_source = (
-                    f"{selected_server.origin_label.lower()} server "
-                    f"'{selected_server.label}' default"
-                )
+            auth_source = self._describe_auth_source(selected_server, credentials)
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
             context_id = str(uuid.uuid4())
@@ -464,9 +560,18 @@ class ServerTab(Container):
                 exc_info=True,
             )
             messages_panel.add_system_message(f"Connection failed: {error!s}")
-            self.state.agent_card = None
-            self.state.agent_url = None
-            self._refresh_status_badges()
+            if previous_state.mode == ServerConnectionMode.CONNECTED:
+                self.state = previous_state
+                self._refresh_status_badges()
+            else:
+                self.state.mode = ServerConnectionMode.DISCONNECTED
+                self.state.agent_card = None
+                self.state.agent_url = None
+                self.state.current_task_id = None
+                self.state.current_context_id = None
+                self.state.connected_server_def = None
+                self.state.auth_source = "none"
+                self._refresh_status_badges()
 
     @on(Button.Pressed, "#connect-btn")
     async def _handle_connect_pressed(self) -> None:
@@ -581,6 +686,19 @@ class ServerTab(Container):
             protocol_version=self.state.agent_card.protocol_version,
             agent_version=self.state.agent_card.version,
         )
+
+    async def start_fresh_conversation(self) -> None:
+        """Reset the current live connection to a fresh context and task."""
+        if not self.is_connected or self.state.agent_card is None:
+            return
+
+        self.state.current_context_id = str(uuid.uuid4())
+        self.state.current_task_id = None
+        await self._apply_connected_ui(
+            conversation_summary="fresh server context",
+            warning="Started a fresh conversation on the current server.",
+        )
+        self._persist_session_state()
 
     def _persist_session_state(self) -> None:
         if self.state.agent_url is None:
