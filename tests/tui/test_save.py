@@ -6,7 +6,12 @@ import importlib
 from types import SimpleNamespace
 from typing import cast
 
-from a2a_handler.auth import AuthCredentials, AuthType, create_api_key_auth, create_bearer_auth
+from a2a_handler.auth import (
+    AuthCredentials,
+    AuthType,
+    create_api_key_auth,
+    create_bearer_auth,
+)
 from a2a_handler.cli.server import _read_toml
 from a2a_handler.servers import ServerAuthConfig, ServerDefinition, ServerSource
 from a2a_handler.tui.server.save import save_connections_to_workspace
@@ -172,8 +177,14 @@ def test_save_connections_to_workspace_disambiguates_colliding_server_names(
     data = _read_toml(config_path)
     servers = cast(dict[str, object], data["servers"])
     assert set(servers) == {"demo_agent", "demo_agent_2", "demo_agent_3"}
-    assert cast(dict[str, object], servers["demo_agent_2"])["url"] == "https://one.example.com"
-    assert cast(dict[str, object], servers["demo_agent_3"])["url"] == "https://two.example.com"
+    assert (
+        cast(dict[str, object], servers["demo_agent_2"])["url"]
+        == "https://one.example.com"
+    )
+    assert (
+        cast(dict[str, object], servers["demo_agent_3"])["url"]
+        == "https://two.example.com"
+    )
 
 
 def test_save_connections_to_workspace_uses_bearer_panel_skeleton(

@@ -62,7 +62,9 @@ class TextPromptScreen(ModalScreen[str | None]):
 class ConfirmScreen(ModalScreen[bool]):
     """Simple yes/no confirmation screen."""
 
-    def __init__(self, title: str, subtitle: str, *, confirm_label: str = "Confirm") -> None:
+    def __init__(
+        self, title: str, subtitle: str, *, confirm_label: str = "Confirm"
+    ) -> None:
         super().__init__()
         self._title = title
         self._subtitle = subtitle

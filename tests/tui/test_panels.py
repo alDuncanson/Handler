@@ -5,7 +5,16 @@ from __future__ import annotations
 from unittest.mock import Mock, call
 
 import pytest
-from a2a.types import Artifact, Message, Part, Role, Task, TaskState, TaskStatus, TextPart
+from a2a.types import (
+    Artifact,
+    Message,
+    Part,
+    Role,
+    Task,
+    TaskState,
+    TaskStatus,
+    TextPart,
+)
 from textual.app import App, ComposeResult
 from textual.widgets import TabbedContent
 
@@ -203,7 +212,9 @@ async def test_messages_panel_clear_replaces_chat_with_system_notice() -> None:
 
 
 @pytest.mark.asyncio
-async def test_messages_panel_renders_completed_tasks_and_empty_agent_responses() -> None:
+async def test_messages_panel_renders_completed_tasks_and_empty_agent_responses() -> (
+    None
+):
     """Completed resumed tasks should render their text, while empty responses stay visible."""
     app = _MessagesPanelHarness()
     completed_task = Task(

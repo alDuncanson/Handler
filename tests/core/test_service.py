@@ -35,7 +35,10 @@ from a2a_handler.service import (
     response_state,
     response_task_id,
 )
-from a2a_handler.service import AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH
+from a2a_handler.service import (
+    AGENT_CARD_WELL_KNOWN_PATH,
+    PREV_AGENT_CARD_WELL_KNOWN_PATH,
+)
 
 
 def _make_task(
@@ -653,7 +656,9 @@ class TestA2AServiceOAuthAndCards:
         assert service._applied_auth_headers == {"Authorization"}
         assert service._cached_client is None
 
-    async def test_ensure_oauth2_token_skips_fetch_when_token_is_still_valid(self) -> None:
+    async def test_ensure_oauth2_token_skips_fetch_when_token_is_still_valid(
+        self,
+    ) -> None:
         """A valid cached OAuth token should not be fetched again."""
         credentials = create_oauth2_auth(
             "https://auth.example.com/token",
@@ -680,7 +685,9 @@ class TestA2AServiceOAuthAndCards:
         assert service._cached_client is cached_client
         assert http_client.headers["Authorization"] == "Bearer cached-token"
 
-    async def test_get_card_falls_back_to_previous_well_known_path(self, monkeypatch) -> None:
+    async def test_get_card_falls_back_to_previous_well_known_path(
+        self, monkeypatch
+    ) -> None:
         """Older agents served at the legacy card path should still resolve successfully."""
         card = AgentCard(
             name="Fallback Agent",
@@ -703,7 +710,9 @@ class TestA2AServiceOAuthAndCards:
                 if self.agent_card_path == AGENT_CARD_WELL_KNOWN_PATH:
                     raise httpx.HTTPStatusError(
                         "missing",
-                        request=httpx.Request("GET", "http://example.com/.well-known/agent-card.json"),
+                        request=httpx.Request(
+                            "GET", "http://example.com/.well-known/agent-card.json"
+                        ),
                         response=httpx.Response(404),
                     )
                 return card
@@ -711,14 +720,19 @@ class TestA2AServiceOAuthAndCards:
         monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
 
         async with httpx.AsyncClient() as http_client:
-            service = A2AService(http_client=http_client, agent_url="http://example.com")
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
 
             first = await service.get_card()
             second = await service.get_card()
 
         assert first is card
         assert second is card
-        assert seen_paths == [AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH]
+        assert seen_paths == [
+            AGENT_CARD_WELL_KNOWN_PATH,
+            PREV_AGENT_CARD_WELL_KNOWN_PATH,
+        ]
         assert service.supports_streaming is True
         assert service.supports_push_notifications is True
 

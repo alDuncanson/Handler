@@ -37,7 +37,9 @@ def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
             app.action_start_fresh_conversation,
         )
 
-    saved_session_target = active.get_saved_session_target() if active is not None else None
+    saved_session_target = (
+        active.get_saved_session_target() if active is not None else None
+    )
     if saved_session_target is not None:
         _, target_label = saved_session_target
         yield SystemCommand(
@@ -46,7 +48,9 @@ def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
             app.action_forget_saved_session,
         )
 
-    workspace_server = active.get_selected_workspace_server() if active is not None else None
+    workspace_server = (
+        active.get_selected_workspace_server() if active is not None else None
+    )
     if workspace_server is not None and workspace_server.name:
         yield SystemCommand(
             "Rename Saved Workspace Server",

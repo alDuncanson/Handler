@@ -26,7 +26,12 @@ from textual.app import App as TextualApp
 from textual.widgets import TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
-from a2a_handler.servers import ServerAuthConfig, ServerCatalog, ServerDefinition, ServerSource
+from a2a_handler.servers import (
+    ServerAuthConfig,
+    ServerCatalog,
+    ServerDefinition,
+    ServerSource,
+)
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
 
@@ -92,14 +97,18 @@ def _make_task() -> Task:
             Message(
                 message_id="msg-user-1",
                 role=Role.user,
-                parts=[Part(root=TextPart(text="Summarize the latest handler changes."))],
+                parts=[
+                    Part(root=TextPart(text="Summarize the latest handler changes."))
+                ],
                 context_id="ctx-12345678",
                 task_id="task-12345678",
             ),
             Message(
                 message_id="msg-agent-1",
                 role=Role.agent,
-                parts=[Part(root=TextPart(text="Handler added stronger TUI coverage."))],
+                parts=[
+                    Part(root=TextPart(text="Handler added stronger TUI coverage."))
+                ],
                 context_id="ctx-12345678",
                 task_id="task-12345678",
             ),
@@ -112,7 +121,9 @@ def _make_artifact() -> Artifact:
         artifact_id="artifact-12345678",
         name="Release Notes",
         description="Rendered markdown summary",
-        parts=[Part(root=TextPart(text="Snapshot artifact content for the TUI panel."))],
+        parts=[
+            Part(root=TextPart(text="Snapshot artifact content for the TUI panel."))
+        ],
     )
 
 
@@ -195,7 +206,9 @@ def _patch_snapshot_environment(
 
     monkeypatch.setattr(app_module, "get_theme", lambda: "gruvbox")
     monkeypatch.setattr(app_module, "save_theme", lambda theme: None)
-    monkeypatch.setattr(app_module, "install_tui_log_handler", lambda level: fake_handler)
+    monkeypatch.setattr(
+        app_module, "install_tui_log_handler", lambda level: fake_handler
+    )
     monkeypatch.setattr(logging_module, "_tui_handler", None)
     monkeypatch.setattr(TextualApp, "export_screenshot", _stable_export_screenshot)
 
@@ -208,7 +221,9 @@ def _patch_snapshot_environment(
     monkeypatch.setattr(artifacts_module, "datetime", _FrozenDateTime)
 
 
-def test_handler_tui_disconnected_snapshot(snap_compare, monkeypatch: pytest.MonkeyPatch):
+def test_handler_tui_disconnected_snapshot(
+    snap_compare, monkeypatch: pytest.MonkeyPatch
+):
     """The initial shell layout should remain visually stable."""
     _patch_snapshot_environment(monkeypatch)
 

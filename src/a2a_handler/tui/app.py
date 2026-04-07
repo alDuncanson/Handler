@@ -13,7 +13,11 @@ from textual.widgets import Footer, Tabs
 
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
-from a2a_handler.tui.commands import ConfirmScreen, TextPromptScreen, iter_custom_system_commands
+from a2a_handler.tui.commands import (
+    ConfirmScreen,
+    TextPromptScreen,
+    iter_custom_system_commands,
+)
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.save import save_connections_to_workspace
 from a2a_handler.tui.server.tabs import ServerTabs
@@ -199,7 +203,10 @@ class HandlerTUI(App[Any]):
         server = self._get_active_server()
         session_target = server.get_saved_session_target() if server else None
         if session_target is None:
-            self.notify("Choose a recent session or connected server to forget", severity="warning")
+            self.notify(
+                "Choose a recent session or connected server to forget",
+                severity="warning",
+            )
             return
 
         agent_url, target_label = session_target
@@ -235,7 +242,9 @@ class HandlerTUI(App[Any]):
 
         try:
             server.forget_saved_session(agent_url)
-            self.notify(f"Forgot saved session for '{target_label}'. Live tab stays open.")
+            self.notify(
+                f"Forgot saved session for '{target_label}'. Live tab stays open."
+            )
         except Exception as error:
             self.notify(f"Failed to forget saved session: {error}", severity="error")
 
