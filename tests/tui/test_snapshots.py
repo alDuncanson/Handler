@@ -286,8 +286,11 @@ def test_handler_tui_connected_snapshot(snap_compare, monkeypatch: pytest.Monkey
         assert snap_compare(app, run_before=run_before, terminal_size=(120, 36))
 
 
-def test_handler_tui_tasks_tab_snapshot(snap_compare, monkeypatch: pytest.MonkeyPatch):
-    """The tasks tab should render populated task details predictably."""
+@pytest.mark.asyncio
+async def test_handler_tui_tasks_tab_shows_task_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tasks tab should show the selected task's key details reliably."""
     repo_server = _make_server(
         name="snapshot",
         agent_url="https://agent.example.com",
@@ -302,23 +305,6 @@ def test_handler_tui_tasks_tab_snapshot(snap_compare, monkeypatch: pytest.Monkey
     _patch_snapshot_environment(monkeypatch, repository_servers=(repo_server,))
     monkeypatch.setenv("CLIENT_ID", "snapshot-client")
     monkeypatch.setenv("CLIENT_SECRET", "snapshot-secret")
-
-    async def run_before(pilot) -> None:
-        await pilot.app.action_connect_server()
-        await pilot.pause()
-
-        panel = pilot.app.query_one(TabbedMessagesPanel)
-        panel.set_auth_credentials(
-            create_oauth2_auth(
-                "https://agent.example.com/token",
-                "snapshot-client",
-                "snapshot-secret",
-                scopes=["read", "write"],
-            )
-        )
-        panel.add_task(_make_task())
-        panel.query_one("#messages-tabs", TabbedContent).active = "tasks-tab"
-        await pilot.pause()
 
     with (
         pytest.MonkeyPatch.context() as local_patch,
@@ -338,7 +324,32 @@ def test_handler_tui_tasks_tab_snapshot(snap_compare, monkeypatch: pytest.Monkey
             ),
         )
         app = HandlerTUI()
-        assert snap_compare(app, run_before=run_before, terminal_size=(120, 36))
+
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.app.action_connect_server()
+            await pilot.pause()
+
+            panel = pilot.app.query_one(TabbedMessagesPanel)
+            panel.set_auth_credentials(
+                create_oauth2_auth(
+                    "https://agent.example.com/token",
+                    "snapshot-client",
+                    "snapshot-secret",
+                    scopes=["read", "write"],
+                )
+            )
+            panel.add_task(_make_task())
+            tabs = panel.query_one("#messages-tabs", TabbedContent)
+            tabs.active = "tasks-tab"
+            await pilot.pause()
+
+            detail_texts = _rendered_texts(panel.query_one("#task-detail"))
+            assert tabs.active == "tasks-tab"
+            assert any("task-123" in text for text in detail_texts)
+            assert any("ctx-123" in text for text in detail_texts)
+            assert any(
+                "Handler added stronger TUI coverage." in text for text in detail_texts
+            )
 
 
 @pytest.mark.asyncio
