@@ -2,6 +2,7 @@
 
 import os
 import sys
+from dataclasses import dataclass
 
 import httpx
 import click
@@ -20,12 +21,21 @@ from a2a_handler.auth import (
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.servers import (
+    ServerDefinition,
     load_server_catalog,
     resolve_server_credentials,
 )
 
 TIMEOUT = 120
 log = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentSelection:
+    """A resolved CLI target without any secret-bearing credentials."""
+
+    agent_url: str
+    server_def: ServerDefinition | None = None
 
 
 def build_http_client(
@@ -111,59 +121,80 @@ def _resolve_env_secret(env_var: str, label: str) -> str:
     return value
 
 
+def _find_named_server(server: str) -> ServerDefinition:
+    """Resolve a named server definition, failing closed on ambiguity."""
+    catalog = load_server_catalog()
+    matches = [
+        server_def
+        for server_def in (
+            *catalog.repository_servers,
+            *catalog.global_servers,
+        )
+        if server_def.name == server
+    ]
+    if len(matches) > 1:
+        raise click.UsageError(
+            f"Server '{server}' exists in multiple sources; use --url or rename one entry."
+        )
+    if matches:
+        return matches[0]
+    raise click.UsageError(f"Server '{server}' not found in servers.toml.")
+
+
+def resolve_agent_selection(
+    url: str | None,
+    server: str | None,
+) -> AgentSelection:
+    """Resolve the CLI target URL without touching any secrets."""
+    if url and server:
+        raise click.UsageError("Provide either --url or --server, not both.")
+    if url:
+        return AgentSelection(agent_url=url)
+    if server:
+        server_def = _find_named_server(server)
+        return AgentSelection(agent_url=server_def.agent_url, server_def=server_def)
+    raise click.UsageError("Provide --url or --server.")
+
+
+def resolve_selection_credentials(
+    selection: AgentSelection,
+    bearer_env: str | None = None,
+    api_key_env: str | None = None,
+) -> AuthCredentials | None:
+    """Resolve credentials for a previously selected target.
+
+    CLI flag auth (``--bearer-env``, ``--api-key-env``) overrides server auth.
+    Misconfigured named-server auth fails closed instead of silently falling back
+    to an unauthenticated request.
+    """
+    bearer_token = (
+        _resolve_env_secret(bearer_env, "bearer auth") if bearer_env else None
+    )
+    api_key = _resolve_env_secret(api_key_env, "API key auth") if api_key_env else None
+
+    if bearer_token:
+        return create_bearer_auth(bearer_token)
+    if api_key:
+        return create_api_key_auth(api_key)
+    if selection.server_def is None:
+        return None
+
+    credentials, warning = resolve_server_credentials(selection.server_def)
+    if warning:
+        raise click.UsageError(warning)
+    return credentials
+
+
 def resolve_agent_target(
     url: str | None,
     server: str | None,
     bearer_env: str | None = None,
     api_key_env: str | None = None,
 ) -> tuple[str, AuthCredentials | None]:
-    """Resolve agent URL and credentials from --url or --server flag.
-
-    CLI flag auth (``--bearer-env``, ``--api-key-env``) overrides server auth.
-    """
-    if url and server:
-        raise click.UsageError("Provide either --url or --server, not both.")
-
-    bearer_token = (
-        _resolve_env_secret(bearer_env, "bearer auth") if bearer_env else None
-    )
-    api_key = _resolve_env_secret(api_key_env, "API key auth") if api_key_env else None
-
-    if url:
-        credentials: AuthCredentials | None = None
-        if bearer_token:
-            credentials = create_bearer_auth(bearer_token)
-        elif api_key:
-            credentials = create_api_key_auth(api_key)
-        return url, credentials
-
-    if server:
-        catalog = load_server_catalog()
-        matches = [
-            server_def
-            for server_def in (
-                *catalog.repository_servers,
-                *catalog.global_servers,
-            )
-            if server_def.name == server
-        ]
-        if len(matches) > 1:
-            raise click.UsageError(
-                f"Server '{server}' exists in multiple sources; use --url or rename one entry."
-            )
-        if matches:
-            server_def = matches[0]
-            if bearer_token:
-                return server_def.agent_url, create_bearer_auth(bearer_token)
-            if api_key:
-                return server_def.agent_url, create_api_key_auth(api_key)
-            creds, warning = resolve_server_credentials(server_def)
-            if warning:
-                log.warning(warning)
-            return server_def.agent_url, creds
-        raise click.UsageError(f"Server '{server}' not found in servers.toml.")
-
-    raise click.UsageError("Provide --url or --server.")
+    """Resolve agent URL and credentials from --url or --server flag."""
+    selection = resolve_agent_selection(url, server)
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
+    return selection.agent_url, credentials
 
 
 def handle_validation_error(error: InputValidationError, output: Output) -> None:

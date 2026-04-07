@@ -212,7 +212,6 @@ class ServerTab(Container):
                 self._server_credentials[server_def.server_id] = credentials
             if warning:
                 self._server_warnings[server_def.server_id] = warning
-                logger.warning("Server %s: %s", server_def.label, warning)
 
         recent_servers: list[ServerDefinition] = []
         for session in get_session_store().list_all():

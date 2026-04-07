@@ -14,8 +14,11 @@ from a2a.client.errors import (
 
 from a2a_handler.auth import AuthType
 from a2a_handler.cli._helpers import (
+    AgentSelection,
     build_http_client,
     handle_client_error,
+    resolve_agent_selection,
+    resolve_selection_credentials,
     resolve_agent_target,
     TIMEOUT,
 )
@@ -165,6 +168,12 @@ class TestResolveAgentTarget:
         assert url == "http://localhost:8000"
         assert creds is None
 
+    def test_selection_resolves_url_without_credentials(self):
+        """The clean selection helper only resolves the URL and server metadata."""
+        selection = resolve_agent_selection(url="http://localhost:8000", server=None)
+        assert selection.agent_url == "http://localhost:8000"
+        assert selection.server_def is None
+
     def test_url_with_bearer_env_returns_credentials(self):
         """Test that --url with --bearer-env returns bearer credentials."""
         with patch.dict(os.environ, {"TEST_BEARER": "my-token"}):
@@ -252,6 +261,26 @@ class TestResolveAgentTarget:
             assert url == "http://localhost:8000"
             assert creds is not None
             assert creds.value == "override-token"
+
+    def test_selection_credentials_fail_closed_when_server_auth_unavailable(self):
+        """Named-server auth problems should stop the request instead of downgrading."""
+        server_def = ServerDefinition(
+            server_id="global:handler_dev",
+            source=ServerSource.GLOBAL,
+            name="handler_dev",
+            agent_url="http://localhost:8000",
+            auth=ServerAuthConfig(
+                auth_type=AuthType.BEARER,
+                env_var="MISSING_TOKEN",
+            ),
+        )
+        selection = AgentSelection(
+            agent_url=server_def.agent_url,
+            server_def=server_def,
+        )
+
+        with pytest.raises(click.UsageError, match="MISSING_TOKEN"):
+            resolve_selection_credentials(selection)
 
     def test_server_name_collision_raises_usage_error(self):
         """Duplicate server names across sources must fail closed."""

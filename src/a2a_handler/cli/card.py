@@ -19,7 +19,8 @@ from ._helpers import (
     build_http_client,
     handle_client_error,
     handle_validation_error,
-    resolve_agent_target,
+    resolve_agent_selection,
+    resolve_selection_credentials,
 )
 
 log = get_logger(__name__)
@@ -56,9 +57,8 @@ def card_get(
     """
     output = Output()
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -68,7 +68,7 @@ def card_get(
 
     log.info("Fetching agent card from %s", resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_get() -> None:
         try:
@@ -140,9 +140,8 @@ def card_validate(
         asyncio.run(do_validate_file())
         return
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -152,7 +151,7 @@ def card_validate(
 
     log.info("Validating agent card from %s", resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_validate() -> None:
         async with build_http_client(credentials=credentials) as http_client:

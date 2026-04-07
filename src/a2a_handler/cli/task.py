@@ -27,7 +27,8 @@ from ._helpers import (
     build_http_client,
     handle_client_error,
     handle_validation_error,
-    resolve_agent_target,
+    resolve_agent_selection,
+    resolve_selection_credentials,
 )
 
 log = get_logger(__name__)
@@ -77,9 +78,8 @@ def task_get(
     output = Output()
     payload: dict[str, Any] = {}
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -105,7 +105,7 @@ def task_get(
 
     log.info("Getting task %s from %s", task_id, resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_get() -> None:
         try:
@@ -146,9 +146,8 @@ def task_cancel(
     """
     output = Output()
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -159,7 +158,7 @@ def task_cancel(
 
     log.info("Canceling task %s at %s", task_id, resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_cancel() -> None:
         try:
@@ -202,9 +201,8 @@ def task_resubscribe(
     """
     output = Output()
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -215,7 +213,7 @@ def task_resubscribe(
 
     log.info("Resubscribing to task %s at %s", task_id, resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_resubscribe() -> None:
         try:
@@ -285,9 +283,8 @@ def notification_set(
     """
     output = Output()
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -301,7 +298,7 @@ def notification_set(
 
     log.info("Setting push config for task %s at %s", task_id, resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_set() -> None:
         try:
@@ -346,9 +343,8 @@ def notification_get(
     """
     output = Output()
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -361,7 +357,7 @@ def notification_get(
 
     log.info("Getting push config for task %s at %s", task_id, resolved_url)
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_get() -> None:
         try:

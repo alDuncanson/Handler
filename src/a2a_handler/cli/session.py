@@ -8,7 +8,7 @@ from a2a_handler.common import Output
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
 from a2a_handler.session import clear_session, get_session, get_session_store
 
-from ._helpers import handle_validation_error
+from ._helpers import handle_validation_error, resolve_agent_selection
 
 
 @click.group()
@@ -56,13 +56,7 @@ def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
     """
     output = Output()
 
-    if server_name:
-        from ._helpers import resolve_agent_target
-
-        resolved_url, _ = resolve_agent_target(agent_url, server_name)
-        agent_url = resolved_url
-    elif not agent_url:
-        raise click.UsageError("Provide --url or --server.")
+    agent_url = resolve_agent_selection(agent_url, server_name).agent_url
 
     try:
         validate_agent_url(agent_url)
@@ -104,10 +98,7 @@ def session_clear(
         clear_session()
         output.json({"cleared": "all"})
     elif server_name:
-        from ._helpers import resolve_agent_target
-
-        resolved_url, _ = resolve_agent_target(agent_url, server_name)
-        agent_url = resolved_url
+        agent_url = resolve_agent_selection(agent_url, server_name).agent_url
         clear_session(agent_url)
         output.json({"cleared": agent_url})
     elif agent_url:

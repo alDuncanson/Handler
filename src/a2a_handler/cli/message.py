@@ -35,7 +35,8 @@ from ._helpers import (
     build_http_client,
     handle_client_error,
     handle_validation_error,
-    resolve_agent_target,
+    resolve_agent_selection,
+    resolve_selection_credentials,
 )
 
 log = get_logger(__name__)
@@ -105,9 +106,8 @@ def message_send(
     output = Output()
     payload: dict[str, Any] = {}
 
-    resolved_url, resolved_credentials = resolve_agent_target(
-        agent_url, server_name, bearer_env, api_key_env
-    )
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
 
     try:
         validate_agent_url(resolved_url)
@@ -196,7 +196,7 @@ def message_send(
                 output.error(code="invalid_input", message=str(e))
                 raise click.Abort() from e
 
-    credentials = resolved_credentials
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     if custom_headers:
         if credentials is None:
