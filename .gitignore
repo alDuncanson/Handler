@@ -45,6 +45,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+snapshot_report.html
 
 # UV
 .uv/
@@ -52,3 +53,6 @@ uv.lock
 
 # Logs
 *.log
+
+# Handler local config
+.handler/

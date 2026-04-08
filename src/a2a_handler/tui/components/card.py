@@ -7,7 +7,7 @@ from a2a.types import AgentCard
 from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container, Vertical, VerticalScroll
 from textual.widgets import Static
 
 from a2a_handler.common import get_logger
@@ -27,12 +27,12 @@ class AgentCardPanel(Container):
     """Panel displaying agent card information with tabs."""
 
     BINDINGS = [
-        Binding("j", "scroll_down", "↓ Scroll", show=True, key_display="j/↓"),
-        Binding("k", "scroll_up", "↑ Scroll", show=True, key_display="k/↑"),
+        Binding("j", "scroll_down", "\u2193 Scroll", show=True, key_display="j/\u2193"),
+        Binding("k", "scroll_up", "\u2191 Scroll", show=True, key_display="k/\u2191"),
         Binding("down", "scroll_down", "Scroll Down", show=False),
         Binding("up", "scroll_up", "Scroll Up", show=False),
-        Binding("ctrl+d", "scroll_half_down", "½ Page ↓", show=True),
-        Binding("ctrl+u", "scroll_half_up", "½ Page ↑", show=True),
+        Binding("ctrl+d", "scroll_half_down", "\u00bd Page \u2193", show=True),
+        Binding("ctrl+u", "scroll_half_up", "\u00bd Page \u2191", show=True),
     ]
 
     can_focus = True
@@ -48,7 +48,10 @@ class AgentCardPanel(Container):
         self._current_agent_card: AgentCard | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("Connect to an A2A server", id="placeholder")
+        yield Vertical(
+            Static("Connect to an A2A server"),
+            id="placeholder",
+        )
         yield VerticalScroll(
             Static("", id="agent-raw"),
             id="raw-scroll",
@@ -62,14 +65,14 @@ class AgentCardPanel(Container):
 
     def _show_placeholder(self) -> None:
         """Show the hatch placeholder, hide the raw scroll content."""
-        placeholder = self.query_one("#placeholder", Static)
+        placeholder = self.query_one("#placeholder", Vertical)
         raw_scroll = self.query_one("#raw-scroll", VerticalScroll)
         placeholder.display = True
         raw_scroll.display = False
 
     def _show_content(self) -> None:
         """Show the raw scroll content, hide the placeholder."""
-        placeholder = self.query_one("#placeholder", Static)
+        placeholder = self.query_one("#placeholder", Vertical)
         raw_scroll = self.query_one("#raw-scroll", VerticalScroll)
         placeholder.display = False
         raw_scroll.display = True

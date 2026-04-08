@@ -1,42 +1,280 @@
 Screen {
-    padding: 1 2;
-}
-
-#root-container {
-    border: round $primary;
-    height: 1fr;
-    layout: horizontal;
-    padding: 0 1;
+    padding: 1;
     background: $background;
 }
 
-#left-pane {
-    width: 1fr;
-    height: 1fr;
-    layout: vertical;
+* {
+    scrollbar-color: $primary 15%;
+    scrollbar-color-hover: $primary 75%;
+    scrollbar-color-active: $primary;
+    scrollbar-background: $surface;
+    scrollbar-size-vertical: 1;
 }
 
-#right-pane {
+#server-shell {
+    layout: vertical;
+    height: 1fr;
+}
+
+#server-tab-row {
+    height: 2;
+    margin-bottom: 0;
+    align: left middle;
+}
+
+#server-tabs {
+    width: 1fr;
+    height: 2;
+}
+
+#server-tabs Tab {
+    background: transparent;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#server-tabs Tab.-active {
+    background: transparent;
+    color: $text;
+    text-style: bold;
+}
+
+#server-tabs Underline > .underline--bar {
+    color: $accent;
+    background: $surface;
+}
+
+#new-server-btn {
+    width: auto;
+    min-width: 12;
+    margin-left: 1;
+}
+
+#server-content {
+    height: 1fr;
+    min-height: 1;
+    padding: 0;
+    background: $background;
+}
+
+ServerTab,
+ServerView {
+    width: 1fr;
+    height: 1fr;
+}
+
+ConnectionBar {
+    width: 1fr;
+    height: auto;
+}
+
+#server-content > ServerTab {
+    width: 1fr;
+    height: 1fr;
+}
+
+#server-stage {
+    layout: vertical;
+    height: 1fr;
+}
+
+#connect-shell {
+    height: auto;
+    border: round $secondary 40%;
+    padding: 0 1;
+    margin-bottom: 0;
+    background: $background;
+}
+
+#server-bar {
+    height: 1;
+    align: left middle;
+}
+
+#server-bar > Select,
+#server-bar > Input {
+    margin-right: 1;
+}
+
+#server-select {
+    width: 1fr;
+    min-width: 20;
+}
+
+#manual-agent-url {
+    width: 1fr;
+    min-width: 20;
+}
+
+#server-status-row {
+    height: auto;
+    width: 1fr;
+    margin-top: 1;
+}
+
+.conn-badge {
+    height: auto;
+    width: auto;
+    padding: 0 1;
+    margin-right: 1;
+    text-style: bold;
+}
+
+.badge-success {
+    background: $success 24%;
+    color: $text;
+}
+
+.badge-muted {
+    background: $surface;
+    color: $text-muted;
+}
+
+#badge-agent {
+    background: $primary 24%;
+    color: $text;
+}
+
+#badge-source {
+    background: $secondary 24%;
+    color: $text;
+}
+
+#badge-auth {
+    background: $accent 24%;
+    color: $text;
+}
+
+#badge-protocol {
+    background: $surface;
+    color: $text;
+}
+
+#badge-version {
+    background: $warning 24%;
+    color: $text;
+}
+
+.hidden {
+    display: none;
+}
+
+#connect-scroll {
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-gutter: stable;
+}
+
+#connect-stage {
+    width: 1fr;
+    height: auto;
+    min-height: 1fr;
+    align: center top;
+    padding: 0;
+}
+
+.connect-canvas {
+    width: 1fr;
+    height: auto;
+    min-height: 1fr;
+    align: center top;
+    hatch: cross $secondary 16%;
+}
+
+#connect-card {
+    width: 64;
+    max-width: 100%;
+    height: auto;
+    border: round $secondary 40%;
+    border-title-align: right;
+    border-title-color: $text-muted;
+    background: $surface;
+    padding: 1;
+}
+
+.connect-eyebrow {
+    color: $accent;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+#connect-title {
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+#connect-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#connect-form {
+    height: auto;
+}
+
+#connect-form > Select,
+#connect-form > Input {
+    margin-bottom: 0;
+}
+
+#launch-mode-subtitle {
+    height: auto;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#launch-mode-container {
+    height: auto;
+    margin-top: 1;
+}
+
+#launch-mode-container.hidden {
+    display: none;
+}
+
+#launch-mode-selector {
+    height: auto;
+}
+
+#connect-actions {
+    height: auto;
+    align: left middle;
+    margin-top: 1;
+}
+
+#live-stage {
+    height: 1fr;
+    margin-top: 0;
+}
+
+.server-live-layout {
+    layout: horizontal;
+}
+
+#server-meta {
+    width: 1fr;
+    height: 1fr;
+}
+
+#server-main {
     width: 2fr;
     height: 1fr;
-    layout: vertical;
     margin-left: 1;
 }
 
 /* Panels - Cockpit Style */
 .panel {
-    border: round $secondary; /* Monochromatic border */
-    background: $background; /* Blend into screen, distinct only by border */
-    padding: 0 1;
+    border: round $secondary 40%;
+    border-title-align: right;
+    border-title-color: $text-muted;
+    background: $background;
+    padding: 0;
 }
 
-/* Highlight panel when focused */
 .panel:focus-within {
     border: round $accent;
-}
-
-#contact-container {
-    height: auto;
+    border-title-color: $text;
+    border-title-style: bold;
 }
 
 #agent-card-container {
@@ -45,64 +283,26 @@ Screen {
 
 #messages-container {
     height: 1fr;
-    padding: 0 1;
+    padding: 0;
 }
 
 #input-container {
     height: auto;
+    padding: 0 1;
 }
 
-/* Contact Panel Internal */
-#contact-tabs {
-    height: auto;
-}
-
-#contact-tabs ContentSwitcher {
-    height: auto;
-}
-
-#contact-tabs TabPane {
-    height: auto;
-}
-
-#server-content {
-    height: auto;
-}
-
-#help-content {
-    height: auto;
-}
-
-#version-info {
-    height: auto;
-    margin-bottom: 1;
-}
-
-.link-label {
-    height: auto;
-    margin-top: 1;
-}
-
-#report-bug-link,
-#sponsor-link,
-#discuss-link {
-    height: auto;
-    color: $accent;
-    margin-left: 2;
-}
-
-#report-bug-link:hover,
-#sponsor-link:hover,
-#discuss-link:hover {
-    text-style: bold underline;
-}
-
-/* Input row containers - button appears inside input */
-#url-row,
 #input-row {
-    height: 3;
-    background: $surface;
+    height: auto;
+    background: transparent;
     align: left middle;
+}
+
+#connection-target {
+    width: 1fr;
+    min-width: 0;
+    height: 3;
+    border: none;
+    background: transparent;
 }
 
 #agent-url {
@@ -111,31 +311,47 @@ Screen {
     height: 3;
     padding: 1 1;
     width: 1fr;
+    min-width: 20;
 }
 
-/* Buttons - Flat & Thinner */
 Button {
     border: none;
-    height: 3; /* Match input height */
+    height: 1;
     min-width: 0;
+    padding: 0 1;
     background: $surface;
     color: $text;
-    text-style: bold;
+    text-style: none;
     content-align: center middle;
 }
 
 Button:hover {
-    background: $primary;
-    color: $background;
+    background: $primary 20%;
+    color: $text;
+    text-style: bold;
 }
 
-/* Agent Card Internal */
+Button:focus {
+    background: $primary 25%;
+    color: $text;
+    text-style: bold;
+}
+
+Button:disabled {
+    opacity: 40%;
+}
+
 #placeholder {
     height: 1fr;
     width: 1fr;
     hatch: cross $secondary 30%;
-    content-align: center middle;
-    color: $text-muted;
+    align: center middle;
+    padding: 1 2;
+}
+
+#placeholder Static {
+    width: auto;
+    text-align: center;
 }
 
 #raw-scroll {
@@ -146,30 +362,107 @@ Button:hover {
 #agent-raw {
     height: auto;
     color: $text;
+    padding: 0 1 1 1;
 }
 
-/* Input Panel Internal */
+Input {
+    border: none;
+    height: 1;
+    padding: 0 1;
+    background: $surface;
+    color: $text;
+}
+
+Input:disabled {
+    opacity: 55%;
+}
+
+Input:focus {
+    padding-left: 0;
+    border-left: outer $accent;
+}
+
+Input.-invalid {
+    padding-left: 0;
+    border-left: outer $error;
+}
+
+Select {
+    height: 1;
+    border: none;
+    padding: 0;
+}
+
+SelectCurrent {
+    height: 1;
+    border: none;
+    padding: 0 1;
+    background: $surface;
+    color: $text;
+}
+
+Select:focus SelectCurrent {
+    padding-left: 0;
+    border-left: outer $accent;
+}
+
 #message-input {
     border: none;
-    height: 3;
-    padding: 1 1;
+    height: 1;
+    padding: 0 1;
     background: transparent;
     width: 1fr;
 }
 
-/* Inline buttons */
 #send-btn,
 #connect-btn {
     width: auto;
-    min-width: 8;
-    height: 3;
-    background: $primary;
-    color: $background;
+    min-width: 10;
+    background: $accent 20%;
+    color: $text;
+    text-style: bold;
 }
 
-/* Messages Tabs */
+#connect-btn {
+    margin-left: 1;
+}
+
+#connect-btn:focus {
+    background: $accent;
+    color: $text;
+}
+
+#connect-btn.reconnect {
+    background: $secondary 24%;
+}
+
+#connect-btn.reconnect:focus {
+    background: $secondary;
+}
+
 #messages-tabs {
     height: 1fr;
+}
+
+#messages-tabs Tabs {
+    height: 2;
+}
+
+#messages-tabs Tab {
+    background: transparent;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#messages-tabs Tab.-active {
+    background: transparent;
+    color: $text;
+    text-style: bold;
+}
+
+#messages-tabs Underline > .underline--bar {
+    color: $accent;
+    background: $surface;
 }
 
 #messages-tabs ContentSwitcher {
@@ -179,18 +472,22 @@ Button:hover {
 #messages-tabs TabPane {
     height: 1fr;
     overflow-y: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
 }
 
-/* Chat Panel */
 #chat {
     height: 1fr;
     scrollbar-size: 1 1;
+    padding: 0 1;
 }
 
 Message,
 AgentMessage {
-    margin-bottom: 1;
+    margin-bottom: 0;
     height: auto;
+    padding: 0 0 1 0;
 }
 
 Message.message-user {
@@ -205,7 +502,6 @@ AgentMessage {
     color: $success;
 }
 
-/* Logs Panel - uses Textual's Log widget */
 #logs-panel {
     height: 1fr;
     border: none;
@@ -217,7 +513,6 @@ AgentMessage {
     overflow-y: auto;
 }
 
-/* Tasks Panel */
 #tasks-panel {
     height: 1fr;
 }
@@ -235,7 +530,7 @@ AgentMessage {
 }
 
 #tasks-list > ListItem {
-    padding: 0 1;
+    padding: 0;
 }
 
 #tasks-list > ListItem:hover {
@@ -249,7 +544,7 @@ AgentMessage {
 #task-detail {
     width: 2fr;
     height: 1fr;
-    border-left: solid $secondary;
+    border-left: solid $secondary 40%;
     padding: 0 1;
     scrollbar-size: 1 1;
 }
@@ -267,7 +562,6 @@ AgentMessage {
     height: auto;
 }
 
-/* Artifacts Panel */
 #artifacts-panel {
     height: 1fr;
 }
@@ -285,7 +579,7 @@ AgentMessage {
 }
 
 #artifacts-list > ListItem {
-    padding: 0 1;
+    padding: 0;
 }
 
 #artifacts-list > ListItem:hover {
@@ -299,7 +593,7 @@ AgentMessage {
 #artifact-detail {
     width: 2fr;
     height: 1fr;
-    border-left: solid $secondary;
+    border-left: solid $secondary 40%;
     padding: 0 1;
     scrollbar-size: 1 1;
 }
@@ -333,14 +627,14 @@ AgentMessage {
 .artifact-content {
     height: auto;
     color: $text;
-    padding: 1 0;
+    padding: 0;
 }
 
 .section-heading {
     color: $accent;
     text-style: bold;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 0;
 }
 
 .task-field-row {
@@ -369,7 +663,7 @@ AgentMessage {
 .artifact-preview {
     height: auto;
     color: $text-muted;
-    padding-left: 2;
+    padding-left: 1;
 }
 
 .task-item {
@@ -379,7 +673,7 @@ AgentMessage {
 
 .history-item {
     height: auto;
-    margin-top: 1;
+    margin-top: 0;
 }
 
 .history-role-user {
@@ -394,17 +688,20 @@ AgentMessage {
 
 .history-message {
     color: $text;
-    padding-left: 2;
+    padding-left: 1;
 }
 
-/* Auth Panel */
 #auth-panel {
     height: auto;
     padding: 1;
 }
 
 #auth-panel Label {
-    margin-bottom: 0;
+    margin: 1 0 0 0;
+}
+
+#auth-panel Label:first-child {
+    margin-top: 0;
 }
 
 #auth-panel RadioSet {
@@ -412,12 +709,24 @@ AgentMessage {
     margin-bottom: 1;
 }
 
-#auth-panel Input {
-    margin-bottom: 1;
+#headers-panel {
+    height: auto;
+    padding: 1;
+}
+
+#headers-panel Label {
+    margin: 1 0 0 0;
+}
+
+#headers-panel Label:first-child {
+    margin-top: 0;
 }
 
 .auth-fields {
     height: auto;
+}
+
+.auth-fields Label:first-child {
     margin-top: 1;
 }
 
@@ -425,9 +734,6 @@ AgentMessage {
     display: none;
 }
 
-
-
-/* Focusable panel containers */
 AgentCardPanel:focus {
     border: round $accent;
 }
@@ -436,7 +742,6 @@ TabbedMessagesPanel:focus {
     border: round $accent;
 }
 
-/* Footer - unobtrusive dimmed style */
 Footer {
     background: transparent;
     color: $text-muted;
@@ -454,4 +759,87 @@ Footer > FooterKey > .footer-key--key {
 
 Footer > FooterKey > .footer-key--description {
     color: $text-muted;
+}
+
+CommandPalette {
+    align: center top;
+}
+
+CommandPalette > Vertical {
+    width: 72%;
+    min-width: 64;
+    max-width: 120;
+    height: auto;
+    max-height: 18;
+    margin-top: 2;
+    padding: 1;
+    background: $surface;
+}
+
+CommandPalette #--input {
+    width: 100%;
+    min-height: 3;
+    padding: 1 1 0 1;
+    content-align: left middle;
+    border: none;
+}
+
+CommandPalette #--input SearchIcon {
+    display: none;
+}
+
+CommandPalette #--input Input {
+    width: 1fr;
+    border: none;
+    background: transparent;
+}
+
+CommandPalette #--results {
+    overlay: none;
+    width: 100%;
+}
+
+CommandPalette CommandList {
+    max-height: 12;
+    border: none;
+}
+
+TextPromptScreen,
+ConfirmScreen {
+    align: center middle;
+}
+
+#command-dialog {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: round $secondary 40%;
+}
+
+#command-dialog-title {
+    text-style: bold;
+}
+
+#command-dialog-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#command-dialog-input {
+    margin-bottom: 1;
+}
+
+#command-dialog-buttons {
+    height: auto;
+    align: right middle;
+}
+
+#command-dialog-buttons Button {
+    margin-left: 1;
+}
+
+#auth-panel.hidden {
+    display: none;
 }

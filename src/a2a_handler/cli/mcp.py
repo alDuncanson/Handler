@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-import rich_click as click
+import click
 
 from a2a_handler.common import get_logger
 
@@ -22,6 +22,12 @@ TransportType = Literal["stdio", "sse", "streamable-http"]
 )
 def mcp(transport: TransportType) -> None:
     """Run a local MCP server exposing A2A capabilities.
+
+    \b
+    Examples:
+      $ handler mcp
+      $ handler mcp --transport sse
+      $ handler mcp --transport streamable-http
 
     This starts an MCP (Model Context Protocol) server that exposes Handler's
     A2A functionality as MCP tools and resources. You can connect to this

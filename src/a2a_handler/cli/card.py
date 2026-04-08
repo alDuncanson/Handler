@@ -1,15 +1,14 @@
 """Card commands for agent card operations."""
 
 import asyncio
-from typing import Any
+from typing import Any, Optional
 
-import rich_click as click
+import click
 from a2a.types import AgentCard
 
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
 from a2a_handler.service import A2AService
-from a2a_handler.session import get_credentials
 from a2a_handler.validation import (
     ValidationResult,
     validate_agent_card_from_file,
@@ -20,6 +19,8 @@ from ._helpers import (
     build_http_client,
     handle_client_error,
     handle_validation_error,
+    resolve_agent_selection,
+    resolve_selection_credentials,
 )
 
 log = get_logger(__name__)
@@ -32,35 +33,54 @@ def card() -> None:
 
 
 @card.command("get")
-@click.argument("agent_url")
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option(
-    "--authenticated", "-a", is_flag=True, help="Request authenticated extended card"
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )
-def card_get(agent_url: str, authenticated: bool) -> None:
-    """Retrieve an agent's card."""
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
+def card_get(
+    agent_url: Optional[str],
+    server_name: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
+) -> None:
+    """Retrieve an agent's card.
+
+    \b
+    Examples:
+      $ handler card get --server my_agent
+      $ handler card get --url http://localhost:8000
+      $ handler card get --url http://localhost:8000 --bearer-env MY_TOKEN
+    """
     output = Output()
+
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
+
     try:
-        validate_agent_url(agent_url)
+        validate_agent_url(resolved_url)
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    log.info("Fetching agent card from %s", agent_url)
-    credentials = get_credentials(agent_url) if authenticated else None
-    if authenticated and credentials is None:
-        log.warning("No saved credentials found for %s", agent_url)
+    log.info("Fetching agent card from %s", resolved_url)
+
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_get() -> None:
         try:
-            async with build_http_client() as http_client:
-                service = A2AService(http_client, agent_url, credentials=credentials)
+            async with build_http_client(credentials=credentials) as http_client:
+                service = A2AService(http_client, resolved_url, credentials=credentials)
                 card_data = await service.get_card()
                 log.info("Retrieved card for agent: %s", card_data.name)
 
                 _format_agent_card(card_data, output)
 
         except Exception as e:
-            handle_client_error(e, agent_url, output)
+            handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_get())
@@ -79,25 +99,63 @@ def _format_agent_card(card_data: object, output: Output) -> None:
 
 
 @card.command("validate")
-@click.argument("source")
-def card_validate(source: str) -> None:
-    """Validate an agent card from URL or file."""
+@click.option("--url", "agent_url", help="Agent URL to validate")
+@click.option("--file", "file_path", help="File path to validate")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
+def card_validate(
+    agent_url: Optional[str],
+    file_path: Optional[str],
+    server_name: Optional[str],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
+) -> None:
+    """Validate an agent card from URL or file.
+
+    \b
+    Examples:
+      $ handler card validate --server my_agent
+      $ handler card validate --url http://localhost:8000
+      $ handler card validate --file ./agent-card.json
+    """
     output = Output()
-    log.info("Validating agent card from %s", source)
-    is_url = source.startswith(("http://", "https://"))
-    if is_url:
-        try:
-            validate_agent_url(source)
-        except InputValidationError as error:
-            handle_validation_error(error, output)
-            raise click.Abort() from error
+
+    if file_path and (agent_url or server_name):
+        raise click.UsageError("Provide --file or --url/--server, not both.")
+
+    if file_path:
+        log.info("Validating agent card from %s", file_path)
+
+        async def do_validate_file() -> None:
+            result = validate_agent_card_from_file(file_path)
+            _format_validation_result(result, output)
+            if not result.valid:
+                raise SystemExit(1)
+
+        asyncio.run(do_validate_file())
+        return
+
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
+
+    try:
+        validate_agent_url(resolved_url)
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    log.info("Validating agent card from %s", resolved_url)
+
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
 
     async def do_validate() -> None:
-        if is_url:
-            async with build_http_client() as http_client:
-                result = await validate_agent_card_from_url(source, http_client)
-        else:
-            result = validate_agent_card_from_file(source)
+        async with build_http_client(credentials=credentials) as http_client:
+            result = await validate_agent_card_from_url(resolved_url, http_client)
 
         _format_validation_result(result, output)
 
@@ -109,15 +167,17 @@ def card_validate(source: str) -> None:
 
 def _format_validation_result(result: ValidationResult, output: Output) -> None:
     """Format and display validation result."""
-    if result.valid:
-        output.success("Valid Agent Card")
-        output.field("Agent", result.agent_name)
-        output.field("Protocol Version", result.protocol_version)
-        output.field("Source", result.source)
-    else:
-        output.error("Invalid Agent Card")
-        output.field("Source", result.source)
-        output.blank()
-        output.line(f"Errors ({len(result.issues)}):")
-        for issue in result.issues:
-            output.list_item(f"{issue.field_name}: {issue.message}", bullet="✗")
+    data: dict[str, object] = {
+        "valid": result.valid,
+        "source": result.source,
+    }
+    if result.agent_name:
+        data["agent_name"] = result.agent_name
+    if result.protocol_version:
+        data["protocol_version"] = result.protocol_version
+    if result.issues:
+        data["issues"] = [
+            {"field": issue.field_name, "message": issue.message}
+            for issue in result.issues
+        ]
+    output.json(data)

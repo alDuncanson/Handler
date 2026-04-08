@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import rich_click as click
+import click
 
 from a2a_handler.common import Output
 
@@ -81,7 +81,13 @@ def resolve_command(
 @click.command()
 @click.pass_context
 def schema(ctx: click.Context) -> None:
-    """Output machine-readable CLI command schema."""
+    """Output machine-readable CLI command schema.
+
+    \b
+    Examples:
+      $ handler schema
+      $ handler --output json schema
+    """
     root = ctx.find_root().command
     assert isinstance(root, click.Group)
     output = Output()
@@ -92,14 +98,21 @@ def schema(ctx: click.Context) -> None:
 @click.argument("command_path", nargs=-1, required=True)
 @click.pass_context
 def describe(ctx: click.Context, command_path: tuple[str, ...]) -> None:
-    """Describe a command path as machine-readable metadata."""
+    """Describe a command path as machine-readable metadata.
+
+    \b
+    Examples:
+      $ handler describe message send
+      $ handler describe task get
+      $ handler describe server add
+    """
     root = ctx.find_root().command
     assert isinstance(root, click.Group)
     output = Output()
 
     command = resolve_command(root, command_path)
     if command is None:
-        output.error_obj(
+        output.error(
             code="unknown_command_path",
             message=f"Unknown command path: {' '.join(command_path)}",
             suggestion="Use `handler schema` to list valid command paths",

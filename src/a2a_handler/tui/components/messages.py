@@ -11,17 +11,19 @@ from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Static, TabbedContent, TabPane, Tabs
 
+from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
+from a2a_handler.service import extract_text, response_state, response_task_id
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
+from a2a_handler.tui.components.headers import HeadersPanel
 from a2a_handler.tui.components.logs import LogsPanel
 from a2a_handler.tui.components.tasks import TasksPanel
 
 if TYPE_CHECKING:
     from a2a.types import Artifact, Task
 
-    from a2a_handler.auth import AuthCredentials
-    from a2a_handler.service import SendResult
+    from a2a_handler.service import A2AResponse
 
 logger = get_logger(__name__)
 
@@ -46,12 +48,12 @@ class AgentMessage(Static):
 
     def __init__(
         self,
-        send_result: SendResult,
+        response: A2AResponse,
         timestamp: datetime | None = None,
         **kwargs: Any,
     ) -> None:
         formatted_time = (timestamp or datetime.now()).strftime("%H:%M:%S")
-        content = send_result.text or "(no text in response)"
+        content = extract_text(response) or "(no text in response)"
         super().__init__(f"{formatted_time} {content}", **kwargs)
 
 
@@ -59,66 +61,6 @@ class ChatScrollContainer(VerticalScroll):
     """Scrollable chat area."""
 
     can_focus = False
-
-
-class MessagesPanel(Container):
-    """Panel for displaying chat messages."""
-
-    BINDINGS = [
-        Binding("j", "scroll_down", "Scroll Down", show=False),
-        Binding("k", "scroll_up", "Scroll Up", show=False),
-        Binding("down", "scroll_down", "Scroll Down", show=False),
-        Binding("up", "scroll_up", "Scroll Up", show=False),
-    ]
-
-    can_focus = True
-
-    def compose(self) -> ComposeResult:
-        yield ChatScrollContainer(id="chat")
-
-    def on_mount(self) -> None:
-        logger.debug("Messages panel mounted")
-
-    def _get_chat_container(self) -> ChatScrollContainer:
-        return self.query_one("#chat", ChatScrollContainer)
-
-    def add_message(self, role: str, content: str) -> None:
-        logger.debug("Adding %s message: %s", role, content[:50])
-        chat_container = self._get_chat_container()
-        message_widget = Message(role, content)
-        chat_container.mount(message_widget)
-        chat_container.scroll_end(animate=False)
-
-    def add_agent_message(self, send_result: SendResult) -> None:
-        logger.debug(
-            "Adding agent message - task_id=%s, state=%s, text_len=%d",
-            send_result.task_id,
-            send_result.state,
-            len(send_result.text) if send_result.text else 0,
-        )
-        chat_container = self._get_chat_container()
-        message_widget = AgentMessage(send_result)
-        chat_container.mount(message_widget)
-        chat_container.scroll_end(animate=False)
-
-    def add_system_message(self, content: str) -> None:
-        logger.info("System message: %s", content)
-        self.add_message("system", content)
-
-    def update_message_count(self) -> None:
-        pass
-
-    async def clear(self) -> None:
-        logger.info("Clearing chat messages")
-        chat_container = self._get_chat_container()
-        await chat_container.remove_children()
-        self.add_system_message("Chat cleared")
-
-    def action_scroll_down(self) -> None:
-        self._get_chat_container().scroll_down()
-
-    def action_scroll_up(self) -> None:
-        self._get_chat_container().scroll_up()
 
 
 class TabbedMessagesPanel(Container):
@@ -141,7 +83,7 @@ class TabbedMessagesPanel(Container):
         Binding("ctrl+u", "scroll_half_up", "½ Page ↑", show=True),
         Binding("y", "copy_task_id", "Copy ID", show=False),
         Binding("Y", "copy_context_id", "Copy Ctx", show=False),
-        Binding("y", "copy_artifact_id", "Copy ID", show=False),
+        Binding("a", "copy_artifact_id", "Copy ID", show=False),
     ]
 
     can_focus = True
@@ -171,6 +113,8 @@ class TabbedMessagesPanel(Container):
                 yield ArtifactsPanel(id="artifacts-panel")
             with TabPane("Auth", id="auth-tab"):
                 yield AuthPanel(id="auth-panel")
+            with TabPane("Headers", id="headers-tab"):
+                yield HeadersPanel(id="headers-panel")
             with TabPane("Logs", id="logs-tab"):
                 yield LogsPanel(id="logs-panel")
 
@@ -193,6 +137,9 @@ class TabbedMessagesPanel(Container):
     def _get_auth_panel(self) -> AuthPanel:
         return self.query_one("#auth-panel", AuthPanel)
 
+    def _get_headers_panel(self) -> HeadersPanel:
+        return self.query_one("#headers-panel", HeadersPanel)
+
     def _get_tasks_panel(self) -> TasksPanel:
         return self.query_one("#tasks-panel", TasksPanel)
 
@@ -206,15 +153,14 @@ class TabbedMessagesPanel(Container):
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
-    def add_agent_message(self, send_result: SendResult) -> None:
+    def add_agent_message(self, response: A2AResponse) -> None:
         logger.debug(
-            "Adding agent message - task_id=%s, state=%s, text_len=%d",
-            send_result.task_id,
-            send_result.state,
-            len(send_result.text) if send_result.text else 0,
+            "Adding agent message - task_id=%s, state=%s",
+            response_task_id(response),
+            response_state(response),
         )
         chat_container = self._get_chat_container()
-        message_widget = AgentMessage(send_result)
+        message_widget = AgentMessage(response)
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
@@ -232,9 +178,6 @@ class TabbedMessagesPanel(Container):
         logs_panel = self._get_logs_panel()
         logs_panel.load_logs(lines)
 
-    def update_message_count(self) -> None:
-        pass
-
     async def clear(self) -> None:
         logger.info("Clearing chat messages")
         chat_container = self._get_chat_container()
@@ -246,15 +189,68 @@ class TabbedMessagesPanel(Container):
         logs_panel = self._get_logs_panel()
         logs_panel.clear()
 
-    def get_auth_credentials(self) -> "AuthCredentials | None":
-        """Get configured authentication credentials from the auth panel."""
-        auth_panel = self._get_auth_panel()
-        return auth_panel.get_credentials()
+    async def reset_session(self) -> None:
+        """Clear connection-scoped message, task, and artifact state."""
+        chat_container = self._get_chat_container()
+        await chat_container.remove_children()
+        self._get_tasks_panel().clear()
+        self._get_artifacts_panel().clear()
 
-    def set_bearer_token(self, token: str) -> None:
-        """Preconfigure bearer token authentication in the auth panel."""
+    def get_auth_credentials(self) -> "AuthCredentials | None":
+        """Get configured auth credentials and custom headers."""
         auth_panel = self._get_auth_panel()
-        auth_panel.set_bearer_token(token)
+        credentials = auth_panel.get_credentials()
+        custom_headers = self._get_headers_panel().get_headers()
+        if custom_headers:
+            if credentials is None:
+                credentials = AuthCredentials(
+                    auth_type=AuthType.BEARER,
+                    custom_headers=custom_headers,
+                )
+            else:
+                credentials.custom_headers = custom_headers
+        return credentials
+
+    def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
+        """Preconfigure auth and headers panel fields from resolved credentials."""
+        auth_panel = self._get_auth_panel()
+        headers_panel = self._get_headers_panel()
+        auth_panel.clear()
+        headers_panel.clear()
+        if credentials is None:
+            return
+
+        if credentials.auth_type == AuthType.BEARER and credentials.value:
+            auth_panel.set_bearer_token(credentials.value)
+        elif credentials.auth_type == AuthType.API_KEY:
+            auth_panel.set_api_key(
+                credentials.value,
+                credentials.header_name or "X-API-Key",
+            )
+        elif (
+            credentials.auth_type == AuthType.MTLS
+            and credentials.cert_path
+            and credentials.key_path
+        ):
+            auth_panel.set_mtls(
+                credentials.cert_path,
+                credentials.key_path,
+                credentials.ca_cert_path,
+            )
+        elif (
+            credentials.auth_type == AuthType.OAUTH2
+            and credentials.token_url
+            and credentials.client_id
+            and credentials.client_secret
+        ):
+            auth_panel.set_oauth2(
+                credentials.token_url,
+                credentials.client_id,
+                credentials.client_secret,
+                credentials.scopes,
+            )
+
+        headers_panel.set_headers(credentials.custom_headers)
 
     def add_task(self, task: "Task") -> None:
         """Add a task to the tasks panel."""
@@ -284,21 +280,15 @@ class TabbedMessagesPanel(Container):
 
     def action_previous_tab(self) -> None:
         """Switch to the previous tab."""
-        try:
-            tabs_widget = self.query_one("#messages-tabs Tabs", Tabs)
-            tabs_widget.action_previous_tab()
-            self.focus()
-        except Exception:
-            pass
+        tabs = self.query_one("#messages-tabs Tabs", Tabs)
+        tabs.action_previous_tab()
+        self.focus()
 
     def action_next_tab(self) -> None:
         """Switch to the next tab."""
-        try:
-            tabs_widget = self.query_one("#messages-tabs Tabs", Tabs)
-            tabs_widget.action_next_tab()
-            self.focus()
-        except Exception:
-            pass
+        tabs = self.query_one("#messages-tabs Tabs", Tabs)
+        tabs.action_next_tab()
+        self.focus()
 
     def action_scroll_down(self) -> None:
         active = self._get_active_tab_id()

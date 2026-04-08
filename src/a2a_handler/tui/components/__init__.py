@@ -3,21 +3,20 @@
 from .artifacts import ArtifactsPanel
 from .auth import AuthPanel
 from .card import AgentCardPanel
-from .contact import ContactPanel
+from .headers import HeadersPanel
 from .input import InputPanel
 from .logs import LogsPanel
-from .messages import Message, MessagesPanel, TabbedMessagesPanel
+from .messages import Message, TabbedMessagesPanel
 from .tasks import TasksPanel
 
 __all__ = [
     "AgentCardPanel",
     "ArtifactsPanel",
     "AuthPanel",
-    "ContactPanel",
+    "HeadersPanel",
     "InputPanel",
     "LogsPanel",
     "Message",
-    "MessagesPanel",
     "TabbedMessagesPanel",
     "TasksPanel",
 ]

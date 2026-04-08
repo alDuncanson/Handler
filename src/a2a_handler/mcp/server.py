@@ -1,29 +1,38 @@
 """MCP server implementation exposing A2A capabilities as tools and resources."""
 
+from dataclasses import replace
 from typing import Literal
 
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from a2a_handler.auth import AuthCredentials, create_api_key_auth, create_bearer_auth
+from a2a_handler.auth import (
+    AuthCredentials,
+    AuthType,
+    create_api_key_auth,
+    create_bearer_auth,
+    create_mtls_auth,
+)
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
     reject_control_chars,
     validate_agent_url,
+    validate_header_name,
     validate_resource_id,
     validate_webhook_url,
 )
-from a2a_handler.service import A2AService
-from a2a_handler.session import (
-    clear_credentials as session_clear_credentials,
+from a2a_handler.service import (
+    A2AService,
+    protocol_dump,
+    push_config_dump,
+    response_context_id,
+    response_task_id,
 )
 from a2a_handler.session import (
     clear_session,
-    get_credentials,
     get_session,
     get_session_store,
-    set_credentials,
     update_session,
 )
 from a2a_handler.validation import (
@@ -42,22 +51,62 @@ def _validation_error(error: InputValidationError) -> ValueError:
     return ValueError(f"{error.code}: {error.message}")
 
 
-def _build_http_client(timeout: int = TIMEOUT) -> httpx.AsyncClient:
+def _build_http_client(
+    timeout: int = TIMEOUT,
+    credentials: AuthCredentials | None = None,
+) -> httpx.AsyncClient:
     """Build an HTTP client with the specified timeout."""
-    return httpx.AsyncClient(timeout=timeout)
+    if credentials and credentials.auth_type == AuthType.MTLS:
+        return httpx.AsyncClient(
+            timeout=timeout,
+            verify=credentials.build_ssl_context(),
+            trust_env=False,
+        )
+    return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 
 def _resolve_credentials(
     agent_url: str,
     bearer_token: str | None = None,
     api_key: str | None = None,
+    cert_path: str | None = None,
+    key_path: str | None = None,
+    ca_cert_path: str | None = None,
+    custom_headers: dict[str, str] | None = None,
 ) -> AuthCredentials | None:
     """Resolve credentials from explicit args or saved session."""
-    if bearer_token:
-        return create_bearer_auth(bearer_token)
-    if api_key:
-        return create_api_key_auth(api_key)
-    return get_credentials(agent_url)
+    credentials: AuthCredentials | None = None
+    if cert_path and key_path:
+        credentials = create_mtls_auth(cert_path, key_path, ca_cert_path)
+    elif bearer_token:
+        credentials = create_bearer_auth(bearer_token)
+    elif api_key:
+        credentials = create_api_key_auth(api_key)
+    if custom_headers:
+        validated_headers: dict[str, str] = {}
+        for name, value in custom_headers.items():
+            if not isinstance(name, str) or not isinstance(value, str):
+                raise ValueError(
+                    "invalid_headers: custom_headers must map string names to string values"
+                )
+            try:
+                validate_header_name(name, f"custom_headers[{name}]")
+                reject_control_chars(value, f"custom_headers[{name}]")
+            except InputValidationError as error:
+                raise _validation_error(error) from error
+            validated_headers[name] = value
+        if credentials is None:
+            credentials = AuthCredentials(
+                auth_type=AuthType.BEARER,
+                custom_headers=validated_headers,
+            )
+        else:
+            credentials = replace(credentials)
+            merged = dict(credentials.custom_headers or {})
+            merged.update(validated_headers)
+            credentials.custom_headers = merged
+
+    return credentials
 
 
 def create_mcp_server() -> FastMCP:
@@ -165,8 +214,10 @@ def create_mcp_server() -> FastMCP:
         except InputValidationError as error:
             raise _validation_error(error) from error
 
-        async with _build_http_client() as http_client:
-            service = A2AService(http_client, agent_url)
+        credentials = _resolve_credentials(agent_url)
+
+        async with _build_http_client(credentials=credentials) as http_client:
+            service = A2AService(http_client, agent_url, credentials=credentials)
             card = await service.get_card()
 
             return card.model_dump(exclude_none=True)
@@ -180,6 +231,10 @@ def create_mcp_server() -> FastMCP:
         use_session: bool = False,
         bearer_token: str | None = None,
         api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
     ) -> dict:
         """Send a message to an A2A agent and receive a response.
 
@@ -222,29 +277,49 @@ def create_mcp_server() -> FastMCP:
         if use_session and not context_id:
             session = get_session(agent_url)
             if session.context_id:
+                try:
+                    validate_resource_id(session.context_id, "context_id")
+                except InputValidationError as error:
+                    raise _validation_error(error) from error
                 context_id = session.context_id
+                if not task_id and session.task_id:
+                    try:
+                        validate_resource_id(session.task_id, "task_id")
+                    except InputValidationError as error:
+                        logger.warning(
+                            "Ignoring saved task_id for %s: %s",
+                            agent_url,
+                            error.message,
+                        )
+                    else:
+                        task_id = session.task_id
                 logger.info("Using saved context: %s", context_id)
 
-        credentials = _resolve_credentials(agent_url, bearer_token, api_key)
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
 
-        async with _build_http_client() as http_client:
+        async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(
                 http_client,
                 agent_url,
                 credentials=credentials,
             )
 
-            result = await service.send(message, context_id, task_id)
-            update_session(agent_url, result.context_id, result.task_id)
+            response = await service.send(message, context_id, task_id)
+            update_session(
+                agent_url,
+                response_context_id(response),
+                response_task_id(response),
+            )
 
-            return {
-                "context_id": result.context_id,
-                "task_id": result.task_id,
-                "state": result.state.value if result.state else None,
-                "text": result.text,
-                "needs_input": result.needs_input,
-                "needs_auth": result.needs_auth,
-            }
+            return protocol_dump(response)
 
     @mcp.tool()
     async def get_task(
@@ -253,6 +328,10 @@ def create_mcp_server() -> FastMCP:
         history_length: int | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
     ) -> dict:
         """Get the current status and details of a task.
 
@@ -284,18 +363,21 @@ def create_mcp_server() -> FastMCP:
         except InputValidationError as error:
             raise _validation_error(error) from error
 
-        credentials = _resolve_credentials(agent_url, bearer_token, api_key)
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
 
-        async with _build_http_client() as http_client:
+        async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            result = await service.get_task(task_id, history_length)
+            task = await service.get_task(task_id, history_length)
 
-            return {
-                "task_id": result.task_id,
-                "context_id": result.context_id,
-                "state": result.state.value,
-                "text": result.text,
-            }
+            return protocol_dump(task)
 
     @mcp.tool()
     async def cancel_task(
@@ -303,6 +385,10 @@ def create_mcp_server() -> FastMCP:
         task_id: str,
         bearer_token: str | None = None,
         api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
     ) -> dict:
         """Cancel a running task.
 
@@ -332,18 +418,21 @@ def create_mcp_server() -> FastMCP:
         except InputValidationError as error:
             raise _validation_error(error) from error
 
-        credentials = _resolve_credentials(agent_url, bearer_token, api_key)
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
 
-        async with _build_http_client() as http_client:
+        async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            result = await service.cancel_task(task_id)
+            task = await service.cancel_task(task_id)
 
-            return {
-                "task_id": result.task_id,
-                "context_id": result.context_id,
-                "state": result.state.value,
-                "text": result.text,
-            }
+            return protocol_dump(task)
 
     @mcp.tool()
     async def set_task_notification(
@@ -353,6 +442,10 @@ def create_mcp_server() -> FastMCP:
         webhook_token: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
     ) -> dict:
         """Configure push notifications for a task.
 
@@ -388,22 +481,21 @@ def create_mcp_server() -> FastMCP:
         except InputValidationError as error:
             raise _validation_error(error) from error
 
-        credentials = _resolve_credentials(agent_url, bearer_token, api_key)
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
 
-        async with _build_http_client() as http_client:
+        async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
             config = await service.set_push_config(task_id, webhook_url, webhook_token)
 
-            result: dict = {"task_id": config.task_id}
-            if config.push_notification_config:
-                pnc = config.push_notification_config
-                result["url"] = pnc.url
-                if pnc.token:
-                    result["token"] = f"{pnc.token[:20]}..."
-                if pnc.id:
-                    result["config_id"] = pnc.id
-
-            return result
+            return push_config_dump(config)
 
     @mcp.tool()
     async def get_task_notification(
@@ -412,6 +504,10 @@ def create_mcp_server() -> FastMCP:
         config_id: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
     ) -> dict:
         """Get the push notification configuration for a task.
 
@@ -444,36 +540,34 @@ def create_mcp_server() -> FastMCP:
         except InputValidationError as error:
             raise _validation_error(error) from error
 
-        credentials = _resolve_credentials(agent_url, bearer_token, api_key)
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
 
-        async with _build_http_client() as http_client:
+        async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
             config = await service.get_push_config(task_id, config_id)
 
-            result: dict = {"task_id": config.task_id}
-            if config.push_notification_config:
-                pnc = config.push_notification_config
-                result["url"] = pnc.url
-                if pnc.token:
-                    result["token"] = f"{pnc.token[:20]}..."
-                if pnc.id:
-                    result["config_id"] = pnc.id
-
-            return result
+            return push_config_dump(config)
 
     @mcp.tool()
     async def list_sessions() -> dict:
         """List all saved sessions.
 
-        Sessions store context_id, task_id, and credentials for agents you've
-        interacted with. This allows for conversation continuity across
-        multiple interactions.
+        Sessions store context_id and task_id for agents you've interacted
+        with. This allows for conversation continuity across multiple
+        interactions.
 
         Returns:
             A dictionary containing:
             - count: Number of saved sessions
-            - sessions: List of sessions with agent_url, context_id, task_id,
-                       and has_credentials flag
+            - sessions: List of sessions with agent_url, context_id, task_id
         """
         logger.info("Listing all sessions")
 
@@ -487,7 +581,6 @@ def create_mcp_server() -> FastMCP:
                     "agent_url": s.agent_url,
                     "context_id": s.context_id,
                     "task_id": s.task_id,
-                    "has_credentials": s.credentials is not None,
                 }
                 for s in sessions
             ],
@@ -508,7 +601,6 @@ def create_mcp_server() -> FastMCP:
             - agent_url: The agent URL
             - context_id: Saved context ID (or None)
             - task_id: Saved task ID (or None)
-            - has_credentials: Whether credentials are saved
         """
         logger.info("Getting session for %s", agent_url)
         try:
@@ -522,7 +614,6 @@ def create_mcp_server() -> FastMCP:
             "agent_url": session.agent_url,
             "context_id": session.context_id,
             "task_id": session.task_id,
-            "has_credentials": session.credentials is not None,
         }
 
     @mcp.tool()
@@ -530,7 +621,7 @@ def create_mcp_server() -> FastMCP:
         """Clear saved session data.
 
         Removes saved session state (context_id, task_id) for an agent or all
-        agents. Does not clear credentials - use clear_agent_credentials for that.
+        agents.
 
         Args:
             agent_url: URL of agent to clear. If None, clears ALL sessions.
@@ -551,84 +642,6 @@ def create_mcp_server() -> FastMCP:
             logger.info("Clearing all sessions")
             clear_session()
             return {"cleared": "All sessions"}
-
-    @mcp.tool()
-    async def set_agent_credentials(
-        agent_url: str,
-        bearer_token: str | None = None,
-        api_key: str | None = None,
-    ) -> dict:
-        """Set authentication credentials for an agent.
-
-        Saves credentials that will be used for all future requests to this
-        agent. Either bearer_token or api_key should be provided, not both.
-
-        Args:
-            agent_url: Base URL of the A2A agent
-            bearer_token: Bearer token for Authorization header
-            api_key: API key for X-API-Key header
-
-        Returns:
-            A dictionary containing:
-            - agent_url: The agent URL
-            - auth_type: Type of auth configured ("bearer" or "api_key")
-        """
-        logger.info("Setting credentials for %s", agent_url)
-        try:
-            validate_agent_url(agent_url)
-            if bearer_token and api_key:
-                raise InputValidationError(
-                    code="invalid_auth_arguments",
-                    message="Provide either bearer_token or api_key, not both",
-                    suggestion="Pass only one auth mechanism per call",
-                )
-            if not bearer_token and not api_key:
-                raise InputValidationError(
-                    code="missing_auth_arguments",
-                    message="Either bearer_token or api_key is required",
-                    suggestion="Provide bearer_token or api_key",
-                )
-            if bearer_token:
-                reject_control_chars(bearer_token, "bearer_token")
-            if api_key:
-                reject_control_chars(api_key, "api_key")
-        except InputValidationError as error:
-            raise _validation_error(error) from error
-
-        if bearer_token:
-            credentials = create_bearer_auth(bearer_token)
-            set_credentials(agent_url, credentials)
-            return {"agent_url": agent_url, "auth_type": "bearer"}
-        if api_key:
-            credentials = create_api_key_auth(api_key)
-            set_credentials(agent_url, credentials)
-            return {"agent_url": agent_url, "auth_type": "api_key"}
-
-        raise AssertionError("validated auth inputs should guarantee a return")
-
-    @mcp.tool()
-    async def clear_agent_credentials(agent_url: str) -> dict:
-        """Clear saved credentials for an agent.
-
-        Removes any saved authentication credentials for the specified agent.
-
-        Args:
-            agent_url: Base URL of the A2A agent
-
-        Returns:
-            A dictionary containing:
-            - agent_url: The agent URL
-            - cleared: True if credentials were cleared
-        """
-        logger.info("Clearing credentials for %s", agent_url)
-        try:
-            validate_agent_url(agent_url)
-        except InputValidationError as error:
-            raise _validation_error(error) from error
-
-        session_clear_credentials(agent_url)
-
-        return {"agent_url": agent_url, "cleared": True}
 
     return mcp
 
