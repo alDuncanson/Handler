@@ -312,17 +312,8 @@ class A2AService:
         self._cached_client = None
         logger.debug("Cleared authentication headers")
 
-    async def get_card(self) -> AgentCard:
-        """Fetch and cache the agent card.
-
-        Tries the standard well-known path first (``agent-card.json``), then
-        falls back to the previous path (``agent.json``) used by older ADK
-        versions.
-
-        Returns:
-            The agent's card with metadata and capabilities
-        """
-        await self.ensure_oauth2_token()
+    async def _load_agent_card(self) -> AgentCard:
+        """Fetch and cache the agent card without mutating auth state."""
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
             card_resolver = A2ACardResolver(self.http_client, self.agent_url)
@@ -343,6 +334,19 @@ class A2AService:
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
         return self._cached_agent_card
 
+    async def get_card(self) -> AgentCard:
+        """Fetch and cache the agent card.
+
+        Tries the standard well-known path first (``agent-card.json``), then
+        falls back to the previous path (``agent.json``) used by older ADK
+        versions.
+
+        Returns:
+            The agent's card with metadata and capabilities
+        """
+        await self.ensure_oauth2_token()
+        return await self._load_agent_card()
+
     async def _get_or_create_client(self) -> Client:
         """Get or create the A2A client.
 
@@ -351,7 +355,7 @@ class A2AService:
         """
         await self.ensure_oauth2_token()
         if self._cached_client is None:
-            agent_card = await self.get_card()
+            agent_card = await self._load_agent_card()
 
             push_notification_configs: list[PushNotificationConfig] = []
             if self.push_notification_url:

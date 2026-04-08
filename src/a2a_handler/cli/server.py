@@ -22,12 +22,16 @@ from a2a_handler.servers import (
     SERVER_SCHEMA_VERSION,
     ServerCatalog,
     ServerDefinition,
+    ServerLoadDiagnostic,
+    ServerLoadResult,
     ServerSource,
     find_git_root,
+    inspect_servers_file,
     load_server_catalog,
     resolve_server_credentials,
     server_file_path,
     server_source_label,
+    validate_server_definition,
 )
 from a2a_handler.webhook import run_webhook_server
 
@@ -121,6 +125,11 @@ def _toml_encode_value(value: object) -> str:
     return repr(value)
 
 
+def _toml_encode_key(key: str) -> str:
+    """Encode a TOML key so names with dots or spaces remain addressable."""
+    return _toml_encode_value(key)
+
+
 def _read_toml(path: Path) -> dict[str, object]:
     """Read and parse a TOML file, returning an empty dict if missing."""
     if not path.exists():
@@ -134,6 +143,32 @@ def _as_toml_table(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
     return cast(dict[str, object], value)
+
+
+def _inspect_server_sources() -> list[ServerLoadResult]:
+    """Inspect the repository and global server files for loaded entries and issues."""
+    results: list[ServerLoadResult] = []
+    git_root = find_git_root()
+    if git_root is not None:
+        local_server_dir = git_root / ".handler"
+        if local_server_dir != server_file_path().parent:
+            results.append(
+                inspect_servers_file(local_server_dir, ServerSource.REPOSITORY)
+            )
+    results.append(inspect_servers_file(None, ServerSource.GLOBAL))
+    return results
+
+
+def _diagnostic_to_dict(diagnostic: ServerLoadDiagnostic) -> dict[str, object]:
+    """Serialize a server-load diagnostic for CLI output."""
+    data: dict[str, object] = {
+        "source": server_source_label(diagnostic.source).lower(),
+        "path": str(diagnostic.path),
+        "message": diagnostic.message,
+    }
+    if diagnostic.server_name is not None:
+        data["name"] = diagnostic.server_name
+    return data
 
 
 def _build_server_auth_entry(
@@ -224,7 +259,8 @@ def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
             entry = _as_toml_table(raw_entry)
             if entry is None:
                 continue
-            lines.append(f"[servers.{name}]")
+            encoded_name = _toml_encode_key(name)
+            lines.append(f"[servers.{encoded_name}]")
             for key, value in entry.items():
                 if key == "auth":
                     continue
@@ -233,7 +269,7 @@ def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
             auth = _as_toml_table(entry.get("auth"))
             if auth is not None:
                 lines.append("")
-                lines.append(f"[servers.{name}.auth]")
+                lines.append(f"[servers.{encoded_name}.auth]")
                 for key, value in auth.items():
                     lines.append(f"{key} = {_toml_encode_value(value)}")
             lines.append("")
@@ -306,6 +342,25 @@ def server_show(name: str, source: str | None) -> None:
         matches.extend(server_def for server_def in servers if server_def.name == name)
 
     if not matches:
+        diagnostics = [
+            diagnostic
+            for result in _inspect_server_sources()
+            if not source or result.source.value == source
+            for diagnostic in result.diagnostics
+            if diagnostic.server_name == name
+        ]
+        if diagnostics:
+            output.error(
+                code="invalid_server_config",
+                message=f"Server '{name}' exists but has invalid configuration",
+                details={
+                    "issues": [
+                        _diagnostic_to_dict(diagnostic) for diagnostic in diagnostics
+                    ]
+                },
+                suggestion="Run `handler server validate` to inspect configuration issues.",
+            )
+            return
         output.error(code="not_found", message=f"Server '{name}' not found")
         return
 
@@ -397,6 +452,7 @@ def server_add(
     """
     output = Output()
     path = _resolve_servers_path(use_repository)
+    target_source = ServerSource.REPOSITORY if use_repository else ServerSource.GLOBAL
 
     data = _read_toml(path)
     servers = _as_toml_table(data.get("servers"))
@@ -405,6 +461,37 @@ def server_add(
             code="already_exists", message=f"Server '{name}' already exists in {path}"
         )
         return
+
+    for result in _inspect_server_sources():
+        if result.source == target_source:
+            continue
+        if any(server_def.name == name for server_def in result.servers):
+            output.error(
+                code="already_exists",
+                message=(
+                    f"Server '{name}' already exists in "
+                    f"{server_source_label(result.source).lower()} config"
+                ),
+            )
+            return
+        conflicting_diagnostic = next(
+            (
+                diagnostic
+                for diagnostic in result.diagnostics
+                if diagnostic.server_name == name
+            ),
+            None,
+        )
+        if conflicting_diagnostic is not None:
+            output.error(
+                code="already_exists",
+                message=(
+                    f"Server '{name}' already exists as an invalid entry in "
+                    f"{server_source_label(result.source).lower()} config"
+                ),
+                details=_diagnostic_to_dict(conflicting_diagnostic),
+            )
+            return
 
     if servers is None:
         servers = {}
@@ -426,6 +513,12 @@ def server_add(
         return
     if auth_entry is not None:
         entry["auth"] = auth_entry
+
+    try:
+        validate_server_definition(name, entry, target_source)
+    except ValueError as error:
+        output.error(code="invalid_server", message=str(error))
+        return
 
     servers[name] = entry
     data["servers"] = servers
@@ -487,17 +580,24 @@ def server_validate() -> None:
       $ handler server validate
     """
     output = Output()
-    catalog = load_server_catalog()
 
-    results = []
-    for source, servers in _iter_catalog_sections(catalog):
-        for server_def in servers:
+    results: list[dict[str, object]] = []
+    for load_result in _inspect_server_sources():
+        for diagnostic in load_result.diagnostics:
+            issue = _diagnostic_to_dict(diagnostic)
+            issue["status"] = "error"
+            results.append(issue)
+
+        for server_def in load_result.servers:
             entry = _server_to_dict(server_def)
+            entry["path"] = str(load_result.path)
+            entry["status"] = "ok"
             if server_def.auth:
                 credentials, warning = resolve_server_credentials(server_def)
                 entry["credentials_status"] = "ok" if credentials else "error"
                 if warning:
                     entry["credentials_warning"] = warning
+                    entry["status"] = "error"
             results.append(entry)
     output.json(results)
 

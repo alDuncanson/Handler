@@ -114,7 +114,7 @@ class AuthCredentials:
         if not self.value:
             return True
         if self._token_expires_at is None:
-            return False
+            return True
         return time.monotonic() >= self._token_expires_at
 
     def clear_token(self) -> None:

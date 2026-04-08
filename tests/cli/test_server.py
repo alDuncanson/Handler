@@ -9,6 +9,12 @@ import pytest
 from click.testing import CliRunner
 
 from a2a_handler.cli.server import server
+from a2a_handler.servers import (
+    ServerDefinition,
+    ServerLoadDiagnostic,
+    ServerLoadResult,
+    ServerSource,
+)
 
 
 @pytest.fixture
@@ -173,7 +179,10 @@ class TestServerAdd:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             result = runner.invoke(
                 server, ["add", "demo", "--url", "http://localhost:8000"]
             )
@@ -190,7 +199,10 @@ class TestServerAdd:
         from unittest.mock import patch as mock_patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             with mock_patch.dict(os.environ, {"TEST_BEARER": "tok"}):
                 result = runner.invoke(
                     server,
@@ -215,7 +227,10 @@ class TestServerAdd:
         from unittest.mock import patch as mock_patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             with mock_patch.dict(os.environ, {"TEST_API_KEY": "key-123"}):
                 result = runner.invoke(
                     server,
@@ -243,7 +258,10 @@ class TestServerAdd:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             result = runner.invoke(
                 server,
                 [
@@ -266,7 +284,10 @@ class TestServerAdd:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             result = runner.invoke(
                 server,
                 [
@@ -291,7 +312,10 @@ class TestServerAdd:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             result = runner.invoke(
                 server,
                 [
@@ -327,7 +351,10 @@ class TestServerAdd:
         from unittest.mock import patch
 
         path = servers_dir / "servers.toml"
-        with patch("a2a_handler.cli.server._resolve_servers_path", return_value=path):
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
             result = runner.invoke(
                 server,
                 [
@@ -351,9 +378,12 @@ class TestServerAdd:
     ) -> None:
         from unittest.mock import patch
 
-        with patch(
-            "a2a_handler.cli.server._resolve_servers_path",
-            return_value=servers_file,
+        with (
+            patch(
+                "a2a_handler.cli.server._resolve_servers_path",
+                return_value=servers_file,
+            ),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
         ):
             result = runner.invoke(
                 server, ["add", "gamma", "--url", "http://localhost:7000"]
@@ -369,9 +399,12 @@ class TestServerAdd:
     def test_add_rejects_duplicate(self, runner: CliRunner, servers_file: Path) -> None:
         from unittest.mock import patch
 
-        with patch(
-            "a2a_handler.cli.server._resolve_servers_path",
-            return_value=servers_file,
+        with (
+            patch(
+                "a2a_handler.cli.server._resolve_servers_path",
+                return_value=servers_file,
+            ),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
         ):
             result = runner.invoke(
                 server, ["add", "alpha", "--url", "http://localhost:5000"]
@@ -379,6 +412,106 @@ class TestServerAdd:
 
         assert result.exit_code == 0
         assert "already exists" in result.output.lower()
+
+    def test_add_rejects_invalid_url(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(server, ["add", "demo", "--url", "not-a-url"])
+
+        assert result.exit_code == 0
+        assert "valid http(s) url" in result.output.lower()
+        assert not path.exists()
+
+    def test_add_rejects_invalid_oauth2_token_url(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://agent.example.com",
+                    "--oauth2-token-url",
+                    "not-a-url",
+                    "--oauth2-client-id-env",
+                    "CLIENT_ID",
+                    "--oauth2-client-secret-env",
+                    "CLIENT_SECRET",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "token_url" in result.output
+        assert not path.exists()
+
+    def test_add_rejects_cross_scope_duplicate_name(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        existing = ServerDefinition(
+            server_id="repository:demo",
+            source=ServerSource.REPOSITORY,
+            name="demo",
+            agent_url="http://repo.example.com",
+            origin_label="Repository",
+        )
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch(
+                "a2a_handler.cli.server._inspect_server_sources",
+                return_value=[
+                    ServerLoadResult(
+                        path=Path("/tmp/repo/.handler/servers.toml"),
+                        source=ServerSource.REPOSITORY,
+                        servers=(existing,),
+                    )
+                ],
+            ),
+        ):
+            result = runner.invoke(
+                server,
+                ["add", "demo", "--url", "http://global.example.com"],
+            )
+
+        assert result.exit_code == 0
+        assert "repository config" in result.output.lower()
+        assert not path.exists()
+
+    def test_add_quotes_server_names_in_written_toml(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                ["add", "team.agent", "--url", "http://localhost:8000"],
+            )
+
+        assert result.exit_code == 0
+        data = tomllib.loads(path.read_text())
+        assert data["servers"]["team.agent"]["url"] == "http://localhost:8000"
 
 
 # ---------------------------------------------------------------------------
@@ -434,11 +567,9 @@ class TestServerValidate:
     def test_validate_empty(self, runner: CliRunner) -> None:
         from unittest.mock import patch
 
-        from a2a_handler.servers import ServerCatalog
-
         with patch(
-            "a2a_handler.cli.server.load_server_catalog",
-            return_value=ServerCatalog(),
+            "a2a_handler.cli.server._inspect_server_sources",
+            return_value=[],
         ):
             result = runner.invoke(server, ["validate"])
 
@@ -447,18 +578,57 @@ class TestServerValidate:
     def test_validate_all_ok(self, runner: CliRunner, servers_dir: Path) -> None:
         from unittest.mock import patch
 
-        from a2a_handler.servers import load_server_catalog
-
         servers_file = servers_dir / "servers.toml"
         servers_file.write_text(
             'version = 1\n\n[servers.demo]\nurl = "http://localhost:8000"\n'
         )
 
         with patch(
-            "a2a_handler.cli.server.load_server_catalog",
-            return_value=load_server_catalog(servers_dir),
+            "a2a_handler.cli.server._inspect_server_sources",
+            return_value=[
+                ServerLoadResult(
+                    path=servers_file,
+                    source=ServerSource.GLOBAL,
+                    servers=(
+                        ServerDefinition(
+                            server_id="global:demo",
+                            source=ServerSource.GLOBAL,
+                            name="demo",
+                            agent_url="http://localhost:8000",
+                            origin_label="Global",
+                        ),
+                    ),
+                )
+            ],
         ):
             result = runner.invoke(server, ["validate"])
 
         assert result.exit_code == 0
         assert "demo" in result.output
+
+    def test_validate_reports_invalid_entries(self, runner: CliRunner) -> None:
+        from unittest.mock import patch
+
+        with patch(
+            "a2a_handler.cli.server._inspect_server_sources",
+            return_value=[
+                ServerLoadResult(
+                    path=Path("/tmp/servers.toml"),
+                    source=ServerSource.GLOBAL,
+                    diagnostics=(
+                        ServerLoadDiagnostic(
+                            path=Path("/tmp/servers.toml"),
+                            source=ServerSource.GLOBAL,
+                            server_name="broken",
+                            message="url must be a non-empty string",
+                        ),
+                    ),
+                )
+            ],
+        ):
+            result = runner.invoke(server, ["validate"])
+
+        assert result.exit_code == 0
+        assert '"status": "error"' in result.output
+        assert "broken" in result.output
+        assert "url must be a non-empty string" in result.output

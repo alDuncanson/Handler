@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import ssl
 import tomllib
 from dataclasses import dataclass
 from enum import Enum
@@ -107,6 +108,26 @@ class ServerConfigError(ValueError):
     """Raised when server configuration is malformed."""
 
 
+@dataclass(frozen=True, slots=True)
+class ServerLoadDiagnostic:
+    """Structured validation issue found while loading a server file."""
+
+    path: Path
+    source: ServerSource
+    message: str
+    server_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ServerLoadResult:
+    """Loaded servers plus non-fatal diagnostics for one file."""
+
+    path: Path
+    source: ServerSource
+    servers: tuple[ServerDefinition, ...] = ()
+    diagnostics: tuple[ServerLoadDiagnostic, ...] = ()
+
+
 def server_source_label(source: ServerSource) -> str:
     """Human-readable label for a server source."""
     labels = {
@@ -134,56 +155,116 @@ def load_servers(
     not prevent loading the others.
     """
 
+    result = inspect_servers_file(server_directory, source)
+    for diagnostic in result.diagnostics:
+        if diagnostic.server_name:
+            logger.warning(
+                "Skipping invalid server %s in %s: %s",
+                diagnostic.server_name,
+                diagnostic.path,
+                diagnostic.message,
+            )
+        else:
+            logger.warning(
+                "Ignoring server file %s: %s", diagnostic.path, diagnostic.message
+            )
+    return list(result.servers)
+
+
+def inspect_servers_file(
+    server_directory: Path | None,
+    source: ServerSource,
+) -> ServerLoadResult:
+    """Load one server file while preserving structured diagnostics."""
     path = server_file_path(server_directory)
     if not path.exists():
-        return []
+        return ServerLoadResult(path=path, source=source)
 
+    diagnostics: list[ServerLoadDiagnostic] = []
     try:
         with open(path, "rb") as server_file:
             raw = tomllib.load(server_file)
     except tomllib.TOMLDecodeError as error:
-        logger.warning("Failed to parse server file %s: %s", path, error)
-        return []
+        diagnostics.append(
+            ServerLoadDiagnostic(
+                path=path, source=source, message=f"Failed to parse TOML: {error}"
+            )
+        )
+        return ServerLoadResult(
+            path=path, source=source, diagnostics=tuple(diagnostics)
+        )
     except OSError as error:
-        logger.warning("Failed to read server file %s: %s", path, error)
-        return []
+        diagnostics.append(
+            ServerLoadDiagnostic(
+                path=path, source=source, message=f"Failed to read file: {error}"
+            )
+        )
+        return ServerLoadResult(
+            path=path, source=source, diagnostics=tuple(diagnostics)
+        )
 
     try:
         raw_table = _coerce_str_key_table(raw, "root")
-    except ServerConfigError:
-        logger.warning("Ignoring server file %s: root must be a TOML table", path)
-        return []
+    except ServerConfigError as error:
+        diagnostics.append(
+            ServerLoadDiagnostic(path=path, source=source, message=error.args[0])
+        )
+        return ServerLoadResult(
+            path=path, source=source, diagnostics=tuple(diagnostics)
+        )
 
     raw_version = raw_table.get("version", SERVER_SCHEMA_VERSION)
     if raw_version != SERVER_SCHEMA_VERSION:
-        logger.warning(
-            "Ignoring server file %s: unsupported version %r (expected %d)",
-            path,
-            raw_version,
-            SERVER_SCHEMA_VERSION,
+        diagnostics.append(
+            ServerLoadDiagnostic(
+                path=path,
+                source=source,
+                message=(
+                    f"unsupported version {raw_version!r} "
+                    f"(expected {SERVER_SCHEMA_VERSION})"
+                ),
+            )
         )
-        return []
+        return ServerLoadResult(
+            path=path, source=source, diagnostics=tuple(diagnostics)
+        )
 
     raw_servers_value = raw_table.get("servers")
     if raw_servers_value is None:
-        return []
+        return ServerLoadResult(path=path, source=source)
 
     try:
         raw_servers = _coerce_str_key_table(raw_servers_value, "servers")
-    except ServerConfigError:
-        logger.warning("Ignoring server file %s: 'servers' must be a TOML table", path)
-        return []
+    except ServerConfigError as error:
+        diagnostics.append(
+            ServerLoadDiagnostic(path=path, source=source, message=error.args[0])
+        )
+        return ServerLoadResult(
+            path=path, source=source, diagnostics=tuple(diagnostics)
+        )
 
     loaded: list[ServerDefinition] = []
     for name, server_data in sorted(raw_servers.items()):
         try:
             loaded_server = _parse_server(name, server_data, source)
         except ServerConfigError as error:
-            logger.warning("Skipping invalid server %s: %s", name, error)
+            diagnostics.append(
+                ServerLoadDiagnostic(
+                    path=path,
+                    source=source,
+                    server_name=name if isinstance(name, str) else None,
+                    message=error.args[0],
+                )
+            )
             continue
         loaded.append(loaded_server)
 
-    return loaded
+    return ServerLoadResult(
+        path=path,
+        source=source,
+        servers=tuple(loaded),
+        diagnostics=tuple(diagnostics),
+    )
 
 
 def resolve_server_credentials(
@@ -203,12 +284,16 @@ def resolve_server_credentials(
                 f"Server '{server_name}' mTLS auth requires cert and key paths",
             )
         try:
-            return create_mtls_auth(
+            credentials = create_mtls_auth(
                 auth.cert_path,
                 auth.key_path,
                 auth.ca_cert_path,
-            ), None
+            )
+            credentials.build_ssl_context()
+            return credentials, None
         except FileNotFoundError as error:
+            return None, f"Server '{server_name}': {error}"
+        except (ssl.SSLError, OSError, ValueError) as error:
             return None, f"Server '{server_name}': {error}"
 
     if auth.auth_type == AuthType.OAUTH2:
@@ -325,6 +410,15 @@ def load_server_catalog(
         repository_servers=repository_servers,
         global_servers=global_servers,
     )
+
+
+def validate_server_definition(
+    name: object,
+    server_data: object,
+    source: ServerSource,
+) -> ServerDefinition:
+    """Validate one server entry using the shared loader rules."""
+    return _parse_server(name, server_data, source)
 
 
 def _parse_server(

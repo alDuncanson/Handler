@@ -404,7 +404,7 @@ class TestOAuth2Auth:
         assert not creds.is_token_expired()
 
     async def test_fetch_oauth2_token_without_expires_in(self) -> None:
-        """Token without expires_in is treated as non-expiring."""
+        """Token without expires_in is treated as expired and refreshed per request."""
         from unittest.mock import MagicMock, patch
 
         creds = create_oauth2_auth(
@@ -425,7 +425,7 @@ class TestOAuth2Auth:
 
         assert creds.value == "tok-forever"
         assert creds._token_expires_at is None
-        assert not creds.is_token_expired()
+        assert creds.is_token_expired()
 
     def test_is_token_expired_no_token(self) -> None:
         """Credentials with no token are considered expired."""

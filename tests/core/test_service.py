@@ -685,6 +685,64 @@ class TestA2AServiceOAuthAndCards:
         assert service._cached_client is cached_client
         assert http_client.headers["Authorization"] == "Bearer cached-token"
 
+    async def test_get_or_create_client_fetches_unknown_expiry_token_once(
+        self, monkeypatch
+    ) -> None:
+        """Unknown-expiry OAuth2 tokens should refresh once per client creation."""
+        credentials = create_oauth2_auth(
+            "https://auth.example.com/token",
+            "client-id",
+            "client-secret",
+        )
+        card = AgentCard(
+            name="OAuth Agent",
+            description="Test agent",
+            url="http://example.com",
+            version="1.0.0",
+            default_input_modes=["text"],
+            default_output_modes=["text"],
+            capabilities=AgentCapabilities(streaming=True, push_notifications=False),
+            skills=[],
+        )
+        fetch_count = 0
+
+        async def _fetch_token() -> str:
+            nonlocal fetch_count
+            fetch_count += 1
+            credentials.value = f"oauth-token-{fetch_count}"
+            credentials._token_expires_at = None
+            return credentials.value
+
+        class _Resolver:
+            def __init__(self, _http_client, _agent_url, agent_card_path=None) -> None:
+                self.agent_card_path = agent_card_path
+
+            async def get_agent_card(self):
+                return card
+
+        class _Factory:
+            def __init__(self, _config) -> None:
+                pass
+
+            def create(self, _card):
+                return object()
+
+        credentials.fetch_oauth2_token = _fetch_token  # type: ignore[method-assign]
+        monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
+        monkeypatch.setattr("a2a_handler.service.ClientFactory", _Factory)
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="http://example.com",
+                credentials=credentials,
+            )
+
+            await service._get_or_create_client()
+
+        assert fetch_count == 1
+        assert http_client.headers["Authorization"] == "Bearer oauth-token-1"
+
     async def test_get_card_falls_back_to_previous_well_known_path(
         self, monkeypatch
     ) -> None:

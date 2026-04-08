@@ -229,6 +229,7 @@ ca_cert = "/path/to/ca.crt"
 def test_resolve_mtls_server_credentials(tmp_path: Path) -> None:
     """mTLS server credentials resolve when files exist."""
     import tempfile
+    from unittest.mock import patch
 
     with (
         tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
@@ -246,12 +247,41 @@ def test_resolve_mtls_server_credentials(tmp_path: Path) -> None:
             ),
             origin_label="Global",
         )
-        credentials, warning = resolve_server_credentials(server_def)
+        with patch("a2a_handler.auth.AuthCredentials.build_ssl_context"):
+            credentials, warning = resolve_server_credentials(server_def)
         assert warning is None
         assert credentials is not None
         assert credentials.auth_type == AuthType.MTLS
         assert credentials.cert_path == cert_file.name
         assert credentials.key_path == key_file.name
+
+
+def test_resolve_mtls_server_credentials_warns_for_invalid_cert_data(
+    tmp_path: Path,
+) -> None:
+    """mTLS credentials fail closed when the cert chain cannot be loaded."""
+    import tempfile
+
+    with (
+        tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
+        tempfile.NamedTemporaryFile(suffix=".pem") as key_file,
+    ):
+        server_def = ServerDefinition(
+            server_id="global:mtls-bad",
+            source=ServerSource.GLOBAL,
+            name="mtls-bad",
+            agent_url="https://secure.example.com",
+            auth=ServerAuthConfig(
+                auth_type=AuthType.MTLS,
+                cert_path=cert_file.name,
+                key_path=key_file.name,
+            ),
+            origin_label="Global",
+        )
+        credentials, warning = resolve_server_credentials(server_def)
+
+    assert credentials is None
+    assert warning is not None
 
 
 def test_find_git_root_returns_repo_root(tmp_path: Path, monkeypatch) -> None:
