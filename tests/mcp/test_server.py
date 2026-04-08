@@ -215,7 +215,11 @@ async def test_send_message_with_use_session() -> None:
     mock_service = AsyncMock()
     mock_service.send.return_value = task
 
-    session = AgentSession(agent_url="http://localhost:8000", context_id="saved-ctx")
+    session = AgentSession(
+        agent_url="http://localhost:8000",
+        context_id="saved-ctx",
+        task_id="saved-task",
+    )
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
@@ -227,7 +231,7 @@ async def test_send_message_with_use_session() -> None:
             agent_url="http://localhost:8000", message="hi", use_session=True
         )
 
-    mock_service.send.assert_called_once_with("hi", "saved-ctx", None)
+    mock_service.send.assert_called_once_with("hi", "saved-ctx", "saved-task")
     assert resp["id"] == "task-1"
     assert resp["contextId"] == "ctx-1"
 

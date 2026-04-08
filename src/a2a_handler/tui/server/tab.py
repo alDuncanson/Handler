@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import uuid
 from collections.abc import Generator
 from typing import Any
 
@@ -570,7 +569,7 @@ class ServerTab(Container):
             credentials = messages_panel.get_auth_credentials()
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
-            context_id = str(uuid.uuid4())
+            context_id: str | None = None
             resumed_task_id: str | None = None
             if saved_conversation is not None:
                 assert saved_conversation is not None
@@ -741,7 +740,7 @@ class ServerTab(Container):
         if not self.is_connected or self.state.agent_card is None:
             return
 
-        self.state.current_context_id = str(uuid.uuid4())
+        self.state.current_context_id = None
         self.state.current_task_id = None
         await self._apply_connected_ui(
             conversation_summary="fresh server context",

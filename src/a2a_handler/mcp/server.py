@@ -277,7 +277,22 @@ def create_mcp_server() -> FastMCP:
         if use_session and not context_id:
             session = get_session(agent_url)
             if session.context_id:
+                try:
+                    validate_resource_id(session.context_id, "context_id")
+                except InputValidationError as error:
+                    raise _validation_error(error) from error
                 context_id = session.context_id
+                if not task_id and session.task_id:
+                    try:
+                        validate_resource_id(session.task_id, "task_id")
+                    except InputValidationError as error:
+                        logger.warning(
+                            "Ignoring saved task_id for %s: %s",
+                            agent_url,
+                            error.message,
+                        )
+                    else:
+                        task_id = session.task_id
                 logger.info("Using saved context: %s", context_id)
 
         credentials = _resolve_credentials(

@@ -180,7 +180,23 @@ def message_send(
     if use_session and not context_id:
         session = get_session(resolved_url)
         if session.context_id:
+            try:
+                validate_resource_id(session.context_id, "context_id")
+            except InputValidationError as error:
+                handle_validation_error(error, output)
+                raise click.Abort() from error
             context_id = session.context_id
+            if not task_id and session.task_id:
+                try:
+                    validate_resource_id(session.task_id, "task_id")
+                except InputValidationError as error:
+                    log.warning(
+                        "Ignoring saved task_id for %s: %s",
+                        resolved_url,
+                        error.message,
+                    )
+                else:
+                    task_id = session.task_id
             log.info("Using saved context: %s", context_id)
 
     custom_headers: dict[str, str] | None = None

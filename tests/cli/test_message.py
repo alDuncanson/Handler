@@ -146,7 +146,9 @@ class TestMessageSend:
             )
 
             assert result.exit_code == 0
-            mock_service.send.assert_called_once_with("Hello", "saved-ctx", None)
+            mock_service.send.assert_called_once_with(
+                "Hello", "saved-ctx", "saved-task"
+            )
 
     def test_message_send_with_bearer_auth(self, runner):
         """Test message send with bearer token."""

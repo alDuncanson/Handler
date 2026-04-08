@@ -160,25 +160,22 @@ def save_connections_to_workspace(
         entry: dict[str, object] = {"url": agent_url}
 
         server_def = server_tab.state.connected_server_def
-        if server_def and server_def.auth:
-            entry["auth"] = _auth_config_to_dict(server_def.auth)
-        else:
-            server_view = server_tab._try_get_server_view()
-            if server_view is not None:
-                try:
-                    panel_credentials = (
-                        server_view.messages_panel().get_auth_credentials()
-                    )
-                except InputValidationError:
-                    logger.warning(
-                        "Skipping auth metadata for %s due to invalid auth input",
-                        agent_url,
-                    )
-                    panel_credentials = None
+        server_view = server_tab._try_get_server_view()
+        if server_view is not None:
+            try:
+                panel_credentials = server_view.messages_panel().get_auth_credentials()
+            except InputValidationError:
+                logger.warning(
+                    "Skipping auth metadata for %s due to invalid auth input",
+                    agent_url,
+                )
+            else:
                 if panel_credentials is not None:
                     skeleton = _credentials_to_skeleton_dict(panel_credentials)
                     if skeleton:
                         entry["auth"] = skeleton
+        elif server_def and server_def.auth:
+            entry["auth"] = _auth_config_to_dict(server_def.auth)
 
         servers[name] = entry
         existing_urls.add(agent_url)

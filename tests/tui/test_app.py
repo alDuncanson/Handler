@@ -1,7 +1,6 @@
 """Tests for the server-based TUI shell."""
 
 from collections.abc import Generator
-import uuid
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
@@ -777,8 +776,6 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
     mock_card.protocol_version = None
     mock_card.version = None
     mock_card.model_dump.return_value = {"name": "Demo Agent"}
-    fresh_context = uuid.UUID("12345678-1234-5678-1234-567812345678")
-
     with (
         patch(
             "a2a_handler.tui.server.tab.load_server_catalog",
@@ -789,7 +786,6 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
             return_value=new_http_client,
         ),
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
-        patch("a2a_handler.tui.server.tab.uuid.uuid4", return_value=fresh_context),
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
@@ -804,11 +800,11 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
             await workspace.handle_connect_button()
             await pilot.pause()
 
-            assert workspace.state.current_context_id == str(fresh_context)
+            assert workspace.state.current_context_id is None
             assert workspace.state.current_task_id is None
             patch_server_sources.set_conversation.assert_called_with(
                 "https://agent.example.com",
-                str(fresh_context),
+                None,
                 None,
             )
             mock_service.get_task.assert_not_called()
@@ -1504,7 +1500,6 @@ async def test_action_start_fresh_conversation_resets_context_and_task(
             workspace = app.query_one(ServerTabs).get_active_server()
             assert workspace is not None
 
-            original_context_id = workspace.state.current_context_id
             workspace.state.current_task_id = "task-existing"
             workspace.query_one(TabbedMessagesPanel).add_system_message(
                 "Old conversation"
@@ -1515,11 +1510,11 @@ async def test_action_start_fresh_conversation_resets_context_and_task(
             await pilot.pause()
 
             assert workspace.is_connected is True
-            assert workspace.state.current_context_id != original_context_id
+            assert workspace.state.current_context_id is None
             assert workspace.state.current_task_id is None
             patch_server_sources.set_conversation.assert_called_once_with(
                 "https://agent.example.com",
-                workspace.state.current_context_id,
+                None,
                 None,
             )
 
@@ -1790,7 +1785,7 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
             await pilot.pause()
 
             initial_context_id = workspace.state.current_context_id
-            assert initial_context_id is not None
+            assert initial_context_id is None
 
             await pilot.click("#message-input")
             await pilot.press(
@@ -1897,7 +1892,7 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
             await pilot.pause()
 
             initial_context_id = workspace.state.current_context_id
-            assert initial_context_id is not None
+            assert initial_context_id is None
 
             workspace.query_one("#message-input", Input).value = "Hello once"
             workspace.handle_send_button()

@@ -23,6 +23,7 @@ def _fake_server_tab(
     card_name: str,
     connected_server_def: ServerDefinition | None = None,
     panel_credentials: AuthCredentials | None = None,
+    panel_available: bool = False,
 ):
     messages_panel = SimpleNamespace(get_auth_credentials=lambda: panel_credentials)
     server_view = SimpleNamespace(messages_panel=lambda: messages_panel)
@@ -31,7 +32,7 @@ def _fake_server_tab(
         current_agent_card=SimpleNamespace(name=card_name),
         state=SimpleNamespace(connected_server_def=connected_server_def),
         _try_get_server_view=lambda: (
-            server_view if panel_credentials is not None else None
+            server_view if panel_available or panel_credentials is not None else None
         ),
     )
 
@@ -92,6 +93,41 @@ def test_save_connections_to_workspace_preserves_oauth2_server_auth(
     assert "client_id" not in auth
     assert "client_secret" not in auth
     assert "value" not in auth
+
+
+def test_save_connections_to_workspace_prefers_live_panel_auth_over_server_def(
+    tmp_path, monkeypatch
+) -> None:
+    """Live panel auth should win over stale connected server metadata."""
+    config_path = _patch_servers_path(tmp_path, monkeypatch)
+
+    server_def = ServerDefinition(
+        server_id="repository:oauth",
+        source=ServerSource.REPOSITORY,
+        name="oauth",
+        agent_url="https://oauth.example.com",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OAUTH2,
+            token_url="https://oauth.example.com/token",
+            client_id_env="CLIENT_ID",
+            client_secret_env="CLIENT_SECRET",
+            scopes=["read"],
+        ),
+        origin_label="Repository",
+    )
+    panel_credentials = create_bearer_auth("runtime-secret")
+    server_tab = _fake_server_tab(
+        agent_url="https://oauth.example.com",
+        card_name="OAuth Agent",
+        connected_server_def=server_def,
+        panel_credentials=panel_credentials,
+    )
+
+    assert save_connections_to_workspace([server_tab]) == 1
+
+    saved = _read_saved_server(config_path, "oauth_agent")
+    auth = cast(dict[str, object], saved["auth"])
+    assert auth == {"type": "bearer", "env": "BEARER_TOKEN"}
 
 
 def test_save_connections_to_workspace_uses_mtls_panel_skeleton(
