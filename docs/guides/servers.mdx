@@ -1,0 +1,68 @@
+---
+title: "Servers"
+description: "Configure reusable global or repository-local server definitions for Handler."
+---
+
+# Servers
+
+Handler can load named server definitions from two places:
+
+- global config at `$XDG_CONFIG_HOME/handler/servers.toml`
+- repository-local config at `.handler/servers.toml`
+
+Repository-local config is useful when a project should travel with a shared
+agent URL or auth shape, while secrets continue to come from environment
+variables on each developer machine.
+
+## File format
+
+```toml
+version = 1
+
+[servers.local]
+url = "http://localhost:8000"
+```
+
+Each server entry needs a `url`. Auth is optional.
+
+## Global vs repository-local
+
+Use global config by default:
+
+```bash
+handler server add demo --url http://localhost:8000
+```
+
+Use repository-local config when the server definition belongs with the repo:
+
+```bash
+handler server add demo --url http://localhost:8000 --repository
+```
+
+## Validation helpers
+
+Handler validates server files when it loads them and skips only the invalid
+entries instead of failing the whole file.
+
+These commands help you inspect what is available:
+
+```bash
+handler server list
+handler server show demo
+handler server validate
+```
+
+## Example with auth
+
+```toml
+version = 1
+
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "bearer"
+env = "HANDLER_DEMO_TOKEN"
+```
+
+See [Authentication](./authentication) for full auth examples.

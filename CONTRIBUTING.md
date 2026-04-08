@@ -35,6 +35,19 @@ uv run handler tui          # Launch the TUI
 uv run handler server agent # Start the reference agent (requires Ollama)
 ```
 
+### Working on the docs
+
+The Mintlify docs source lives in `docs/`.
+
+```bash
+npm i -g mint
+cd docs
+mint dev
+```
+
+When the Mintlify GitHub app is connected to this repository, pushes to the
+default branch redeploy the docs automatically.
+
 ## Code Style
 
 - **Formatting**: `ruff format`

@@ -61,7 +61,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/alDuncanson/handler"
 Repository = "https://github.com/alDuncanson/handler"
-Documentation = "https://github.com/alDuncanson/handler#readme"
+Documentation = "https://github.com/alDuncanson/handler/tree/main/docs"
 Issues = "https://github.com/alDuncanson/handler/issues"
 Changelog = "https://github.com/alDuncanson/handler/releases"
 
@@ -92,4 +92,3 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.",
 ]
-

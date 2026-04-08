@@ -1,0 +1,135 @@
+---
+title: "Authentication"
+description: "Configure bearer, API key, mTLS, and OAuth2 client credentials authentication for Handler servers."
+---
+
+# Authentication
+
+Handler supports four auth types for named servers:
+
+- bearer tokens
+- API keys
+- mTLS client certificates
+- OAuth2 client credentials
+
+Add a server from the CLI with the matching auth flags, or define the auth block
+manually in `servers.toml`.
+
+## Bearer tokens
+
+CLI:
+
+```bash
+handler server add demo \
+  --url https://agent.example.com \
+  --bearer-env HANDLER_DEMO_TOKEN
+```
+
+TOML:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "bearer"
+env = "HANDLER_DEMO_TOKEN"
+```
+
+For one-off local setups you can also use a literal `value`, but environment
+variables are safer for anything shared.
+
+## API keys
+
+CLI:
+
+```bash
+handler server add demo \
+  --url https://agent.example.com \
+  --api-key-env HANDLER_DEMO_API_KEY
+```
+
+Handler sends API keys in `X-API-Key` by default.
+
+TOML with the default header:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "api_key"
+env = "HANDLER_DEMO_API_KEY"
+```
+
+TOML with a custom header:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "api_key"
+env = "HANDLER_DEMO_API_KEY"
+header = "Authorization"
+```
+
+## mTLS
+
+CLI:
+
+```bash
+handler server add demo \
+  --url https://agent.example.com \
+  --cert /path/to/client.crt \
+  --key /path/to/client.key
+```
+
+TOML:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "mtls"
+cert = "/path/to/client.crt"
+key = "/path/to/client.key"
+ca_cert = "/path/to/ca.crt"
+```
+
+Handler checks that the certificate and key files exist before use, and it also
+verifies private key permissions.
+
+## OAuth2 client credentials
+
+CLI:
+
+```bash
+handler server add demo \
+  --url https://agent.example.com \
+  --oauth2-token-url https://auth.example.com/oauth/token \
+  --oauth2-client-id-env HANDLER_CLIENT_ID \
+  --oauth2-client-secret-env HANDLER_CLIENT_SECRET \
+  --oauth2-scope read \
+  --oauth2-scope write
+```
+
+TOML:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "oauth2"
+token_url = "https://auth.example.com/oauth/token"
+client_id_env = "HANDLER_CLIENT_ID"
+client_secret_env = "HANDLER_CLIENT_SECRET"
+scopes = ["read", "write"]
+```
+
+Handler fetches the access token with the OAuth2 client credentials grant,
+applies it as a bearer token on requests, and refreshes it when it expires.
+
+Use an HTTPS token endpoint so client credentials are protected in transit.

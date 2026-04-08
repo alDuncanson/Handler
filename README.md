@@ -59,8 +59,8 @@ type = "bearer"
 env = "HANDLER_LOCAL_TOKEN"
 ```
 
-See the [docs](https://alduncanson.github.io/Handler/) for the full auth
-reference (bearer, API key, mTLS, OAuth2).
+See [docs/](docs) for the full auth reference covering bearer, API key, mTLS,
+and OAuth2.
 
 ## Development
 
@@ -70,5 +70,7 @@ is available via [Nix](https://zero-to-nix.com/concepts/nix/):
 ```bash
 nix develop
 ```
+
+The Mintlify docs source lives in `docs/`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

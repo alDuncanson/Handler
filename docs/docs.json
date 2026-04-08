@@ -1,0 +1,63 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Handler",
+  "description": "Terminal-first A2A client docs for the Handler CLI, TUI, MCP server, and server authentication setup.",
+  "colors": {
+    "primary": "#0F766E",
+    "light": "#14B8A6",
+    "dark": "#115E59"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "PyPI",
+        "href": "https://pypi.org/project/a2a-handler/"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/alDuncanson/handler"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Docs",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "guides/servers",
+              "guides/authentication"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/alDuncanson/handler"
+        },
+        {
+          "anchor": "A2A Protocol",
+          "href": "https://a2a-protocol.org/latest/"
+        }
+      ]
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/alDuncanson/handler"
+    }
+  }
+}

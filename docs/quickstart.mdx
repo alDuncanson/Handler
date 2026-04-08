@@ -1,0 +1,73 @@
+---
+title: "Quickstart"
+description: "Get Handler running locally, send your first message, and save a reusable server definition."
+---
+
+# Quickstart
+
+## Install Handler
+
+```bash
+uv tool install a2a-handler
+```
+
+If you prefer not to install it globally, you can run it directly:
+
+```bash
+uvx --from a2a-handler handler --help
+```
+
+## Start with the TUI
+
+```bash
+handler tui
+```
+
+The TUI is the easiest place to browse cards, inspect tasks, and manage auth for
+a connection interactively.
+
+## Try the CLI
+
+```bash
+handler card get http://localhost:8000
+handler message send http://localhost:8000 "hello"
+```
+
+## Save a named server
+
+Named servers let you reuse a URL and auth configuration instead of typing them
+on every command.
+
+```bash
+handler server add demo --url http://localhost:8000
+```
+
+To store a server in the repository instead of your global config:
+
+```bash
+handler server add demo --url http://localhost:8000 --repository
+```
+
+That creates or updates a `.handler/servers.toml` file at the git root.
+
+## Inspect configured servers
+
+```bash
+handler server list
+handler server show demo
+handler server validate
+```
+
+## Preview these docs locally
+
+Install the Mintlify CLI, then run the preview server from the `docs/`
+directory where `docs.json` lives:
+
+```bash
+npm i -g mint
+cd docs
+mint dev
+```
+
+Once the Mintlify GitHub app is connected to this repository, pushes to `main`
+deploy documentation changes automatically.

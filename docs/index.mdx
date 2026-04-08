@@ -1,0 +1,47 @@
+---
+title: "Introduction"
+description: "Install Handler and use the TUI, CLI, or MCP server to work with A2A agents from your terminal."
+---
+
+# Handler
+
+Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A)
+client for the terminal.
+
+Use it when you want to:
+
+- send messages to A2A agents from a CLI
+- manage conversations and tasks in a terminal UI
+- inspect agent cards
+- expose an MCP server so your AI tooling can talk to A2A agents
+- save reusable server definitions with bearer, API key, mTLS, or OAuth2 auth
+
+## Install
+
+```bash
+uv tool install a2a-handler
+```
+
+Or with `pipx` or `pip`:
+
+```bash
+pipx install a2a-handler
+# or
+pip install a2a-handler
+```
+
+## First commands
+
+```bash
+handler tui
+handler message send URL "hello"
+handler card get URL
+handler mcp run
+handler server run agent
+```
+
+## What to read next
+
+- [Quickstart](./quickstart) for the fastest path from install to first message
+- [Servers](./guides/servers) for reusable server definitions
+- [Authentication](./guides/authentication) for bearer, API key, mTLS, and OAuth2 examples
