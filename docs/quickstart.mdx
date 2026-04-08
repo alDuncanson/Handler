@@ -58,6 +58,30 @@ handler server show demo
 handler server validate
 ```
 
+## Keep the conversation going
+
+Once you have a live task or saved conversation, you can keep using the same
+context from the CLI:
+
+```bash
+handler message send --server demo --text "Hello"
+handler message send --server demo --text "Follow up" --continue
+handler session show --server demo
+```
+
+See [Messages, tasks, and sessions](./guides/messages-tasks) for the full flow.
+
+## Bridge Handler into MCP clients
+
+If you want Claude Desktop, Cursor, or another MCP client to use Handler's A2A
+tools, start the MCP server:
+
+```bash
+handler mcp
+```
+
+See [MCP server](./guides/mcp) for transport options and client setup.
+
 ## Preview these docs locally
 
 Install the Mintlify CLI, then run the preview server from the `docs/`

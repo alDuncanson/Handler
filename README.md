@@ -33,7 +33,7 @@ pipx install a2a-handler   # or: pip install a2a-handler
 handler tui                              # launch the interactive TUI
 handler message send URL "hello"         # send a message from the CLI
 handler card get URL                     # fetch an agent card
-handler mcp run                          # start the MCP server
+handler mcp                              # start the MCP server
 handler server run agent                 # run the bundled reference agent
 ```
 

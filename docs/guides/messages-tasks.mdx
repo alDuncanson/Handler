@@ -1,0 +1,123 @@
+---
+title: "Messages, tasks, and sessions"
+description: "Send messages, stream responses, manage tasks, and reuse saved conversation state from the Handler CLI."
+---
+
+# Messages, tasks, and sessions
+
+The CLI is best when you want repeatable A2A operations, automation, or shell-
+friendly workflows.
+
+## Inspect an agent card first
+
+```bash
+handler card get --server demo
+handler card validate --server demo
+handler card validate --file ./agent-card.json
+```
+
+Use card validation before deeper debugging when you're not sure whether the
+agent itself is advertising a valid card.
+
+## Send a message
+
+```bash
+handler message send --server demo --text "Hello"
+```
+
+You can target a URL directly instead of a named server:
+
+```bash
+handler message send --url http://localhost:8000 --text "Hello"
+```
+
+## Stream the response live
+
+```bash
+handler message stream --server demo --text "Summarize your capabilities"
+```
+
+The `send` command also accepts `--stream` when you want the same request shape
+but prefer one command form.
+
+## Continue a saved conversation
+
+Handler persists conversation identifiers locally so you can continue later:
+
+```bash
+handler message send --server demo --text "Start a task"
+handler message send --server demo --text "Continue that task" --continue
+handler session show --server demo
+```
+
+If you already know the IDs you want, you can pass them explicitly:
+
+```bash
+handler message send \
+  --server demo \
+  --text "Continue with explicit IDs" \
+  --context-id ctx-123 \
+  --task-id task-123
+```
+
+## Send custom payloads or headers
+
+For agent-friendly invocation and integration testing, Handler exposes raw JSON
+and repeatable header flags:
+
+```bash
+handler message send \
+  --server demo \
+  --json '{"message":{"role":"user","parts":[{"text":"hello"}]}}' \
+  --header 'X-Trace-Id: local-test'
+```
+
+You can also override saved auth with `--bearer-env` or `--api-key-env`.
+
+## Work with tasks directly
+
+```bash
+handler task get --server demo --task task-123
+handler task get --server demo --task task-123 --history-length 10
+handler task cancel --server demo --task task-123
+handler task resubscribe --server demo --task task-123
+```
+
+`resubscribe` is useful when a task uses streaming events and you need to attach
+again after a dropped connection.
+
+## Configure push notifications for tasks
+
+Point a task at a webhook receiver:
+
+```bash
+handler task notification set \
+  --server demo \
+  --task task-123 \
+  --webhook-url http://127.0.0.1:9000/webhook \
+  --token local-secret
+```
+
+Inspect the current push config later:
+
+```bash
+handler task notification get --server demo --task task-123
+```
+
+For a local receiver you can run the bundled webhook server described in
+[Local servers](./local-servers).
+
+## Manage saved sessions
+
+Handler stores session metadata locally so repeated CLI calls can reuse
+conversation state.
+
+```bash
+handler session list
+handler session show --server demo
+handler session clear --server demo
+handler session clear --all
+```
+
+Use `session clear` when you want a clean slate without deleting the server
+definition itself.

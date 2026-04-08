@@ -1,0 +1,73 @@
+---
+title: "MCP server"
+description: "Expose Handler's A2A capabilities through a local MCP server for Claude Desktop, Cursor, and other MCP-compatible clients."
+---
+
+# MCP server
+
+Handler can expose its A2A features as an MCP server so other tools can call the
+same card, message, task, session, and auth operations.
+
+## Start the MCP server
+
+```bash
+handler mcp
+```
+
+The default transport is `stdio`, which is usually what desktop MCP clients
+expect.
+
+## Available transports
+
+```bash
+handler mcp --transport stdio
+handler mcp --transport sse
+handler mcp --transport streamable-http
+```
+
+Use `stdio` for local tool integrations and the HTTP-based transports when you
+need a networked MCP endpoint.
+
+## What the MCP server exposes
+
+The server provides tools across five areas:
+
+- card lookup and validation
+- message sending
+- task inspection, cancellation, and push config
+- saved session inspection and cleanup
+- credential storage and removal
+
+That makes it useful as a bridge layer between MCP clients and A2A agents.
+
+## Claude Desktop example
+
+Add Handler to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "handler": {
+      "command": "handler",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+## Typical workflow
+
+One common pattern is:
+
+1. Save one or more named servers in Handler.
+2. Start `handler mcp`.
+3. Connect your MCP client.
+4. Use MCP tools to inspect cards, send messages, and manage tasks against those agents.
+
+If you are still experimenting with URLs or auth, the CLI and TUI are usually
+the fastest way to stabilize that setup first.
+
+## When to use this instead of the CLI
+
+Use MCP mode when another tool should drive Handler for you. Use the CLI when
+you want direct shell control or automation in scripts.

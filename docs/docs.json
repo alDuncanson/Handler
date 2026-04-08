@@ -33,6 +33,15 @@
             ]
           },
           {
+            "group": "Workflows",
+            "pages": [
+              "guides/tui",
+              "guides/messages-tasks",
+              "guides/mcp",
+              "guides/local-servers"
+            ]
+          },
+          {
             "group": "Configuration",
             "pages": [
               "guides/servers",

@@ -1,0 +1,80 @@
+---
+title: "Local servers"
+description: "Run Handler's bundled A2A reference agent and local webhook server for development, demos, and integration testing."
+---
+
+# Local servers
+
+Handler ships with two useful local servers for development work:
+
+- a reference A2A agent for local testing
+- a webhook receiver for task push notifications
+
+## Run the reference agent
+
+```bash
+handler server run agent
+```
+
+By default it binds to `0.0.0.0:8000`.
+
+## Choose a model
+
+The built-in agent uses Google ADK with LiteLLM against an Ollama-compatible
+endpoint.
+
+You can override the model directly:
+
+```bash
+handler server run agent --model qwen3
+```
+
+Or set environment variables:
+
+```bash
+export OLLAMA_MODEL=llama3.2:3b
+export OLLAMA_API_BASE=http://localhost:11434
+handler server run agent
+```
+
+If you do not override it, Handler defaults to `llama3.2:1b` and
+`http://localhost:11434`.
+
+## Protect the local agent with an API key
+
+```bash
+handler server run agent --auth
+handler server run agent --auth --api-key my-secret
+```
+
+When auth is enabled, Handler protects the A2A request endpoints with an API
+key. If you do not provide one explicitly, Handler generates a random key for
+you.
+
+The agent card and health endpoints stay readable without auth so clients can
+still discover the server.
+
+## Run the push notification receiver
+
+```bash
+handler server run push
+handler server run push --port 9001
+```
+
+By default it binds to `127.0.0.1:9000` and exposes these endpoints:
+
+- `POST /webhook` receives task notifications
+- `GET /webhook` returns a simple validation response
+- `GET /notifications` lists received notifications
+- `POST /notifications/clear` clears stored notifications
+
+## End-to-end push notification test
+
+1. Start the webhook receiver with `handler server run push`.
+2. Start or connect to an agent.
+3. Send a message that creates a long-running task.
+4. Point that task at `http://127.0.0.1:9000/webhook` with `handler task notification set`.
+5. Inspect received events at `http://127.0.0.1:9000/notifications`.
+
+This is a simple way to verify that an agent's push flow works before wiring it
+into a real webhook consumer.
