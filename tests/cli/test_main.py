@@ -70,3 +70,14 @@ def test_version_output(runner: CliRunner) -> None:
 
     assert result.exit_code == 0
     assert '"version"' in result.output
+
+
+def test_docs_opens_deployed_documentation(runner: CliRunner) -> None:
+    """Docs command opens the hosted documentation URL."""
+    with patch("a2a_handler.cli.webbrowser.open", return_value=True) as mock_open:
+        result = runner.invoke(cli, ["docs"])
+
+    assert result.exit_code == 0
+    mock_open.assert_called_once_with("https://handler.alduncanson.com/")
+    assert '"url": "https://handler.alduncanson.com/"' in result.output
+    assert '"opened": true' in result.output
