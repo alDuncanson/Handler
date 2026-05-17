@@ -14,12 +14,12 @@ class TestGetOllamaModels:
         """Test successful parsing of ollama list output."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="NAME\nllama3.2:latest\ngemma:7b\n",
+            stdout="NAME\ngemma4:e2b\ngemma4:e4b\n",
         )
 
         models = get_ollama_models()
 
-        assert models == ["llama3.2:latest", "gemma:7b"]
+        assert models == ["gemma4:e2b", "gemma4:e4b"]
         mock_run.assert_called_once_with(
             ["ollama", "list"],
             capture_output=True,
@@ -70,20 +70,20 @@ class TestCheckOllamaModel:
     @patch("a2a_handler.server.ollama.get_ollama_models")
     def test_check_ollama_model_found(self, mock_get_models):
         """Test model is found when it matches exactly."""
-        mock_get_models.return_value = ["llama3.2:latest", "gemma:7b"]
+        mock_get_models.return_value = ["gemma4:e2b", "gemma4:e4b"]
 
-        assert check_ollama_model("llama3.2:latest") is True
+        assert check_ollama_model("gemma4:e2b") is True
 
     @patch("a2a_handler.server.ollama.get_ollama_models")
     def test_check_ollama_model_not_found(self, mock_get_models):
         """Test model is not found."""
-        mock_get_models.return_value = ["llama3.2:latest", "gemma:7b"]
+        mock_get_models.return_value = ["gemma4:e2b", "gemma4:e4b"]
 
         assert check_ollama_model("mistral:latest") is False
 
     @patch("a2a_handler.server.ollama.get_ollama_models")
     def test_check_ollama_model_matches_base_name(self, mock_get_models):
         """Test model matches by base name prefix."""
-        mock_get_models.return_value = ["llama3.2:latest"]
+        mock_get_models.return_value = ["gemma4:e4b"]
 
-        assert check_ollama_model("llama3.2:1b") is True
+        assert check_ollama_model("gemma4:e2b") is True

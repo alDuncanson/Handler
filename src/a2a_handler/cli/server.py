@@ -626,7 +626,7 @@ def server_run() -> None:
     "--model",
     "-m",
     default=None,
-    help="Model to use (e.g., 'llama3.2:1b', 'qwen3', 'gemini-2.0-flash')",
+    help="Model to use (e.g., 'gemma4:e2b', 'qwen3', 'gemini-2.0-flash')",
 )
 def server_agent(
     host: str,
@@ -642,7 +642,7 @@ def server_agent(
       $ handler server run agent
       $ handler server run agent --port 9000
       $ handler server run agent --auth --api-key my-secret
-      $ handler server run agent --model gemini-2.0-flash
+      $ handler server run agent --model gemma4:e4b
     """
     log.info("Starting A2A server on %s:%d", host, port)
     run_server(

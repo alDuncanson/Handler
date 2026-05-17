@@ -33,7 +33,7 @@ def run_server(
         port: Port number to bind to
         require_auth: Whether to require API key authentication
         api_key: Specific API key to use (generated if not provided and auth required)
-        model: Ollama model identifier (e.g., 'llama3.2:1b')
+        model: Ollama model identifier (e.g., 'gemma4:e2b')
     """
     effective_model = model or os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
 
