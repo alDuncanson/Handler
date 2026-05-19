@@ -36,6 +36,7 @@ handler card get URL                     # fetch an agent card
 handler mcp                              # start the MCP server
 handler server run agent                 # run the bundled reference agent
 handler docs                             # open the hosted documentation
+handler update                           # upgrade Handler to the latest release
 ```
 
 ## Run Without Installing
