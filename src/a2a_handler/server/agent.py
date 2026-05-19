@@ -11,7 +11,7 @@ from a2a_handler.common.dotenv import load_runtime_dotenv
 logger = get_logger(__name__)
 
 DEFAULT_OLLAMA_API_BASE = "http://localhost:11434"
-DEFAULT_OLLAMA_MODEL = "llama3.2:1b"
+DEFAULT_OLLAMA_MODEL = "gemma4:e2b"
 
 
 def create_language_model(model: str | None = None) -> LiteLlm:
@@ -44,7 +44,7 @@ def create_llm_agent(model: str | None = None) -> Agent:
     """Create and configure the A2A agent using Ollama via LiteLLM.
 
     Args:
-        model: Ollama model identifier (e.g., 'llama3.2:1b')
+        model: Ollama model identifier (e.g., 'gemma4:e2b')
 
     Returns:
         Configured ADK Agent instance

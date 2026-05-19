@@ -26,18 +26,18 @@ endpoint.
 You can override the model directly:
 
 ```bash
-handler server run agent --model qwen3
+handler server run agent --model gemma4:e4b
 ```
 
 Or set environment variables:
 
 ```bash
-export OLLAMA_MODEL=llama3.2:3b
+export OLLAMA_MODEL=gemma4:e2b
 export OLLAMA_API_BASE=http://localhost:11434
 handler server run agent
 ```
 
-If you do not override it, Handler defaults to `llama3.2:1b` and
+If you do not override it, Handler defaults to `gemma4:e2b` and
 `http://localhost:11434`.
 
 ## Protect the local agent with an API key
