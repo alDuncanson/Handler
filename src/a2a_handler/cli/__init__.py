@@ -19,6 +19,7 @@ truststore.inject_into_ssl()
 
 import logging
 import os
+import webbrowser
 
 logging.getLogger().setLevel(logging.WARNING)
 
@@ -39,6 +40,8 @@ from .session import session
 from .task import task
 
 log = get_logger(__name__)
+
+DOCS_URL = "https://handler.alduncanson.com/"
 
 
 @click.group()
@@ -101,6 +104,19 @@ def version() -> None:
     """
     output = Output()
     output.json({"version": __version__})
+
+
+@cli.command()
+def docs() -> None:
+    """Open the Handler documentation in your browser.
+
+    \b
+    Examples:
+      $ handler docs
+    """
+    opened = webbrowser.open(DOCS_URL)
+    output = Output()
+    output.json({"url": DOCS_URL, "opened": opened})
 
 
 @cli.command()
