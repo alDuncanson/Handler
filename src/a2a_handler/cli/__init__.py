@@ -19,6 +19,8 @@ truststore.inject_into_ssl()
 
 import logging
 import os
+import shutil
+import subprocess
 import webbrowser
 
 logging.getLogger().setLevel(logging.WARNING)
@@ -42,6 +44,7 @@ from .task import task
 log = get_logger(__name__)
 
 DOCS_URL = "https://handler.alduncanson.com/"
+PACKAGE_NAME = "a2a-handler"
 
 
 @click.group()
@@ -117,6 +120,53 @@ def docs() -> None:
     opened = webbrowser.open(DOCS_URL)
     output = Output()
     output.json({"url": DOCS_URL, "opened": opened})
+
+
+def _upgrade_command() -> list[str] | None:
+    """Return the preferred package manager command for upgrading Handler."""
+    if shutil.which("uv"):
+        return ["uv", "tool", "upgrade", PACKAGE_NAME]
+    if shutil.which("pipx"):
+        return ["pipx", "upgrade", PACKAGE_NAME]
+    return None
+
+
+@cli.command()
+def update() -> None:
+    """Update Handler to the latest published version.
+
+    \b
+    Examples:
+      $ handler update
+      $ handler upgrade
+    """
+    output = Output()
+    command = _upgrade_command()
+    if command is None:
+        output.error(
+            code="installer_not_found",
+            message="Could not find uv or pipx to update Handler.",
+            suggestion=(
+                "Install uv or pipx, then run `uv tool upgrade a2a-handler` "
+                "or `pipx upgrade a2a-handler`."
+            ),
+        )
+        raise SystemExit(1)
+
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0:
+        output.error(
+            code="update_failed",
+            message="Handler update command failed.",
+            details={
+                "command": command,
+                "returncode": result.returncode,
+            },
+        )
+        raise SystemExit(result.returncode)
+
+
+cli.add_command(update, name="upgrade")
 
 
 @cli.command()
