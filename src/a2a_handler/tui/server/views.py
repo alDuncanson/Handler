@@ -8,7 +8,11 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Select, Static
 
-from a2a_handler.servers import ServerDefinition, ServerSource
+from a2a_handler.servers import (
+    ServerDefinition,
+    ServerSource,
+    is_default_handler_agent_server,
+)
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.types import MANUAL_SERVER_ID
 
@@ -27,6 +31,9 @@ MANUAL_SERVER_LABEL = "URL..."
 
 def _picker_option_label(server_def: ServerDefinition) -> str:
     """Build a plain-text picker label that stays readable in Textual selects."""
+    if is_default_handler_agent_server(server_def):
+        return server_def.label
+
     source_label = PICKER_GROUP_LABELS[server_def.source]
     if server_def.source == ServerSource.RECENT:
         return f"{source_label}: {server_def.label} (resume)"

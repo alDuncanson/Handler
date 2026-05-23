@@ -769,9 +769,16 @@ async def test_default_handler_agent_appears_in_picker() -> None:
             assert workspace is not None
             connect_view = workspace.query_one(ConnectionBar)
             selected = connect_view.get_selected_server()
+            select = connect_view.query_one("#server-select", Select)
+            labels = [
+                prompt
+                for prompt, value in select._options
+                if value is not Select.BLANK and isinstance(prompt, str)
+            ]
 
             assert selected == default_handler_agent_server()
             assert connect_view.get_url() == DEFAULT_HANDLER_AGENT_URL
+            assert labels == ["Handler Agent", "URL..."]
 
 
 @pytest.mark.asyncio
