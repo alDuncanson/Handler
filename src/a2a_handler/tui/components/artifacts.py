@@ -266,6 +266,20 @@ class ArtifactsPanel(Container):
         list_view = self._get_list_view()
         list_view.action_select_cursor()
 
+    def select_artifact(
+        self, *, task_id: str | None = None, artifact_id: str | None = None
+    ) -> bool:
+        """Select an artifact by artifact ID and/or task ID if present."""
+        for index, entry in enumerate(self._artifacts):
+            artifact_matches = artifact_id is None or entry.artifact_id == artifact_id
+            task_matches = task_id is None or entry.task_id == task_id
+            if artifact_matches and task_matches:
+                self.selected_index = index
+                self._get_list_view().index = index
+                self._update_detail()
+                return True
+        return False
+
     def action_copy_artifact_id(self) -> None:
         """Copy the selected artifact ID to clipboard."""
         if 0 <= self.selected_index < len(self._artifacts):

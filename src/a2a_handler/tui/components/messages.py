@@ -5,15 +5,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from a2a.types import DataPart, FilePart, Task, TextPart
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
-from textual.widgets import Static, TabbedContent, TabPane, Tabs
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.widgets import Button, Markdown, Static, TabbedContent, TabPane, Tabs
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
-from a2a_handler.service import extract_text, response_state, response_task_id
+from a2a_handler.service import (
+    extract_text,
+    response_context_id,
+    response_state,
+    response_task_id,
+)
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
 from a2a_handler.tui.components.headers import HeadersPanel
@@ -28,22 +34,94 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class Message(Static):
-    """A single message in the chat."""
+def _part_kind(part: Any) -> str:
+    """Return a compact display label for an A2A part."""
+    root = getattr(part, "root", part)
+    if isinstance(root, TextPart):
+        return "text"
+    if isinstance(root, DataPart):
+        return "data"
+    if isinstance(root, FilePart):
+        return "file"
+    return getattr(root, "kind", type(root).__name__)
+
+
+def _artifact_label(artifact: Artifact) -> str:
+    """Return a human-readable artifact identifier for timeline summaries."""
+    return artifact.name or artifact.artifact_id or "unnamed artifact"
+
+
+def _artifact_summary(artifact: Artifact) -> str:
+    """Summarize an artifact without forcing users into the raw protocol view."""
+    kinds = [_part_kind(part) for part in artifact.parts or []]
+    part_summary = ", ".join(kinds) if kinds else "no parts"
+    return f"{_artifact_label(artifact)} ({part_summary})"
+
+
+class MessageActionButton(Button):
+    """Button carrying protocol navigation metadata for a message card."""
+
+    def __init__(
+        self,
+        label: str,
+        *,
+        task_id: str | None = None,
+        artifact_id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(label, classes=classes)
+        self.task_id = task_id
+        self.artifact_id = artifact_id
+
+
+class Message(Container):
+    """A single message card in the conversation timeline."""
 
     def __init__(
         self,
         role: str,
         content: str,
         timestamp: datetime | None = None,
+        metadata: str | None = None,
+        markdown: bool = True,
         **kwargs: Any,
     ) -> None:
-        formatted_time = (timestamp or datetime.now()).strftime("%H:%M:%S")
-        super().__init__(f"{formatted_time} {content}", **kwargs)
+        super().__init__(**kwargs)
+        self.role = role
+        self.timestamp = timestamp or datetime.now()
+        self.body = content
+        self.metadata = metadata
+        self.markdown = markdown
+        self.content = self._plain_text()
         self.add_class(f"message-{role}")
 
+    def _plain_text(self) -> str:
+        """Return the text used by existing tests and simple transcript scans."""
+        formatted_time = self.timestamp.strftime("%H:%M:%S")
+        parts = [f"{formatted_time} {self.body}"]
+        if self.metadata:
+            parts.append(self.metadata)
+        return "\n".join(parts)
 
-class AgentMessage(Static):
+    def compose(self) -> ComposeResult:
+        formatted_time = self.timestamp.strftime("%H:%M:%S")
+        yield Static(
+            f"{formatted_time} {self.role.title()}",
+            classes="message-header",
+        )
+        if self.markdown:
+            yield Markdown(self.body, classes="message-body", open_links=False)
+        else:
+            yield Static(self.body, classes="message-body message-body-plain")
+        if self.metadata:
+            yield Static(self.metadata, classes="message-metadata")
+
+    def on_mount(self) -> None:
+        for widget in self.query("Markdown, Static"):
+            widget.can_focus = False
+
+
+class AgentMessage(Message):
     """An agent message with A2A protocol metadata."""
 
     def __init__(
@@ -52,9 +130,56 @@ class AgentMessage(Static):
         timestamp: datetime | None = None,
         **kwargs: Any,
     ) -> None:
-        formatted_time = (timestamp or datetime.now()).strftime("%H:%M:%S")
         content = extract_text(response) or "(no text in response)"
-        super().__init__(f"{formatted_time} {content}", **kwargs)
+        self.task_id = response_task_id(response)
+        self.context_id = response_context_id(response)
+        self.artifacts = list(response.artifacts or []) if isinstance(response, Task) else []
+        metadata = self._metadata(response)
+        super().__init__(
+            "agent",
+            content,
+            timestamp=timestamp,
+            metadata=metadata,
+            markdown=True,
+            **kwargs,
+        )
+
+    def _metadata(self, response: A2AResponse) -> str | None:
+        """Build compact protocol metadata for the message footer."""
+        fields = []
+        state = response_state(response)
+        task_id = response_task_id(response)
+        context_id = response_context_id(response)
+        if state:
+            fields.append(f"state: {state.value}")
+        if task_id:
+            fields.append(f"task: {task_id}")
+        if context_id:
+            fields.append(f"context: {context_id}")
+        if self.artifacts:
+            artifact_summaries = "; ".join(
+                _artifact_summary(artifact) for artifact in self.artifacts
+            )
+            fields.append(f"artifacts: {artifact_summaries}")
+        return " · ".join(fields) if fields else None
+
+    def compose(self) -> ComposeResult:
+        yield from super().compose()
+        if self.task_id or self.artifacts:
+            with Horizontal(classes="message-actions"):
+                if self.task_id:
+                    yield MessageActionButton(
+                        "View task",
+                        task_id=self.task_id,
+                        classes="message-action view-task",
+                    )
+                if self.artifacts:
+                    yield MessageActionButton(
+                        "View artifacts",
+                        classes="message-action view-artifacts",
+                        task_id=self.task_id,
+                        artifact_id=self.artifacts[0].artifact_id,
+                    )
 
 
 class ChatScrollContainer(VerticalScroll):
@@ -149,7 +274,7 @@ class TabbedMessagesPanel(Container):
     def add_message(self, role: str, content: str) -> None:
         logger.debug("Adding %s message: %s", role, content[:50])
         chat_container = self._get_chat_container()
-        message_widget = Message(role, content)
+        message_widget = Message(role, content, markdown=role != "system")
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
@@ -167,6 +292,27 @@ class TabbedMessagesPanel(Container):
     def add_system_message(self, content: str) -> None:
         logger.info("System message: %s", content)
         self.add_message("system", content)
+
+    @on(Button.Pressed, ".view-task")
+    def _view_message_task(self, event: Button.Pressed) -> None:
+        """Switch to the Tasks tab for an agent message's task."""
+        event.stop()
+        if not isinstance(event.button, MessageActionButton):
+            return
+        task_id = event.button.task_id
+        if not task_id:
+            return
+        self.show_task(task_id)
+
+    @on(Button.Pressed, ".view-artifacts")
+    def _view_message_artifacts(self, event: Button.Pressed) -> None:
+        """Switch to the Artifacts tab for an agent message's artifacts."""
+        event.stop()
+        if not isinstance(event.button, MessageActionButton):
+            return
+        task_id = event.button.task_id
+        artifact_id = event.button.artifact_id
+        self.show_artifacts(task_id=task_id, artifact_id=artifact_id)
 
     def add_log(self, line: str) -> None:
         """Add a log line to the logs panel."""
@@ -273,6 +419,25 @@ class TabbedMessagesPanel(Container):
         """Update an existing artifact or add if new."""
         artifacts_panel = self._get_artifacts_panel()
         artifacts_panel.update_artifact(artifact, task_id, context_id)
+
+    def show_task(self, task_id: str) -> None:
+        """Open the Tasks tab and select the requested task when present."""
+        tabbed_content = self.query_one("#messages-tabs", TabbedContent)
+        tabbed_content.active = "tasks-tab"
+        self._get_tasks_panel().select_task(task_id)
+        self.focus()
+
+    def show_artifacts(
+        self, *, task_id: str | None = None, artifact_id: str | None = None
+    ) -> None:
+        """Open the Artifacts tab and select the requested artifact when present."""
+        tabbed_content = self.query_one("#messages-tabs", TabbedContent)
+        tabbed_content.active = "artifacts-tab"
+        self._get_artifacts_panel().select_artifact(
+            task_id=task_id,
+            artifact_id=artifact_id,
+        )
+        self.focus()
 
     def _get_active_tab_id(self) -> str:
         tabbed_content = self.query_one("#messages-tabs", TabbedContent)

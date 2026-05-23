@@ -391,6 +391,16 @@ class TasksPanel(Container):
         list_view = self._get_list_view()
         list_view.action_select_cursor()
 
+    def select_task(self, task_id: str) -> bool:
+        """Select a task by ID if it is present in the panel."""
+        for index, entry in enumerate(self._tasks):
+            if entry.task_id == task_id:
+                self.selected_index = index
+                self._get_list_view().index = index
+                self._update_detail()
+                return True
+        return False
+
     def action_copy_task_id(self) -> None:
         """Copy the selected task ID to clipboard."""
         if 0 <= self.selected_index < len(self._tasks):

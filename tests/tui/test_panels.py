@@ -19,7 +19,7 @@ from a2a.types import (
     TextPart,
 )
 from textual.app import App, ComposeResult
-from textual.widgets import TabbedContent
+from textual.widgets import Button, Markdown, TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
 from a2a_handler.tui.components.logs import LogsPanel
@@ -329,6 +329,86 @@ async def test_messages_panel_renders_completed_tasks_and_empty_agent_responses(
         chat_texts = _chat_texts(panel)
         assert any("Recovered completed task output" in text for text in chat_texts)
         assert any("(no text in response)" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_renders_markdown_message_bodies() -> None:
+    """Conversation messages should keep markdown available for rich rendering."""
+    app = _MessagesPanelHarness()
+    response = Message(
+        message_id="msg-markdown-1",
+        role=Role.agent,
+        parts=[
+            Part(
+                root=TextPart(
+                    text="## Handler CLI\n\nUse `handler message send`:\n\n```bash\nhandler message send http://agent.test 'hi'\n```"
+                )
+            )
+        ],
+        context_id="ctx-markdown",
+        task_id="task-markdown",
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_message("user", "Please show `handler message send`")
+        panel.add_agent_message(response)
+        await pilot.pause()
+
+        markdown_widgets = list(panel.query(Markdown))
+        assert any("Please show `handler message send`" in widget.source for widget in markdown_widgets)
+        assert any("```bash" in widget.source for widget in markdown_widgets)
+
+
+@pytest.mark.asyncio
+async def test_agent_message_actions_open_task_and_artifact_panels() -> None:
+    """Agent timeline cards should make related task/artifact payloads discoverable."""
+    app = _MessagesPanelHarness()
+    task = Task(
+        id="task-with-artifacts",
+        context_id="ctx-with-artifacts",
+        status=TaskStatus(state=TaskState.completed),
+        artifacts=[
+            Artifact(
+                artifact_id="artifact-data",
+                name="Processing Result",
+                description="Structured processing payload",
+                parts=[Part(root=DataPart(data={"status": "processed"}))],
+            )
+        ],
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_agent_message(task)
+        panel.update_task(task)
+        for artifact in task.artifacts or []:
+            panel.update_artifact(artifact, task.id, task.context_id)
+        await pilot.pause()
+
+        chat_texts = _chat_texts(panel)
+        assert any("Processing Result (data)" in text for text in chat_texts)
+
+        panel.query_one(".view-artifacts", Button).press()
+        await pilot.pause()
+
+        tabs = panel.query_one("#messages-tabs", TabbedContent)
+        assert tabs.active == "artifacts-tab"
+        selected_artifact = panel.query_one(ArtifactsPanel).get_selected_artifact()
+        assert selected_artifact is not None
+        assert selected_artifact.artifact_id == "artifact-data"
+
+        panel.query_one(".view-task", Button).press()
+        await pilot.pause()
+
+        assert tabs.active == "tasks-tab"
+        selected_task = panel.query_one(TasksPanel).get_selected_task()
+        assert selected_task is not None
+        assert selected_task.task_id == "task-with-artifacts"
 
 
 @pytest.mark.asyncio
