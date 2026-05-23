@@ -5,6 +5,12 @@ from unittest.mock import Mock
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from starlette.applications import Starlette
 
+from a2a_handler.server import agent as agent_module
+from a2a_handler.server.agent import (
+    DEFAULT_HANDLER_DOCS_MCP_URL,
+    create_handler_docs_toolset,
+    create_llm_agent,
+)
 from a2a_handler.server.app import (
     create_a2a_application,
     create_runner_factory,
@@ -140,3 +146,56 @@ def test_create_runner_factory_returns_callable() -> None:
     factory = create_runner_factory(agent)
 
     assert callable(factory)
+
+
+# -- reference agent docs MCP --
+
+
+def test_create_handler_docs_toolset_uses_hosted_docs_mcp(monkeypatch) -> None:
+    """The reference agent docs toolset defaults to Handler's hosted MCP endpoint."""
+    monkeypatch.delenv("HANDLER_DOCS_MCP_URL", raising=False)
+
+    toolset = create_handler_docs_toolset()
+
+    assert toolset._connection_params.url == DEFAULT_HANDLER_DOCS_MCP_URL
+    assert toolset.tool_name_prefix == "handler_docs"
+
+
+def test_create_handler_docs_toolset_allows_url_override(monkeypatch) -> None:
+    """The docs MCP endpoint can be overridden for local docs testing."""
+    monkeypatch.setenv("HANDLER_DOCS_MCP_URL", "https://docs.example.com/mcp")
+
+    toolset = create_handler_docs_toolset()
+
+    assert toolset._connection_params.url == "https://docs.example.com/mcp"
+
+
+def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
+    """The reference agent can consult Handler documentation through MCP tools."""
+    monkeypatch.delenv("HANDLER_DOCS_MCP_ENABLED", raising=False)
+    monkeypatch.setenv("HANDLER_DOCS_MCP_URL", "https://docs.example.com/mcp")
+    monkeypatch.setattr(
+        agent_module,
+        "create_language_model",
+        lambda model=None: "test-model",
+    )
+
+    agent = create_llm_agent(model="gemma4:e2b")
+
+    assert len(agent.tools) == 1
+    assert agent.tools[0]._connection_params.url == "https://docs.example.com/mcp"
+    assert "hosted documentation" in agent.instruction
+
+
+def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:
+    """Docs MCP can be disabled for fully offline reference-agent runs."""
+    monkeypatch.setenv("HANDLER_DOCS_MCP_ENABLED", "false")
+    monkeypatch.setattr(
+        agent_module,
+        "create_language_model",
+        lambda model=None: "test-model",
+    )
+
+    agent = create_llm_agent(model="gemma4:e2b")
+
+    assert agent.tools == []

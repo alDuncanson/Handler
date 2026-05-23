@@ -41,12 +41,17 @@ def build_agent_card(
         AgentSkill(
             id="handler_assistant",
             name="Handler Assistant",
-            description="Helps with Handler CLI commands, TUI usage, and troubleshooting",
-            tags=["handler", "cli", "tui", "help"],
+            description=(
+                "Answers Handler usage questions with documentation-backed help "
+                "for CLI commands, TUI workflows, MCP, local servers, and A2A "
+                "troubleshooting"
+            ),
+            tags=["handler", "cli", "tui", "mcp", "docs", "help"],
             examples=[
                 "How do I send a message with Handler?",
                 "What CLI commands are available?",
                 "How do I validate an agent card?",
+                "How do I expose Handler as an MCP server?",
             ],
         ),
     ]
