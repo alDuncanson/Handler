@@ -18,6 +18,10 @@ handler server run agent
 
 By default it binds to `0.0.0.0:8000`.
 
+In the TUI, Handler includes this local agent as the built-in `Handler Agent`
+server. Selecting it and pressing **CONNECT** auto-starts the reference agent if
+nothing is already listening at `http://localhost:8000`.
+
 The reference agent is Handler-aware: it uses Google ADK tools to connect to
 Handler's hosted documentation MCP server at
 `https://handler.alduncanson.com/mcp`. That lets it answer questions about the

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import atexit
+import asyncio
 import contextlib
+import subprocess
+import sys
 from collections.abc import Generator
 from typing import Any
 
@@ -22,9 +26,11 @@ from a2a_handler.common.input_validation import (
     validate_agent_url,
 )
 from a2a_handler.servers import (
+    DEFAULT_HANDLER_AGENT_URL,
     ServerCatalog,
     ServerDefinition,
     ServerSource,
+    is_default_handler_agent_server,
     load_server_catalog,
     resolve_server_credentials,
 )
@@ -52,6 +58,81 @@ from a2a_handler.tui.server.types import (
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
 logger = get_logger(__name__)
+
+_DEFAULT_HANDLER_AGENT_HOST = "127.0.0.1"
+_DEFAULT_HANDLER_AGENT_PORT = "8000"
+_handler_agent_process: subprocess.Popen | None = None
+
+
+def _terminate_handler_agent_process() -> None:
+    """Stop the auto-started Handler reference-agent process, if any."""
+    global _handler_agent_process
+    process = _handler_agent_process
+    if process is None or process.poll() is not None:
+        _handler_agent_process = None
+        return
+    process.terminate()
+
+
+atexit.register(_terminate_handler_agent_process)
+
+
+async def _handler_agent_card_available(agent_url: str) -> bool:
+    """Return whether an A2A agent card is reachable at the given URL."""
+    try:
+        async with httpx.AsyncClient(timeout=1.0, trust_env=False) as client:
+            response = await client.get(
+                f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
+            )
+            return response.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+async def ensure_default_handler_agent_running(
+    agent_url: str = DEFAULT_HANDLER_AGENT_URL,
+) -> bool:
+    """Start Handler's local reference agent if it is not already reachable.
+
+    Returns True when this call launched the server process, and False when an
+    agent was already listening.
+    """
+    global _handler_agent_process
+
+    if await _handler_agent_card_available(agent_url):
+        return False
+
+    if _handler_agent_process is None or _handler_agent_process.poll() is not None:
+        logger.info("Auto-starting Handler reference agent at %s", agent_url)
+        _handler_agent_process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "from a2a_handler.cli import main; main()",
+                "server",
+                "run",
+                "agent",
+                "--host",
+                _DEFAULT_HANDLER_AGENT_HOST,
+                "--port",
+                _DEFAULT_HANDLER_AGENT_PORT,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    for _ in range(40):
+        if _handler_agent_process.poll() is not None:
+            break
+        if await _handler_agent_card_available(agent_url):
+            return True
+        await asyncio.sleep(0.25)
+
+    raise RuntimeError(
+        "Handler's local reference agent did not become ready. "
+        "Run `handler server run agent` in a terminal to see startup details."
+    )
 
 
 class ServerTab(Container):
@@ -567,6 +648,17 @@ class ServerTab(Container):
 
         try:
             credentials = messages_panel.get_auth_credentials()
+            startup_message: str | None = None
+
+            if (
+                selected_server is not None
+                and is_default_handler_agent_server(selected_server)
+            ):
+                connection_bar.set_status("Starting Handler agent...", tone="accent")
+                started = await ensure_default_handler_agent_running(agent_url)
+                if started:
+                    startup_message = "Started Handler's local reference agent."
+                connection_bar.set_status(f"Connecting to {agent_url}...")
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
             context_id: str | None = None
@@ -589,6 +681,7 @@ class ServerTab(Container):
                     if saved_conversation is not None
                     else "fresh server context"
                 ),
+                warning=startup_message,
                 saved_conversation=saved_conversation,
             )
             self._persist_session_state()

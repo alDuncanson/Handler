@@ -39,6 +39,9 @@ logger = get_logger(__name__)
 DEFAULT_SERVER_DIRECTORY = Path(user_config_dir("handler"))
 SERVERS_FILENAME = "servers.toml"
 SERVER_SCHEMA_VERSION = 1
+DEFAULT_HANDLER_AGENT_NAME = "Handler Agent"
+DEFAULT_HANDLER_AGENT_URL = "http://localhost:8000"
+DEFAULT_HANDLER_AGENT_SERVER_ID = "global:handler-agent"
 _ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -102,6 +105,22 @@ class ServerCatalog:
                 *self.global_servers,
             )
         }
+
+
+def default_handler_agent_server() -> ServerDefinition:
+    """Return Handler's built-in local reference-agent server entry."""
+    return ServerDefinition(
+        server_id=DEFAULT_HANDLER_AGENT_SERVER_ID,
+        source=ServerSource.GLOBAL,
+        name=DEFAULT_HANDLER_AGENT_NAME,
+        agent_url=DEFAULT_HANDLER_AGENT_URL,
+        origin_label=server_source_label(ServerSource.GLOBAL),
+    )
+
+
+def is_default_handler_agent_server(server_def: ServerDefinition) -> bool:
+    """Return whether a server definition is Handler's built-in local agent."""
+    return server_def.server_id == DEFAULT_HANDLER_AGENT_SERVER_ID
 
 
 class ServerConfigError(ValueError):
@@ -405,6 +424,21 @@ def load_server_catalog(
             repository_servers = tuple(
                 load_servers(local_server_dir, ServerSource.REPOSITORY)
             )
+
+    if server_directory is None:
+        configured_names = {
+            server_def.name.casefold()
+            for server_def in (*repository_servers, *global_servers)
+            if server_def.name is not None
+        }
+        configured_urls = {
+            server_def.agent_url for server_def in (*repository_servers, *global_servers)
+        }
+        if (
+            DEFAULT_HANDLER_AGENT_NAME.casefold() not in configured_names
+            and DEFAULT_HANDLER_AGENT_URL not in configured_urls
+        ):
+            global_servers = (*global_servers, default_handler_agent_server())
 
     return ServerCatalog(
         repository_servers=repository_servers,

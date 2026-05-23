@@ -21,10 +21,12 @@ from textual.widgets import Button, Input, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.servers import (
+    DEFAULT_HANDLER_AGENT_URL,
     ServerAuthConfig,
     ServerCatalog,
     ServerDefinition,
     ServerSource,
+    default_handler_agent_server,
 )
 from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
@@ -749,6 +751,76 @@ async def test_picker_labels_show_source_and_resume_intent(
                 "Recent: echo_agent (resume)",
                 "URL...",
             ]
+
+
+@pytest.mark.asyncio
+async def test_default_handler_agent_appears_in_picker() -> None:
+    """The built-in Handler agent should be selectable like a global server."""
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(global_servers=(default_handler_agent_server(),)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            connect_view = workspace.query_one(ConnectionBar)
+            selected = connect_view.get_selected_server()
+
+            assert selected == default_handler_agent_server()
+            assert connect_view.get_url() == DEFAULT_HANDLER_AGENT_URL
+
+
+@pytest.mark.asyncio
+async def test_connecting_default_handler_agent_auto_starts_local_server() -> None:
+    """Connecting the built-in Handler agent starts it before fetching its card."""
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Handler"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Handler"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(global_servers=(default_handler_agent_server(),)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.ensure_default_handler_agent_running",
+            AsyncMock(return_value=True),
+        ) as mock_ensure_running,
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace.is_connected
+            mock_ensure_running.assert_awaited_once_with(DEFAULT_HANDLER_AGENT_URL)
+            mock_service.get_card.assert_awaited_once()
+            messages_panel = workspace.query_one(TabbedMessagesPanel)
+            assert any(
+                "Started Handler's local reference agent" in text
+                for text in _chat_texts(messages_panel)
+            )
 
 
 @pytest.mark.asyncio
