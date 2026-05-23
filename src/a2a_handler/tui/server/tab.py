@@ -61,20 +61,39 @@ logger = get_logger(__name__)
 
 _DEFAULT_HANDLER_AGENT_HOST = "127.0.0.1"
 _DEFAULT_HANDLER_AGENT_PORT = "8000"
+_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS = 3
 _handler_agent_process: subprocess.Popen | None = None
 
 
-def _terminate_handler_agent_process() -> None:
-    """Stop the auto-started Handler reference-agent process, if any."""
+def shutdown_default_handler_agent() -> None:
+    """Stop the auto-started Handler reference-agent process, if any.
+
+    The TUI only owns the process it launched itself. If the user already had a
+    server listening on the default URL, no process is stored and this is a no-op.
+    """
     global _handler_agent_process
     process = _handler_agent_process
     if process is None or process.poll() is not None:
         _handler_agent_process = None
         return
+
+    logger.info("Stopping auto-started Handler reference agent")
     process.terminate()
+    try:
+        process.wait(timeout=_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        logger.warning("Handler reference agent did not stop; killing process")
+        process.kill()
+        try:
+            process.wait(timeout=_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.error("Handler reference agent process did not exit after kill")
+            return
+
+    _handler_agent_process = None
 
 
-atexit.register(_terminate_handler_agent_process)
+atexit.register(shutdown_default_handler_agent)
 
 
 async def _handler_agent_card_available(agent_url: str) -> bool:

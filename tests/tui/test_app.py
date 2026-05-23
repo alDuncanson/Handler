@@ -1,5 +1,6 @@
 """Tests for the server-based TUI shell."""
 
+import subprocess
 from collections.abc import Generator
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -828,6 +829,53 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
                 "Started Handler's local reference agent" in text
                 for text in _chat_texts(messages_panel)
             )
+
+
+def test_shutdown_default_handler_agent_waits_after_terminate(monkeypatch) -> None:
+    """Auto-started Handler agent cleanup should terminate and reap the child."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    process = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(tab_module, "_handler_agent_process", process)
+
+    tab_module.shutdown_default_handler_agent()
+
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(
+        timeout=tab_module._HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS
+    )
+    process.kill.assert_not_called()
+    assert tab_module._handler_agent_process is None
+
+
+def test_shutdown_default_handler_agent_kills_after_timeout(monkeypatch) -> None:
+    """Cleanup should escalate to kill when the server ignores SIGTERM."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    process = Mock()
+    process.poll.return_value = None
+    process.wait.side_effect = [subprocess.TimeoutExpired("handler", 3), None]
+    monkeypatch.setattr(tab_module, "_handler_agent_process", process)
+
+    tab_module.shutdown_default_handler_agent()
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+    assert process.wait.call_count == 2
+    assert tab_module._handler_agent_process is None
+
+
+@pytest.mark.asyncio
+async def test_tui_shutdown_stops_auto_started_handler_agent() -> None:
+    """App shutdown should explicitly stop the auto-started Handler agent."""
+    from a2a_handler.tui import app as app_module
+
+    app = HandlerTUI()
+    with patch.object(app_module, "shutdown_default_handler_agent") as cleanup:
+        await app.on_unmount()
+
+    cleanup.assert_called_once_with()
 
 
 @pytest.mark.asyncio
