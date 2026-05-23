@@ -758,6 +758,7 @@ class ServerTab(Container):
 
         messages_panel = server_view.messages_panel()
         messages_panel.add_message("user", message_text)
+        input_panel.set_waiting(True)
 
         try:
             credentials = messages_panel.get_auth_credentials()
@@ -824,6 +825,10 @@ class ServerTab(Container):
                 exc_info=True,
             )
             messages_panel.add_system_message(f"Error: {error!s}")
+        finally:
+            if self.is_connected:
+                input_panel.set_waiting(False)
+                input_panel.focus_input()
 
     def _refresh_status_badges(self) -> None:
         server_view = self._try_get_server_view()

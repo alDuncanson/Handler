@@ -414,6 +414,20 @@ Select:focus SelectCurrent {
     width: 1fr;
 }
 
+#send-loading {
+    width: 4;
+    height: 1;
+    color: $accent;
+    margin: 0 1;
+}
+
+#send-loading-label {
+    width: auto;
+    height: 1;
+    color: $text-muted;
+    margin-right: 1;
+}
+
 #send-btn,
 #connect-btn {
     width: auto;

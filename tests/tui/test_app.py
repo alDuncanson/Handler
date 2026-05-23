@@ -1,5 +1,6 @@
 """Tests for the server-based TUI shell."""
 
+import asyncio
 import subprocess
 from collections.abc import Generator
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -1943,6 +1944,85 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
             chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("Hello agent" in text for text in chat_texts)
             assert any("Hello from the agent" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_send_shows_loading_indicator_while_waiting_for_response() -> None:
+    """Slow A2A responses should show an in-flight loading indicator."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.agent,
+        parts=[Part(root=TextPart(text="Delayed response"))],
+        context_id="ctx-response",
+        task_id=None,
+    )
+    send_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def slow_send(*args, **kwargs):
+        send_started.set()
+        await release_response.wait()
+        return response_message
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.send.side_effect = slow_send
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            message_input = workspace.query_one("#message-input", Input)
+            message_input.value = "Slow request"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await asyncio.wait_for(send_started.wait(), timeout=1)
+            await pilot.pause()
+
+            loading_label = workspace.query_one("#send-loading-label", Static)
+            assert "Waiting for agent" in str(loading_label.content)
+            assert not loading_label.has_class("hidden")
+            assert message_input.disabled is True
+            assert workspace.query_one("#send-btn").disabled is True
+
+            release_response.set()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert loading_label.has_class("hidden")
+            assert message_input.disabled is False
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("Delayed response" in text for text in chat_texts)
 
 
 @pytest.mark.asyncio
