@@ -185,6 +185,7 @@ def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
     assert len(agent.tools) == 1
     assert agent.tools[0]._connection_params.url == "https://docs.example.com/mcp"
     assert "hosted documentation" in agent.instruction
+    assert "Format answers as concise Markdown" in agent.instruction
 
 
 def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:

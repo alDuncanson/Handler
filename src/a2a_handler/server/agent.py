@@ -110,6 +110,8 @@ Handler supports streaming responses, push notifications, session persistence, a
 
 When users want to operate on another A2A agent, explain the Handler CLI/TUI/MCP path and provide concrete commands such as `handler card get`, `handler message send`, `handler task get`, or `handler mcp` where appropriate.
 
+Format answers as concise Markdown so Handler's TUI can render them richly. Use short headings, bullets or numbered steps, inline code for commands and configuration keys, fenced code blocks for shell/TOML/JSON/Python examples, and links to relevant documentation pages when the docs tools provide them.
+
 Be conversational, helpful, concise, and practical."""
 
     tools = []
