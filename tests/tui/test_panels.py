@@ -7,6 +7,9 @@ from unittest.mock import Mock, call
 import pytest
 from a2a.types import (
     Artifact,
+    DataPart,
+    FilePart,
+    FileWithUri,
     Message,
     Part,
     Role,
@@ -140,6 +143,77 @@ async def test_tasks_panel_updates_detail_view_and_copies_ids() -> None:
             call("task-123"),
             call("ctx-123"),
         ]
+
+
+@pytest.mark.asyncio
+async def test_tasks_panel_labels_protocol_history_parts() -> None:
+    """Task history should show A2A message part kinds, not just chat text."""
+    app = _TasksPanelHarness()
+    task = Task(
+        id="task-structured",
+        context_id="ctx-structured",
+        status=TaskStatus(state=TaskState.working),
+        history=[
+            Message(
+                message_id="msg-user-structured",
+                role=Role.user,
+                parts=[Part(root=TextPart(text="Summarize this file"))],
+                context_id="ctx-structured",
+                task_id="task-structured",
+            ),
+            Message(
+                message_id="msg-agent-data",
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=DataPart(
+                            data={
+                                "toolCall": {
+                                    "name": "search_handler",
+                                    "query": "handler mcp",
+                                }
+                            }
+                        )
+                    )
+                ],
+                context_id="ctx-structured",
+                task_id="task-structured",
+            ),
+            Message(
+                message_id="msg-agent-file",
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=FilePart(
+                            file=FileWithUri(
+                                uri="https://example.com/report.md",
+                                name="report.md",
+                                mimeType="text/markdown",
+                            )
+                        )
+                    )
+                ],
+                context_id="ctx-structured",
+                task_id="task-structured",
+            ),
+        ],
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TasksPanel)
+        panel.add_task(task)
+        await pilot.pause()
+
+        detail_texts = _rendered_texts(panel.query_one("#task-detail"))
+        assert any("Task History" in text for text in detail_texts)
+        assert any("parts: text" in text for text in detail_texts)
+        assert any("Summarize this file" in text for text in detail_texts)
+        assert any("parts: data" in text for text in detail_texts)
+        assert any("toolCall" in text and "search_handler" in text for text in detail_texts)
+        assert any("parts: file" in text for text in detail_texts)
+        assert any("report.md (text/markdown)" in text for text in detail_texts)
 
 
 @pytest.mark.asyncio

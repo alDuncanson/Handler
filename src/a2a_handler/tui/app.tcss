@@ -691,6 +691,11 @@ AgentMessage {
     padding-left: 1;
 }
 
+.history-part-kinds {
+    color: $text-muted;
+    padding-left: 1;
+}
+
 #auth-panel {
     height: auto;
     padding: 1;
