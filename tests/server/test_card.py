@@ -7,9 +7,13 @@ from starlette.applications import Starlette
 
 from a2a_handler.server import agent as agent_module
 from a2a_handler.server.agent import (
+    DEFAULT_A2A_LLMS_FULL_URL,
     DEFAULT_HANDLER_DOCS_MCP_URL,
+    create_a2a_docs_tools,
     create_handler_docs_toolset,
     create_llm_agent,
+    fetch_a2a_protocol_docs,
+    search_a2a_protocol_docs,
 )
 from a2a_handler.server.app import (
     create_a2a_application,
@@ -171,8 +175,9 @@ def test_create_handler_docs_toolset_allows_url_override(monkeypatch) -> None:
 
 
 def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
-    """The reference agent can consult Handler documentation through MCP tools."""
+    """The reference agent can consult Handler and A2A documentation tools."""
     monkeypatch.delenv("HANDLER_DOCS_MCP_ENABLED", raising=False)
+    monkeypatch.delenv("A2A_DOCS_TOOLS_ENABLED", raising=False)
     monkeypatch.setenv("HANDLER_DOCS_MCP_URL", "https://docs.example.com/mcp")
     monkeypatch.setattr(
         agent_module,
@@ -182,15 +187,19 @@ def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
 
     agent = create_llm_agent(model="gemma4:e2b")
 
-    assert len(agent.tools) == 1
+    assert len(agent.tools) == 3
     assert agent.tools[0]._connection_params.url == "https://docs.example.com/mcp"
+    assert agent.tools[1].name == "fetch_a2a_protocol_docs"
+    assert agent.tools[2].name == "search_a2a_protocol_docs"
     assert "hosted documentation" in agent.instruction
+    assert "A2A protocol documentation" in agent.instruction
     assert "Format answers as concise Markdown" in agent.instruction
 
 
 def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:
     """Docs MCP can be disabled for fully offline reference-agent runs."""
     monkeypatch.setenv("HANDLER_DOCS_MCP_ENABLED", "false")
+    monkeypatch.setenv("A2A_DOCS_TOOLS_ENABLED", "false")
     monkeypatch.setattr(
         agent_module,
         "create_language_model",
@@ -200,3 +209,47 @@ def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:
     agent = create_llm_agent(model="gemma4:e2b")
 
     assert agent.tools == []
+
+
+def test_create_a2a_docs_tools_registers_fetch_and_search_tools() -> None:
+    """The reference agent exposes local tools for A2A protocol docs lookup."""
+    tools = create_a2a_docs_tools()
+
+    assert [tool.name for tool in tools] == [
+        "fetch_a2a_protocol_docs",
+        "search_a2a_protocol_docs",
+    ]
+
+
+def test_fetch_a2a_protocol_docs_uses_bounded_llms_text(monkeypatch) -> None:
+    """A2A docs fetch should return bounded official llms text."""
+    monkeypatch.setattr(
+        agent_module,
+        "_fetch_a2a_docs_text",
+        lambda source: f"{source}: " + "A" * 2_000,
+    )
+
+    result = fetch_a2a_protocol_docs(source="summary", max_chars=1_200)
+
+    assert result.startswith("summary: ")
+    assert len(result) < 1_350
+    assert "[truncated]" in result
+
+
+def test_search_a2a_protocol_docs_returns_rg_style_excerpts(monkeypatch) -> None:
+    """A2A docs search should prefer llms-full text and return focused excerpts."""
+    docs = "\n".join(
+        [
+            "# A2A docs",
+            "Messages carry user and agent content.",
+            "Tasks track long-running work and produce artifacts.",
+            "Artifacts contain text, data, or file parts.",
+        ]
+    )
+    monkeypatch.setattr(agent_module, "_fetch_a2a_docs_text", lambda source: docs)
+
+    result = search_a2a_protocol_docs("tasks artifacts", max_results=2)
+
+    assert f"Source: {DEFAULT_A2A_LLMS_FULL_URL}" in result
+    assert "> 3: Tasks track long-running work and produce artifacts." in result
+    assert "Artifacts contain text" in result
