@@ -23,6 +23,7 @@ from a2a_handler.server.app import (
     generate_api_key,
 )
 from a2a_handler.server.card import build_agent_card
+from a2a_handler import __version__
 
 
 def _make_agent(name: str = "TestAgent", description: str = "Test desc") -> Mock:
@@ -55,6 +56,7 @@ def test_build_agent_card_basic() -> None:
 
     assert card.name == "TestAgent"
     assert card.url == "http://localhost:8000/"
+    assert card.version == __version__
     assert card.capabilities.streaming is True
     assert card.capabilities.push_notifications is True
     assert [skill.id for skill in card.skills] == [

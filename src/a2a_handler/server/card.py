@@ -1,5 +1,7 @@
 """Agent card building and configuration."""
 
+from importlib.metadata import version as package_version
+
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -128,7 +130,7 @@ def build_agent_card(
         name=agent.name,
         description=agent.description or "Handler A2A agent",
         url=rpc_endpoint_url,
-        version="1.0.0",
+        version=package_version("a2a-handler"),
         capabilities=agent_capabilities,
         skills=skills,
         default_input_modes=["text/plain"],
