@@ -317,6 +317,12 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
             await pilot.pause()
             await pilot.click("#connect-btn")
             await pilot.pause()
+            connected_server = app.query_one(ServerTabs).query_one("#server-1")
+            connect_button = connected_server.query_one("#connect-btn", Button)
+            assert str(connect_button.label) == "RECONNECT"
+            assert connect_button.has_class("reconnect")
+            assert connect_button.region.width >= 13
+
             await app.action_new_server()
             await pilot.pause()
 
@@ -330,11 +336,6 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
             assert "Remove Saved Workspace Server" in titles
             assert "Close Server 2" in titles
             assert "Git Add Servers" in titles
-
-            connected_server = app.query_one(ServerTabs).query_one("#server-1")
-            connect_button = connected_server.query_one("#connect-btn", Button)
-            assert str(connect_button.label) == "RECONNECT"
-            assert connect_button.has_class("reconnect")
 
             switch_command = next(
                 command

@@ -89,8 +89,9 @@ class ConnectionBar(Container):
         connect_button.label = "RECONNECT" if is_connected else "CONNECT"
         if is_connected:
             connect_button.add_class("reconnect")
-            return
-        connect_button.remove_class("reconnect")
+        else:
+            connect_button.remove_class("reconnect")
+        connect_button.refresh(layout=True)
 
     def set_server_catalog(
         self,
