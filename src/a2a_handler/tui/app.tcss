@@ -81,8 +81,8 @@ ConnectionBar {
 #connect-shell {
     height: auto;
     border: round $secondary 40%;
-    border-title-align: right;
-    border-title-color: $text-muted;
+    border-subtitle-align: right;
+    border-subtitle-color: $text-muted;
     padding: 0 1;
     margin-bottom: 0;
     background: $background;

@@ -233,7 +233,8 @@ class ServerView(Container):
                     yield InputPanel(id="input-container", classes="panel")
 
     def on_mount(self) -> None:
-        self.query_one("#connect-shell").border_title = "Server"
+        connect_shell = self.query_one("#connect-shell")
+        connect_shell.border_subtitle = "Server"
         self.query_one(
             "#agent-card-container", AgentCardPanel
         ).border_title = "Agent Card"

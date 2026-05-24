@@ -138,6 +138,8 @@ async def test_app_starts_with_server_shell_and_initial_server() -> None:
         assert workspace.region.height > 5
         assert connect_view.query_one("#server-bar")
         assert len(list(live_view.query("#server-summary"))) == 0
+        assert connect_view.query_one("#connect-shell").border_subtitle == "Server"
+        assert connect_view.query_one("#connect-shell").border_title is None
 
         status = connect_view.query_one("#badge-status", Static)
         assert "Disconnected" in str(status.content)
