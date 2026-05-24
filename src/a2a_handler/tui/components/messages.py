@@ -61,6 +61,13 @@ def _artifact_summary(artifact: Artifact) -> str:
     return f"{_artifact_label(artifact)} ({part_summary})"
 
 
+def _short_id(value: str, *, prefix: int = 8, suffix: int = 5) -> str:
+    """Shorten protocol IDs while keeping them recognizable."""
+    if len(value) <= prefix + suffix + 1:
+        return value
+    return f"{value[:prefix]}…{value[-suffix:]}"
+
+
 def _external_link_url(href: str) -> str | None:
     """Return an external URL for a markdown link if Handler can open it."""
     parsed = urlparse(href)
@@ -99,6 +106,7 @@ class Message(Container):
         timestamp: datetime | None = None,
         metadata: str | None = None,
         markdown: bool = True,
+        render_metadata: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -107,6 +115,7 @@ class Message(Container):
         self.body = content
         self.metadata = metadata
         self.markdown = markdown
+        self.render_metadata = render_metadata
         self.content = self._plain_text()
         self.add_class(f"message-{role}")
 
@@ -128,7 +137,7 @@ class Message(Container):
             yield Markdown(self.body, classes="message-body", open_links=False)
         else:
             yield Static(self.body, classes="message-body message-body-plain")
-        if self.metadata:
+        if self.metadata and self.render_metadata:
             yield Static(self.metadata, classes="message-metadata")
 
     def on_mount(self) -> None:
@@ -159,6 +168,7 @@ class AgentMessage(Message):
         self.task_id = response_task_id(response)
         self.context_id = response_context_id(response)
         self.artifacts = list(response.artifacts or []) if isinstance(response, Task) else []
+        self.protocol_fields = self._protocol_fields(response)
         metadata = self._metadata(response)
         super().__init__(
             "agent",
@@ -166,8 +176,26 @@ class AgentMessage(Message):
             timestamp=timestamp,
             metadata=metadata,
             markdown=True,
+            render_metadata=False,
             **kwargs,
         )
+
+    def _protocol_fields(self, response: A2AResponse) -> list[tuple[str, str, str]]:
+        """Return protocol metadata fields as display label, value, and CSS tone."""
+        fields: list[tuple[str, str, str]] = []
+        state = response_state(response)
+        task_id = response_task_id(response)
+        context_id = response_context_id(response)
+        if state:
+            fields.append(("state", state.value, "metadata-state"))
+        if task_id:
+            fields.append(("task", _short_id(task_id), "metadata-task"))
+        if context_id:
+            fields.append(("context", _short_id(context_id), "metadata-context"))
+        if self.artifacts:
+            label = "artifact" if len(self.artifacts) == 1 else "artifacts"
+            fields.append((label, str(len(self.artifacts)), "metadata-artifacts"))
+        return fields
 
     def _metadata(self, response: A2AResponse) -> str | None:
         """Build compact protocol metadata for the message footer."""
@@ -190,6 +218,20 @@ class AgentMessage(Message):
 
     def compose(self) -> ComposeResult:
         yield from super().compose()
+        if self.protocol_fields:
+            with Horizontal(classes="message-metadata-row"):
+                for label, value, tone_class in self.protocol_fields:
+                    with Horizontal(classes=f"message-metadata-chip {tone_class}"):
+                        yield Static(label, classes="message-metadata-label")
+                        yield Static(value, classes="message-metadata-value")
+        if self.artifacts:
+            artifact_summaries = "; ".join(
+                _artifact_summary(artifact) for artifact in self.artifacts
+            )
+            yield Static(
+                artifact_summaries,
+                classes="message-artifact-summary",
+            )
         if self.task_id or self.artifacts:
             with Horizontal(classes="message-actions"):
                 if self.task_id:
@@ -327,7 +369,8 @@ class TabbedMessagesPanel(Container):
         task_id = event.button.task_id
         if not task_id:
             return
-        self.show_task(task_id)
+        event.button.blur()
+        self.set_timer(0.01, lambda: self.show_task(task_id))
 
     @on(Button.Pressed, ".view-artifacts")
     def _view_message_artifacts(self, event: Button.Pressed) -> None:
@@ -337,7 +380,11 @@ class TabbedMessagesPanel(Container):
             return
         task_id = event.button.task_id
         artifact_id = event.button.artifact_id
-        self.show_artifacts(task_id=task_id, artifact_id=artifact_id)
+        event.button.blur()
+        self.set_timer(
+            0.01,
+            lambda: self.show_artifacts(task_id=task_id, artifact_id=artifact_id),
+        )
 
     def add_log(self, line: str) -> None:
         """Add a log line to the logs panel."""
