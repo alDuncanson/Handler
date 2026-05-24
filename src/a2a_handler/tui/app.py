@@ -8,10 +8,11 @@ from typing import Any
 from textual import on
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
+from textual.css.query import NoMatches
 from textual.containers import Horizontal
 from textual.logging import TextualHandler
 from textual.screen import Screen
-from textual.widgets import Footer, Static, Tabs
+from textual.widgets import HelpPanel, Static, Tabs
 
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
@@ -58,7 +59,7 @@ class HandlerTUI(App[Any]):
             show=True,
             key_display="Ctrl+P",
         ),
-        Binding("?", "show_help_panel", "Keybindings", show=True),
+        Binding("?", "toggle_help_panel", "Keybindings", show=True),
         Binding("ctrl+m", "toggle_maximize", "Maximize", show=False),
         Binding(
             "ctrl+b",
@@ -120,7 +121,10 @@ class HandlerTUI(App[Any]):
             connect_url=self._connect_url,
         )
         with Horizontal(id="app-footer"):
-            yield Footer(show_command_palette=False)
+            yield Static(
+                "Ctrl+C Quit  Ctrl+P Command Palette  ? Keybindings",
+                id="app-footer-bindings",
+            )
             yield Static(f"v{HANDLER_VERSION}", id="app-version")
 
     async def on_mount(self) -> None:
@@ -170,6 +174,15 @@ class HandlerTUI(App[Any]):
                 self.screen.maximize(panel)
                 self._is_maximized = True
                 return
+
+    def action_toggle_help_panel(self) -> None:
+        """Toggle Textual's keybindings help panel."""
+        try:
+            self.screen.query_one(HelpPanel)
+        except NoMatches:
+            self.action_show_help_panel()
+        else:
+            self.action_hide_help_panel()
 
     def action_previous_server(self) -> None:
         """Activate the previous server tab."""

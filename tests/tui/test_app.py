@@ -19,7 +19,7 @@ from a2a.types import (
     TextPart,
 )
 from textual.app import App as TextualApp, SystemCommand
-from textual.widgets import Button, Input, Select, Static, Tab, Tabs
+from textual.widgets import Button, HelpPanel, Input, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.servers import (
@@ -177,21 +177,36 @@ async def test_footer_shows_global_help_and_version() -> None:
 
         assert app.screen.active_bindings["ctrl+c"].binding.action == "quit"
 
-        footer = app.query_one("Footer")
-        footer_labels = [str(child.render()) for child in footer.children]
+        footer = app.query_one("#app-footer-bindings", Static)
+        footer_labels = str(footer.content)
 
-        assert any("Ctrl+C" in label and "Quit" in label for label in footer_labels)
-        assert any(
-            "Ctrl+P" in label and "Command Palette" in label
-            for label in footer_labels
-        )
-        assert any("?" in label and "Keybindings" in label for label in footer_labels)
-        assert all("Ctrl+B" not in label for label in footer_labels)
-        assert all("Ctrl+T" not in label for label in footer_labels)
-        assert all("Ctrl+N" not in label for label in footer_labels)
+        assert "Ctrl+C Quit" in footer_labels
+        assert "Ctrl+P Command Palette" in footer_labels
+        assert "? Keybindings" in footer_labels
+        assert "Ctrl+B" not in footer_labels
+        assert "Ctrl+T" not in footer_labels
+        assert "Ctrl+N" not in footer_labels
 
         version = app.query_one("#app-version", Static)
         assert str(version.content) == "v0.1.21"
+
+
+@pytest.mark.asyncio
+async def test_keybindings_shortcut_toggles_help_panel() -> None:
+    """The keybindings shortcut should open and close the help panel."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not app.screen.query(HelpPanel)
+
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.query(HelpPanel)
+
+        await pilot.press("?")
+        await pilot.pause()
+        assert not app.screen.query(HelpPanel)
 
 
 @pytest.mark.asyncio

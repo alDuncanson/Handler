@@ -878,13 +878,16 @@ TabbedMessagesPanel:focus {
 #app-footer {
     height: 1;
     layout: horizontal;
-}
-
-#app-footer Footer {
-    width: 1fr;
-    height: 1;
     background: transparent;
     color: $text-muted;
+}
+
+#app-footer-bindings {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+    background: transparent;
+    padding: 0 1;
 }
 
 #app-version {
@@ -892,21 +895,8 @@ TabbedMessagesPanel:focus {
     height: 1;
     padding: 0 1;
     color: $text-muted;
-    text-align: right;
-}
-
-#app-footer Footer > FooterKey {
     background: transparent;
-    color: $text-muted;
-}
-
-#app-footer Footer > FooterKey > .footer-key--key {
-    background: $surface;
-    color: $text-muted;
-}
-
-#app-footer Footer > FooterKey > .footer-key--description {
-    color: $text-muted;
+    text-align: right;
 }
 
 CommandPalette {
