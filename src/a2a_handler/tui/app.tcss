@@ -521,15 +521,29 @@ AgentMessage {
 
 .message-header {
     height: 1;
+    width: auto;
     color: $text-muted;
     text-style: bold;
 }
 
-.message-user > .message-header {
+.message-time {
+    width: auto;
+    height: 1;
+    margin-right: 1;
+    color: $text-muted;
+}
+
+.message-role {
+    width: auto;
+    height: 1;
+    text-style: bold;
+}
+
+.message-user .message-role {
     color: $primary;
 }
 
-.message-agent > .message-header {
+.message-agent .message-role {
     color: $success;
 }
 
@@ -603,25 +617,6 @@ AgentMessage {
 
 .metadata-artifacts .message-metadata-value {
     color: $accent;
-}
-
-.message-actions {
-    height: 1;
-    margin-top: 1;
-}
-
-.message-action {
-    width: auto;
-    min-width: 0;
-    height: 1;
-    margin-right: 1;
-    padding: 0 1;
-    background: $surface;
-    color: $text;
-}
-
-.message-action:focus {
-    background: $accent 30%;
 }
 
 #logs-panel {

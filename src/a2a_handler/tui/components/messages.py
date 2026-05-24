@@ -11,7 +11,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.widgets import Button, Markdown, Static, TabbedContent, TabPane, Tabs
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -90,22 +90,6 @@ def _external_link_url(href: str) -> str | None:
     return urljoin(HANDLER_DOCS_URL, href)
 
 
-class MessageActionButton(Button):
-    """Button carrying protocol navigation metadata for a message card."""
-
-    def __init__(
-        self,
-        label: str,
-        *,
-        task_id: str | None = None,
-        artifact_id: str | None = None,
-        classes: str | None = None,
-    ) -> None:
-        super().__init__(label, classes=classes)
-        self.task_id = task_id
-        self.artifact_id = artifact_id
-
-
 class Message(Container):
     """A single message card in the conversation timeline."""
 
@@ -139,10 +123,9 @@ class Message(Container):
 
     def compose(self) -> ComposeResult:
         formatted_time = self.timestamp.strftime("%H:%M:%S")
-        yield Static(
-            f"{formatted_time} {self.role.title()}",
-            classes="message-header",
-        )
+        with Horizontal(classes="message-header"):
+            yield Static(formatted_time, classes="message-time")
+            yield Static(self.role.title(), classes="message-role")
         if self.markdown:
             yield Markdown(self.body, classes="message-body", open_links=False)
         else:
@@ -241,21 +224,6 @@ class AgentMessage(Message):
                     with Horizontal(classes=f"message-metadata-chip {tone_class}"):
                         yield Static(label, classes="message-metadata-label")
                         yield Static(value, classes="message-metadata-value")
-        if self.task_id or self.artifacts:
-            with Horizontal(classes="message-actions"):
-                if self.task_id:
-                    yield MessageActionButton(
-                        "View task",
-                        task_id=self.task_id,
-                        classes="message-action view-task",
-                    )
-                if self.artifacts:
-                    yield MessageActionButton(
-                        "View artifacts",
-                        classes="message-action view-artifacts",
-                        task_id=self.task_id,
-                        artifact_id=self.artifacts[0].artifact_id,
-                    )
 
 
 class ChatScrollContainer(VerticalScroll):
@@ -368,32 +336,6 @@ class TabbedMessagesPanel(Container):
     def add_system_message(self, content: str) -> None:
         logger.info("System message: %s", content)
         self.add_message("system", content)
-
-    @on(Button.Pressed, ".view-task")
-    def _view_message_task(self, event: Button.Pressed) -> None:
-        """Switch to the Tasks tab for an agent message's task."""
-        event.stop()
-        if not isinstance(event.button, MessageActionButton):
-            return
-        task_id = event.button.task_id
-        if not task_id:
-            return
-        event.button.blur()
-        self.set_timer(0.01, lambda: self.show_task(task_id))
-
-    @on(Button.Pressed, ".view-artifacts")
-    def _view_message_artifacts(self, event: Button.Pressed) -> None:
-        """Switch to the Artifacts tab for an agent message's artifacts."""
-        event.stop()
-        if not isinstance(event.button, MessageActionButton):
-            return
-        task_id = event.button.task_id
-        artifact_id = event.button.artifact_id
-        event.button.blur()
-        self.set_timer(
-            0.01,
-            lambda: self.show_artifacts(task_id=task_id, artifact_id=artifact_id),
-        )
 
     def add_log(self, line: str) -> None:
         """Add a log line to the logs panel."""

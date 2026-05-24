@@ -19,7 +19,7 @@ from a2a.types import (
     TextPart,
 )
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Markdown, TabbedContent
+from textual.widgets import Markdown, TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
 from a2a_handler.tui.components.logs import LogsPanel
@@ -420,8 +420,8 @@ async def test_messages_panel_opens_relative_markdown_links_as_docs_urls() -> No
 
 
 @pytest.mark.asyncio
-async def test_agent_message_actions_open_task_and_artifact_panels() -> None:
-    """Agent timeline cards should make related task/artifact payloads discoverable."""
+async def test_agent_message_metadata_links_to_task_and_artifact_payloads() -> None:
+    """Agent timeline cards should summarize related task/artifact payloads."""
     app = _MessagesPanelHarness()
     task = Task(
         id="task-with-artifacts",
@@ -453,17 +453,19 @@ async def test_agent_message_actions_open_task_and_artifact_panels() -> None:
         metadata_values = _rendered_texts(panel.query_one(".message-metadata-row"))
         assert "artifact" in metadata_values
         assert "Processing Result (data)" in metadata_values
-
-        panel.query_one(".view-artifacts", Button).press()
-        await pilot.pause()
+        assert not panel.query(".view-task")
+        assert not panel.query(".view-artifacts")
 
         tabs = panel.query_one("#messages-tabs", TabbedContent)
+        tabs.active = "artifacts-tab"
+        await pilot.pause()
+
         assert tabs.active == "artifacts-tab"
         selected_artifact = panel.query_one(ArtifactsPanel).get_selected_artifact()
         assert selected_artifact is not None
         assert selected_artifact.artifact_id == "artifact-data"
 
-        panel.query_one(".view-task", Button).press()
+        tabs.active = "tasks-tab"
         await pilot.pause()
 
         assert tabs.active == "tasks-tab"
