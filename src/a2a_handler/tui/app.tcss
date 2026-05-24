@@ -605,12 +605,6 @@ AgentMessage {
     color: $accent;
 }
 
-.message-artifact-summary {
-    height: auto;
-    color: $text-muted;
-    padding-top: 0;
-}
-
 .message-actions {
     height: 1;
     margin-top: 1;

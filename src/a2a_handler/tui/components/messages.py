@@ -61,6 +61,16 @@ def _artifact_summary(artifact: Artifact) -> str:
     return f"{_artifact_label(artifact)} ({part_summary})"
 
 
+def _artifact_chip_summary(artifact: Artifact) -> str:
+    """Return a compact artifact summary suitable for a metadata chip."""
+    label = artifact.name or artifact.artifact_id or "unnamed artifact"
+    if artifact.artifact_id and not artifact.name:
+        label = _short_id(artifact.artifact_id)
+    kinds = [_part_kind(part) for part in artifact.parts or []]
+    part_summary = ", ".join(kinds) if kinds else "no parts"
+    return f"{label} ({part_summary})"
+
+
 def _short_id(value: str, *, prefix: int = 8, suffix: int = 5) -> str:
     """Shorten protocol IDs while keeping them recognizable."""
     if len(value) <= prefix + suffix + 1:
@@ -196,7 +206,12 @@ class AgentMessage(Message):
             fields.append(("context", _short_id(context_id), "metadata-context"))
         if self.artifacts:
             label = "artifact" if len(self.artifacts) == 1 else "artifacts"
-            fields.append((label, str(len(self.artifacts)), "metadata-artifacts"))
+            value = (
+                _artifact_chip_summary(self.artifacts[0])
+                if len(self.artifacts) == 1
+                else str(len(self.artifacts))
+            )
+            fields.append((label, value, "metadata-artifacts"))
         return fields
 
     def _metadata(self, response: A2AResponse) -> str | None:
@@ -226,14 +241,6 @@ class AgentMessage(Message):
                     with Horizontal(classes=f"message-metadata-chip {tone_class}"):
                         yield Static(label, classes="message-metadata-label")
                         yield Static(value, classes="message-metadata-value")
-        if self.artifacts:
-            artifact_summaries = "; ".join(
-                _artifact_summary(artifact) for artifact in self.artifacts
-            )
-            yield Static(
-                artifact_summaries,
-                classes="message-artifact-summary",
-            )
         if self.task_id or self.artifacts:
             with Horizontal(classes="message-actions"):
                 if self.task_id:

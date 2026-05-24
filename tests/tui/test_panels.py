@@ -449,6 +449,10 @@ async def test_agent_message_actions_open_task_and_artifact_panels() -> None:
 
         chat_texts = _chat_texts(panel)
         assert any("Processing Result (data)" in text for text in chat_texts)
+        assert not panel.query(".message-artifact-summary")
+        metadata_values = _rendered_texts(panel.query_one(".message-metadata-row"))
+        assert "artifact" in metadata_values
+        assert "Processing Result (data)" in metadata_values
 
         panel.query_one(".view-artifacts", Button).press()
         await pilot.pause()
