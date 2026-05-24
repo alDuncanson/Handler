@@ -474,6 +474,8 @@ class ServerTab(Container):
         """Return a short label for where the live connection came from."""
         if connected_server is None:
             return "Direct URL"
+        if is_default_handler_agent_server(connected_server):
+            return "Embedded Server"
         source_labels = {
             ServerSource.REPOSITORY: "Repository Server",
             ServerSource.GLOBAL: "User Server",

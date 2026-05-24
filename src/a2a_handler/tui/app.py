@@ -2,14 +2,16 @@
 
 import logging
 from collections.abc import Callable, Iterable
+from importlib.metadata import version
 from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.logging import TextualHandler
 from textual.screen import Screen
-from textual.widgets import Footer, Tabs
+from textual.widgets import Footer, Static, Tabs
 
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
@@ -32,6 +34,7 @@ logging.basicConfig(
     handlers=[TextualHandler()],
 )
 logger = logging.getLogger(__name__)
+HANDLER_VERSION = version("a2a-handler")
 
 
 class HandlerTUI(App[Any]):
@@ -49,29 +52,34 @@ class HandlerTUI(App[Any]):
             priority=True,
         ),
         Binding(
-            "ctrl+p", "command_palette", "Palette", show=True, key_display="Ctrl+P"
+            "ctrl+p",
+            "command_palette",
+            "Command Palette",
+            show=True,
+            key_display="Ctrl+P",
         ),
-        Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
+        Binding("?", "show_help_panel", "Keybindings", show=True),
+        Binding("ctrl+m", "toggle_maximize", "Maximize", show=False),
         Binding(
             "ctrl+b",
             "previous_server",
             "Prev Server",
-            show=True,
+            show=False,
             key_display="Ctrl+B",
         ),
         Binding(
             "ctrl+t",
             "next_server",
             "Next Server",
-            show=True,
+            show=False,
             key_display="Ctrl+T",
         ),
-        Binding("ctrl+n", "new_server", "New Server", show=True, key_display="Ctrl+N"),
+        Binding("ctrl+n", "new_server", "New Server", show=False, key_display="Ctrl+N"),
         Binding(
             "ctrl+w",
             "close_server",
             "Close Server",
-            show=True,
+            show=False,
             key_display="Ctrl+W",
         ),
     ]
@@ -111,7 +119,9 @@ class HandlerTUI(App[Any]):
             connect_servers=self._connect_servers,
             connect_url=self._connect_url,
         )
-        yield Footer(show_command_palette=False)
+        with Horizontal(id="app-footer"):
+            yield Footer(show_command_palette=False)
+            yield Static(f"v{HANDLER_VERSION}", id="app-version")
 
     async def on_mount(self) -> None:
         logger.info("TUI application starting")

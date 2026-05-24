@@ -168,8 +168,8 @@ def test_app_advertises_server_hotkeys() -> None:
 
 
 @pytest.mark.asyncio
-async def test_footer_shows_quit_and_server_hotkeys() -> None:
-    """Global bindings should be visible and ctrl+c should override copy."""
+async def test_footer_shows_global_help_and_version() -> None:
+    """The footer should stay compact while surfacing app-level help."""
     app = HandlerTUI()
 
     async with app.run_test() as pilot:
@@ -181,11 +181,17 @@ async def test_footer_shows_quit_and_server_hotkeys() -> None:
         footer_labels = [str(child.render()) for child in footer.children]
 
         assert any("Ctrl+C" in label and "Quit" in label for label in footer_labels)
-        assert any("Ctrl+B" in label for label in footer_labels)
-        assert any("Ctrl+T" in label for label in footer_labels)
         assert any(
-            "Ctrl+N" in label and "New Server" in label for label in footer_labels
+            "Ctrl+P" in label and "Command Palette" in label
+            for label in footer_labels
         )
+        assert any("?" in label and "Keybindings" in label for label in footer_labels)
+        assert all("Ctrl+B" not in label for label in footer_labels)
+        assert all("Ctrl+T" not in label for label in footer_labels)
+        assert all("Ctrl+N" not in label for label in footer_labels)
+
+        version = app.query_one("#app-version", Static)
+        assert str(version.content) == "v0.1.21"
 
 
 @pytest.mark.asyncio
@@ -825,6 +831,8 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
             assert workspace.is_connected
             mock_ensure_running.assert_awaited_once_with(DEFAULT_HANDLER_AGENT_URL)
             mock_service.get_card.assert_awaited_once()
+            source_badge = workspace.query_one("#badge-source", Static)
+            assert "Embedded Server" in str(source_badge.content)
             messages_panel = workspace.query_one(TabbedMessagesPanel)
             assert any(
                 "Started Handler's local reference agent" in text

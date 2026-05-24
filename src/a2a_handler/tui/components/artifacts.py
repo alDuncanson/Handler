@@ -146,15 +146,15 @@ class ArtifactsPanel(Container):
     """Panel with split view: artifact list on left, details on right."""
 
     BINDINGS = [
-        Binding("j", "cursor_down", "↓ Select", show=True, key_display="j/↓"),
-        Binding("k", "cursor_up", "↑ Select", show=True, key_display="k/↑"),
+        Binding("j", "cursor_down", "↓ Select", show=False, key_display="j/↓"),
+        Binding("k", "cursor_up", "↑ Select", show=False, key_display="k/↑"),
         Binding("down", "cursor_down", "Down", show=False),
         Binding("up", "cursor_up", "Up", show=False),
-        Binding("ctrl+d", "scroll_detail_down", "½ Page ↓", show=True),
-        Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=True),
-        Binding("enter", "select_artifact", "View", show=True),
-        Binding("y", "copy_artifact_id", "Copy ID", show=True),
-        Binding("Y", "copy_task_id", "Copy Task", show=True),
+        Binding("ctrl+d", "scroll_detail_down", "½ Page ↓", show=False),
+        Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=False),
+        Binding("enter", "select_artifact", "View", show=False),
+        Binding("y", "copy_artifact_id", "Copy ID", show=False),
+        Binding("Y", "copy_task_id", "Copy Task", show=False),
     ]
 
     can_focus = False
