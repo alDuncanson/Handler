@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from importlib.metadata import version
 from typing import Any
 
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
@@ -36,6 +37,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 HANDLER_VERSION = version("a2a-handler")
+
+
+def _footer_bindings_text() -> Text:
+    """Return footer keybindings with chords visually distinct from actions."""
+    return Text.assemble(
+        ("Ctrl+Q", "bold yellow"),
+        (" Quit  ", "dim"),
+        ("Ctrl+P", "bold yellow"),
+        (" Command Palette  ", "dim"),
+        ("?", "bold yellow"),
+        (" Keybindings", "dim"),
+    )
 
 
 class HandlerTUI(App[Any]):
@@ -122,7 +135,7 @@ class HandlerTUI(App[Any]):
         )
         with Horizontal(id="app-footer"):
             yield Static(
-                "Ctrl+Q Quit  Ctrl+P Command Palette  ? Keybindings",
+                _footer_bindings_text(),
                 id="app-footer-bindings",
             )
             yield Static(f"v{HANDLER_VERSION}", id="app-version")
