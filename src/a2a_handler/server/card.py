@@ -43,15 +43,63 @@ def build_agent_card(
             name="Handler Assistant",
             description=(
                 "Answers Handler usage questions with documentation-backed help "
-                "for CLI commands, TUI workflows, MCP, local servers, and A2A "
-                "troubleshooting"
+                "for CLI commands, TUI workflows, MCP, local servers, auth, "
+                "configuration, and troubleshooting"
             ),
-            tags=["handler", "cli", "tui", "mcp", "docs", "help"],
+            tags=["handler", "cli", "tui", "mcp", "docs", "help", "auth"],
             examples=[
                 "How do I send a message with Handler?",
                 "What CLI commands are available?",
                 "How do I validate an agent card?",
                 "How do I expose Handler as an MCP server?",
+            ],
+        ),
+        AgentSkill(
+            id="a2a_protocol_reference",
+            name="A2A Protocol Reference",
+            description=(
+                "Looks up official A2A protocol documentation for concepts such "
+                "as agent cards, messages, tasks, artifacts, streaming, push "
+                "notifications, and the relationship between A2A and MCP"
+            ),
+            tags=[
+                "a2a",
+                "protocol",
+                "agent-card",
+                "messages",
+                "tasks",
+                "artifacts",
+                "streaming",
+                "docs",
+            ],
+            examples=[
+                "What is the difference between A2A messages and tasks?",
+                "How do A2A artifacts work?",
+                "What should an agent card include?",
+                "How does A2A streaming work?",
+            ],
+        ),
+        AgentSkill(
+            id="handler_source_reference",
+            name="Handler Source Reference",
+            description=(
+                "Searches the locally installed Handler package source to explain "
+                "implementation details that are not obvious from the docs"
+            ),
+            tags=[
+                "handler",
+                "source",
+                "implementation",
+                "python",
+                "textual",
+                "adk",
+                "debugging",
+            ],
+            examples=[
+                "Where is Handler's TUI loading indicator implemented?",
+                "How does Handler start the embedded agent?",
+                "Where does Handler render task artifacts?",
+                "How does Handler connect to A2A servers?",
             ],
         ),
     ]

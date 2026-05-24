@@ -380,7 +380,8 @@ Be conversational, helpful, concise, and practical."""
         model=language_model,
         description=(
             "Handler's built-in assistant for A2A development, Handler usage, "
-            "and documentation-backed support"
+            "documentation-backed support, A2A protocol reference, and local "
+            "Handler source lookup"
         ),
         instruction=instruction,
         tools=tools,

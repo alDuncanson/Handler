@@ -57,8 +57,18 @@ def test_build_agent_card_basic() -> None:
     assert card.url == "http://localhost:8000/"
     assert card.capabilities.streaming is True
     assert card.capabilities.push_notifications is True
-    assert len(card.skills) == 1
-    assert card.skills[0].id == "handler_assistant"
+    assert [skill.id for skill in card.skills] == [
+        "handler_assistant",
+        "a2a_protocol_reference",
+        "handler_source_reference",
+    ]
+    skill_text = " ".join(
+        [skill.description or "" for skill in card.skills]
+        + [tag for skill in card.skills for tag in skill.tags]
+    )
+    assert "A2A protocol" in skill_text
+    assert "source" in skill_text
+    assert "streaming" in skill_text
     assert card.default_input_modes == ["text/plain"]
     assert card.default_output_modes == ["text/plain"]
 
@@ -198,6 +208,8 @@ def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
     assert "hosted documentation" in agent.instruction
     assert "A2A protocol documentation" in agent.instruction
     assert "locally installed source code" in agent.instruction
+    assert "A2A protocol reference" in agent.description
+    assert "local Handler source lookup" in agent.description
     assert "Format answers as concise Markdown" in agent.instruction
 
 
