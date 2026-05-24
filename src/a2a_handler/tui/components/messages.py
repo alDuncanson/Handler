@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin, urlparse
 
 from a2a.types import DataPart, FilePart, Task, TextPart
 from textual import on
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+HANDLER_DOCS_URL = "https://handler.alduncanson.com/"
+
 
 def _part_kind(part: Any) -> str:
     """Return a compact display label for an A2A part."""
@@ -56,6 +59,18 @@ def _artifact_summary(artifact: Artifact) -> str:
     kinds = [_part_kind(part) for part in artifact.parts or []]
     part_summary = ", ".join(kinds) if kinds else "no parts"
     return f"{_artifact_label(artifact)} ({part_summary})"
+
+
+def _external_link_url(href: str) -> str | None:
+    """Return an external URL for a markdown link if Handler can open it."""
+    parsed = urlparse(href)
+    if parsed.scheme in {"http", "https"}:
+        return href
+    if parsed.scheme:
+        return None
+    if href.startswith("#"):
+        return None
+    return urljoin(HANDLER_DOCS_URL, href)
 
 
 class MessageActionButton(Button):
@@ -119,6 +134,16 @@ class Message(Container):
     def on_mount(self) -> None:
         for widget in self.query("Markdown, Static"):
             widget.can_focus = False
+
+    @on(Markdown.LinkClicked)
+    def _open_markdown_link(self, event: Markdown.LinkClicked) -> None:
+        """Open external markdown links from message bodies."""
+        event.stop()
+        url = _external_link_url(event.href)
+        if url is None:
+            self.notify(f"Unsupported link: {event.href}", severity="warning")
+            return
+        self.app.open_url(url)
 
 
 class AgentMessage(Message):

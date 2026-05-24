@@ -363,6 +363,56 @@ async def test_messages_panel_renders_markdown_message_bodies() -> None:
 
 
 @pytest.mark.asyncio
+async def test_messages_panel_opens_markdown_links() -> None:
+    """Clicking a markdown link in a message should open the target URL."""
+    app = _MessagesPanelHarness()
+    open_url = Mock()
+    setattr(app, "open_url", open_url)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_message(
+            "agent",
+            "Read the [authentication guide](https://handler.alduncanson.com/guides/auth).",
+        )
+        await pilot.pause()
+
+        markdown = panel.query_one(Markdown)
+        markdown.post_message(
+            Markdown.LinkClicked(
+                markdown,
+                "https://handler.alduncanson.com/guides/auth",
+            )
+        )
+        await pilot.pause()
+
+        open_url.assert_called_once_with("https://handler.alduncanson.com/guides/auth")
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_opens_relative_markdown_links_as_docs_urls() -> None:
+    """Relative docs links from MCP responses should open against Handler docs."""
+    app = _MessagesPanelHarness()
+    open_url = Mock()
+    setattr(app, "open_url", open_url)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_message("agent", "See [servers](/guides/servers).")
+        await pilot.pause()
+
+        markdown = panel.query_one(Markdown)
+        markdown.post_message(Markdown.LinkClicked(markdown, "/guides/servers"))
+        await pilot.pause()
+
+        open_url.assert_called_once_with("https://handler.alduncanson.com/guides/servers")
+
+
+@pytest.mark.asyncio
 async def test_agent_message_actions_open_task_and_artifact_panels() -> None:
     """Agent timeline cards should make related task/artifact payloads discoverable."""
     app = _MessagesPanelHarness()
