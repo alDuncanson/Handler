@@ -752,9 +752,13 @@ class ServerTab(Container):
                 selected_server
             ):
                 connection_bar.set_status("Starting Handler agent...", tone="accent")
-                started, agent_url = await ensure_default_handler_agent_running(agent_url)
+                started, agent_url = await ensure_default_handler_agent_running(
+                    agent_url
+                )
                 if started:
-                    startup_message = f"Started Handler's embedded agent at {agent_url}."
+                    startup_message = (
+                        f"Started Handler's embedded agent at {agent_url}."
+                    )
                 connection_bar.set_status(f"Connecting to {agent_url}...")
 
             agent_card = await self._connect_to_agent(agent_url, credentials)

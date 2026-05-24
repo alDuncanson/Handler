@@ -908,7 +908,9 @@ async def test_connecting_default_handler_agent_uses_auto_incremented_port() -> 
             mock_service_cls.assert_called_once()
             assert mock_service_cls.call_args.args[1] == "http://localhost:8001"
             messages_panel = workspace.query_one(TabbedMessagesPanel)
-            assert any("http://localhost:8001" in text for text in _chat_texts(messages_panel))
+            assert any(
+                "http://localhost:8001" in text for text in _chat_texts(messages_panel)
+            )
 
 
 @pytest.mark.asyncio
@@ -953,7 +955,9 @@ async def test_auto_starting_default_handler_agent_requires_model(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_auto_starting_default_handler_agent_auto_increments_port(monkeypatch) -> None:
+async def test_auto_starting_default_handler_agent_auto_increments_port(
+    monkeypatch,
+) -> None:
     """The launcher should skip occupied port 8000 and start on the next port."""
     from a2a_handler.tui.server import tab as tab_module
 
