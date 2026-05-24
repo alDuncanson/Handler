@@ -4,6 +4,7 @@ import os
 import re
 import urllib.request
 from functools import lru_cache
+from pathlib import Path
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models.lite_llm import LiteLlm
@@ -26,6 +27,9 @@ DEFAULT_A2A_LLMS_FULL_URL = "https://a2a-protocol.org/llms-full.txt"
 A2A_DOCS_FETCH_TIMEOUT_SECONDS = 10
 A2A_DOCS_MAX_FETCH_CHARS = 20_000
 A2A_DOCS_MAX_SEARCH_CHARS = 12_000
+HANDLER_SOURCE_MAX_FILE_BYTES = 200_000
+HANDLER_SOURCE_MAX_SEARCH_CHARS = 12_000
+HANDLER_SOURCE_EXTENSIONS = frozenset({".py", ".tcss"})
 
 
 def _handler_docs_mcp_enabled() -> bool:
@@ -39,6 +43,14 @@ def _handler_docs_mcp_enabled() -> bool:
 def _a2a_docs_tools_enabled() -> bool:
     """Return whether the A2A protocol documentation tools should be enabled."""
     enabled = os.getenv("A2A_DOCS_TOOLS_ENABLED")
+    if enabled is None:
+        return True
+    return enabled.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _handler_source_tools_enabled() -> bool:
+    """Return whether local Handler source search tools should be enabled."""
+    enabled = os.getenv("HANDLER_SOURCE_TOOLS_ENABLED")
     if enabled is None:
         return True
     return enabled.strip().lower() not in {"0", "false", "no", "off"}
@@ -64,15 +76,17 @@ def _fetch_a2a_docs_text(source: str) -> str:
         return response.read().decode("utf-8", errors="replace")
 
 
-def _bounded_text(text: str, max_chars: int) -> str:
+def _bounded_text(
+    text: str,
+    max_chars: int,
+    *,
+    truncated_hint: str = "Use search_a2a_protocol_docs for targeted excerpts.",
+) -> str:
     """Return text truncated to a safe size for an LLM tool response."""
     safe_max_chars = max(1_000, min(max_chars, A2A_DOCS_MAX_FETCH_CHARS))
     if len(text) <= safe_max_chars:
         return text
-    return (
-        text[:safe_max_chars]
-        + "\n\n[truncated] Use search_a2a_protocol_docs for targeted excerpts."
-    )
+    return text[:safe_max_chars] + f"\n\n[truncated] {truncated_hint}"
 
 
 def fetch_a2a_protocol_docs(source: str = "summary", max_chars: int = 12_000) -> str:
@@ -97,6 +111,11 @@ def _line_score(line: str, terms: list[str]) -> int:
     return sum(lowered.count(term) for term in terms)
 
 
+def _query_terms(query: str) -> list[str]:
+    """Return normalized query terms for lightweight lexical search."""
+    return [term.lower() for term in re.findall(r"\w+", query) if len(term) > 1]
+
+
 def search_a2a_protocol_docs(query: str, max_results: int = 5) -> str:
     """Search official A2A protocol documentation excerpts.
 
@@ -107,7 +126,7 @@ def search_a2a_protocol_docs(query: str, max_results: int = 5) -> str:
     Returns:
         Ranked, rg-style excerpts from the A2A llms-full.txt documentation.
     """
-    terms = [term.lower() for term in re.findall(r"\w+", query) if len(term) > 1]
+    terms = _query_terms(query)
     if not terms:
         return (
             "Provide one or more search terms, for example: tasks messages artifacts."
@@ -153,12 +172,108 @@ def search_a2a_protocol_docs(query: str, max_results: int = 5) -> str:
     return _bounded_text("\n\n".join(excerpts), A2A_DOCS_MAX_SEARCH_CHARS)
 
 
+def _handler_source_root() -> Path:
+    """Return the installed Handler package source root."""
+    return Path(__file__).resolve().parents[1]
+
+
+def _iter_handler_source_files(path_filter: str = ""):
+    """Yield searchable Handler source files from the installed package."""
+    root = _handler_source_root()
+    normalized_filter = path_filter.strip().lower()
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        if path.suffix not in HANDLER_SOURCE_EXTENSIONS:
+            continue
+        if path.stat().st_size > HANDLER_SOURCE_MAX_FILE_BYTES:
+            continue
+        relative_path = path.relative_to(root).as_posix()
+        if normalized_filter and normalized_filter not in relative_path.lower():
+            continue
+        yield relative_path, path
+
+
+def search_handler_source(
+    query: str,
+    path_filter: str = "",
+    max_results: int = 8,
+) -> str:
+    """Search the locally installed Handler package source.
+
+    Args:
+        query: Plain-text search terms, such as "loading indicator".
+        path_filter: Optional substring to restrict relative source paths.
+        max_results: Maximum matching excerpts to return.
+
+    Returns:
+        Ranked, rg-style excerpts from the installed `a2a_handler` package.
+    """
+    terms = _query_terms(query)
+    if not terms:
+        return "Provide one or more source search terms, for example: agent card."
+
+    matches: list[tuple[int, str, int, list[str]]] = []
+    try:
+        source_files = list(_iter_handler_source_files(path_filter))
+    except Exception as error:
+        return f"Failed to search Handler source: {error}"
+
+    for relative_path, path in source_files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for index, line in enumerate(lines):
+            score = _line_score(line, terms)
+            if score <= 0:
+                continue
+            start = max(0, index - 2)
+            end = min(len(lines), index + 3)
+            excerpt_lines = []
+            for line_number in range(start, end):
+                marker = ">" if line_number == index else " "
+                excerpt_lines.append(
+                    f"{marker} {line_number + 1}: {lines[line_number]}"
+                )
+            matches.append((score, relative_path, index, excerpt_lines))
+
+    if not matches:
+        suffix = f" in paths matching '{path_filter}'" if path_filter else ""
+        return f"No Handler source matches for: {query}{suffix}"
+
+    max_results = max(1, min(max_results, 20))
+    output = ["Source: locally installed a2a_handler package"]
+    seen_locations: set[tuple[str, int]] = set()
+    for _score, relative_path, index, excerpt_lines in sorted(matches, reverse=True):
+        location = (relative_path, index)
+        if location in seen_locations:
+            continue
+        seen_locations.add(location)
+        output.append(f"File: {relative_path}\n" + "\n".join(excerpt_lines))
+        if len(output) > max_results:
+            break
+
+    return _bounded_text(
+        "\n\n".join(output),
+        HANDLER_SOURCE_MAX_SEARCH_CHARS,
+        truncated_hint="Narrow the query or use path_filter for targeted source excerpts.",
+    )
+
+
 def create_a2a_docs_tools() -> list[FunctionTool]:
     """Create local function tools for A2A protocol documentation lookup."""
     return [
         FunctionTool(fetch_a2a_protocol_docs),
         FunctionTool(search_a2a_protocol_docs),
     ]
+
+
+def create_handler_source_tools() -> list[FunctionTool]:
+    """Create local function tools for Handler source lookup."""
+    return [FunctionTool(search_handler_source)]
 
 
 def create_language_model(model: str | None = None) -> LiteLlm:
@@ -229,7 +344,7 @@ def create_llm_agent(model: str | None = None) -> Agent:
 
 Handler is an A2A protocol client published on PyPI as `a2a-handler`. It provides tools for developers to communicate with, test, and debug A2A-compatible agents.
 
-You have access to Handler's hosted documentation through an MCP server and to A2A protocol documentation through local documentation search/fetch tools backed by the official A2A protocol site's llms text files. Use these tools when answering Handler-specific or A2A-specific questions about commands, configuration, workflows, authentication, MCP, local servers, tasks, messages, artifacts, streaming, or troubleshooting. Prefer current documentation over memory, and cite the relevant page, source, or command when helpful.
+You have access to Handler's hosted documentation through an MCP server, Handler's locally installed source code through source search tools, and A2A protocol documentation through local documentation search/fetch tools backed by the official A2A protocol site's llms text files. Use these tools when answering Handler-specific or A2A-specific questions about commands, configuration, workflows, authentication, MCP, local servers, tasks, messages, artifacts, streaming, implementation details, or troubleshooting. Prefer current documentation and local source over memory, and cite the relevant page, source file, or command when helpful.
 
 Handler's architecture consists of:
 1. **TUI** - An interactive terminal interface (Textual-based) for managing agent connections, sending messages, and viewing streaming responses
@@ -255,6 +370,10 @@ Be conversational, helpful, concise, and practical."""
         tools.extend(create_a2a_docs_tools())
     else:
         logger.info("A2A docs tools disabled by A2A_DOCS_TOOLS_ENABLED")
+    if _handler_source_tools_enabled():
+        tools.extend(create_handler_source_tools())
+    else:
+        logger.info("Handler source tools disabled by HANDLER_SOURCE_TOOLS_ENABLED")
 
     agent = Agent(
         name="Handler",

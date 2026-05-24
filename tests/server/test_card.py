@@ -11,8 +11,10 @@ from a2a_handler.server.agent import (
     DEFAULT_HANDLER_DOCS_MCP_URL,
     create_a2a_docs_tools,
     create_handler_docs_toolset,
+    create_handler_source_tools,
     create_llm_agent,
     fetch_a2a_protocol_docs,
+    search_handler_source,
     search_a2a_protocol_docs,
 )
 from a2a_handler.server.app import (
@@ -175,9 +177,10 @@ def test_create_handler_docs_toolset_allows_url_override(monkeypatch) -> None:
 
 
 def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
-    """The reference agent can consult Handler and A2A documentation tools."""
+    """The reference agent can consult Handler docs, source, and A2A docs."""
     monkeypatch.delenv("HANDLER_DOCS_MCP_ENABLED", raising=False)
     monkeypatch.delenv("A2A_DOCS_TOOLS_ENABLED", raising=False)
+    monkeypatch.delenv("HANDLER_SOURCE_TOOLS_ENABLED", raising=False)
     monkeypatch.setenv("HANDLER_DOCS_MCP_URL", "https://docs.example.com/mcp")
     monkeypatch.setattr(
         agent_module,
@@ -187,12 +190,14 @@ def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
 
     agent = create_llm_agent(model="gemma4:e2b")
 
-    assert len(agent.tools) == 3
+    assert len(agent.tools) == 4
     assert agent.tools[0]._connection_params.url == "https://docs.example.com/mcp"
     assert agent.tools[1].name == "fetch_a2a_protocol_docs"
     assert agent.tools[2].name == "search_a2a_protocol_docs"
+    assert agent.tools[3].name == "search_handler_source"
     assert "hosted documentation" in agent.instruction
     assert "A2A protocol documentation" in agent.instruction
+    assert "locally installed source code" in agent.instruction
     assert "Format answers as concise Markdown" in agent.instruction
 
 
@@ -200,6 +205,7 @@ def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:
     """Docs MCP can be disabled for fully offline reference-agent runs."""
     monkeypatch.setenv("HANDLER_DOCS_MCP_ENABLED", "false")
     monkeypatch.setenv("A2A_DOCS_TOOLS_ENABLED", "false")
+    monkeypatch.setenv("HANDLER_SOURCE_TOOLS_ENABLED", "false")
     monkeypatch.setattr(
         agent_module,
         "create_language_model",
@@ -253,3 +259,39 @@ def test_search_a2a_protocol_docs_returns_rg_style_excerpts(monkeypatch) -> None
     assert f"Source: {DEFAULT_A2A_LLMS_FULL_URL}" in result
     assert "> 3: Tasks track long-running work and produce artifacts." in result
     assert "Artifacts contain text" in result
+
+
+def test_create_handler_source_tools_registers_source_search_tool() -> None:
+    """The reference agent exposes a local Handler source search tool."""
+    tools = create_handler_source_tools()
+
+    assert [tool.name for tool in tools] == ["search_handler_source"]
+
+
+def test_search_handler_source_returns_installed_package_excerpts(monkeypatch) -> None:
+    """Handler source search should read only local installed package files."""
+    monkeypatch.setattr(
+        agent_module,
+        "_iter_handler_source_files",
+        lambda path_filter="": [
+            ("server/agent.py", agent_module._handler_source_root() / "server/agent.py")
+        ],
+    )
+
+    result = search_handler_source("create_llm_agent", path_filter="server")
+
+    assert "Source: locally installed a2a_handler package" in result
+    assert "File: server/agent.py" in result
+    assert "create_llm_agent" in result
+
+
+def test_search_handler_source_supports_no_matches(monkeypatch) -> None:
+    """Handler source search should explain empty search results."""
+    monkeypatch.setattr(
+        agent_module, "_iter_handler_source_files", lambda path_filter="": []
+    )
+
+    result = search_handler_source("definitely_missing", path_filter="tui")
+
+    assert "No Handler source matches" in result
+    assert "paths matching 'tui'" in result
