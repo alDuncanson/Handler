@@ -505,36 +505,42 @@ Select:focus SelectCurrent {
 
 Message,
 AgentMessage {
-    margin-bottom: 0;
+    margin: 1 0 0 0;
     height: auto;
-    padding: 0 0 1 0;
+    padding: 1 2;
+    background: $surface 70%;
 }
 
 Message.message-user {
     color: $text;
+    background: $primary 8%;
 }
 
 Message.message-system {
     color: $text-muted;
-    padding-bottom: 0;
+    background: $surface 45%;
+    padding: 0 2;
 }
 
 AgentMessage {
     color: $text;
+    background: $accent 8%;
 }
 
 .message-header {
     height: 1;
-    width: auto;
+    width: 1fr;
     color: $text-muted;
     text-style: bold;
+    margin-bottom: 1;
 }
 
 .message-time {
     width: auto;
     height: 1;
-    margin-right: 1;
+    margin-left: 1;
     color: $text-muted;
+    text-style: none;
 }
 
 .message-role {
@@ -553,6 +559,10 @@ AgentMessage {
 
 .message-system > .message-header {
     display: none;
+}
+
+.message-system .message-body {
+    color: $text-muted;
 }
 
 .message-body {
@@ -583,13 +593,14 @@ AgentMessage {
 .message-metadata-row {
     height: auto;
     margin-top: 1;
+    padding-top: 1;
 }
 
 .message-metadata-chip {
     width: auto;
     height: 1;
     margin-right: 1;
-    background: $surface;
+    background: $background 65%;
 }
 
 .message-metadata-label {

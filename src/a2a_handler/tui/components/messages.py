@@ -124,8 +124,8 @@ class Message(Container):
     def compose(self) -> ComposeResult:
         formatted_time = self.timestamp.strftime("%H:%M:%S")
         with Horizontal(classes="message-header"):
-            yield Static(formatted_time, classes="message-time")
             yield Static(self.role.title(), classes="message-role")
+            yield Static(formatted_time, classes="message-time")
         if self.markdown:
             yield Markdown(self.body, classes="message-body", open_links=False)
         else:
