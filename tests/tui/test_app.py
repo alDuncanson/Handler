@@ -870,12 +870,13 @@ async def test_auto_starting_default_handler_agent_requires_ollama(monkeypatch) 
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     monkeypatch.setattr(tab_module, "_handler_agent_card_available", unavailable)
     monkeypatch.setattr(tab_module.shutil, "which", lambda _name: None)
-    monkeypatch.setattr(tab_module.subprocess, "Popen", Mock())
+    popen = Mock()
+    monkeypatch.setattr(tab_module.subprocess, "Popen", popen)
 
     with pytest.raises(RuntimeError, match="requires Ollama"):
         await tab_module.ensure_default_handler_agent_running()
 
-    tab_module.subprocess.Popen.assert_not_called()
+    popen.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -890,12 +891,13 @@ async def test_auto_starting_default_handler_agent_requires_model(monkeypatch) -
     monkeypatch.setattr(tab_module, "_handler_agent_card_available", unavailable)
     monkeypatch.setattr(tab_module.shutil, "which", lambda _name: "/usr/bin/ollama")
     monkeypatch.setattr(tab_module, "check_ollama_model", lambda _model: False)
-    monkeypatch.setattr(tab_module.subprocess, "Popen", Mock())
+    popen = Mock()
+    monkeypatch.setattr(tab_module.subprocess, "Popen", popen)
 
     with pytest.raises(RuntimeError, match="ollama pull gemma4:e2b"):
         await tab_module.ensure_default_handler_agent_running()
 
-    tab_module.subprocess.Popen.assert_not_called()
+    popen.assert_not_called()
 
 
 def test_shutdown_default_handler_agent_waits_after_terminate(monkeypatch) -> None:

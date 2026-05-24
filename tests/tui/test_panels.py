@@ -188,7 +188,7 @@ async def test_tasks_panel_labels_protocol_history_parts() -> None:
                             file=FileWithUri(
                                 uri="https://example.com/report.md",
                                 name="report.md",
-                                mimeType="text/markdown",
+                                mime_type="text/markdown",
                             )
                         )
                     )
