@@ -5,6 +5,8 @@ from __future__ import annotations
 import atexit
 import asyncio
 import contextlib
+import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Generator
@@ -34,6 +36,7 @@ from a2a_handler.servers import (
     load_server_catalog,
     resolve_server_credentials,
 )
+from a2a_handler.server import DEFAULT_OLLAMA_MODEL, check_ollama_model
 from a2a_handler.service import (
     A2AService,
     extract_text_from_message_parts,
@@ -63,6 +66,28 @@ _DEFAULT_HANDLER_AGENT_HOST = "127.0.0.1"
 _DEFAULT_HANDLER_AGENT_PORT = "8000"
 _HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS = 3
 _handler_agent_process: subprocess.Popen | None = None
+
+
+def _handler_agent_model() -> str:
+    """Return the Ollama model used by the auto-started Handler agent."""
+    return os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+
+
+def _raise_if_handler_agent_model_unavailable() -> None:
+    """Fail early with an actionable message when the built-in agent can't run."""
+    model = _handler_agent_model()
+    if shutil.which("ollama") is None:
+        raise RuntimeError(
+            "Handler's built-in agent requires Ollama, but the Ollama CLI was not found. "
+            "Install Ollama, then run `ollama pull "
+            f"{model}` or `handler server run agent` before connecting."
+        )
+    if not check_ollama_model(model):
+        raise RuntimeError(
+            "Handler's built-in agent requires the Ollama model "
+            f"'{model}'. Run `ollama pull {model}` or `handler server run agent` "
+            "before connecting."
+        )
 
 
 def shutdown_default_handler_agent() -> None:
@@ -120,6 +145,8 @@ async def ensure_default_handler_agent_running(
 
     if await _handler_agent_card_available(agent_url):
         return False
+
+    _raise_if_handler_agent_model_unavailable()
 
     if _handler_agent_process is None or _handler_agent_process.poll() is not None:
         logger.info("Auto-starting Handler reference agent at %s", agent_url)
