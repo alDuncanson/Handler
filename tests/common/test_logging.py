@@ -47,6 +47,9 @@ def test_tui_log_handler_ignores_markdown_parser_debug_noise() -> None:
     callback_lines: list[str] = []
     handler.set_callback(callback_lines.append)
 
-    assert handler.handle(_record("markdown_it.rules_block.fence", "entering fence")) is False
+    assert (
+        handler.handle(_record("markdown_it.rules_block.fence", "entering fence"))
+        is False
+    )
     assert handler.get_lines() == []
     assert callback_lines == []

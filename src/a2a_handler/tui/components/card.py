@@ -27,7 +27,9 @@ class AgentCardPanel(Container):
     """Panel displaying agent card information with tabs."""
 
     BINDINGS = [
-        Binding("j", "scroll_down", "\u2193 Scroll", show=False, key_display="j/\u2193"),
+        Binding(
+            "j", "scroll_down", "\u2193 Scroll", show=False, key_display="j/\u2193"
+        ),
         Binding("k", "scroll_up", "\u2191 Scroll", show=False, key_display="k/\u2191"),
         Binding("down", "scroll_down", "Scroll Down", show=False),
         Binding("up", "scroll_up", "Scroll Up", show=False),

@@ -21,7 +21,9 @@ class InputPanel(Container):
         with Horizontal(id="input-row"):
             yield Input(placeholder="Type your message...", id="message-input")
             yield LoadingIndicator(id="send-loading", classes="hidden")
-            yield Static("Waiting for agent...", id="send-loading-label", classes="hidden")
+            yield Static(
+                "Waiting for agent...", id="send-loading-label", classes="hidden"
+            )
             yield Button("SEND", id="send-btn")
 
     def on_mount(self) -> None:

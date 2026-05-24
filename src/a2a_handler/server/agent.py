@@ -66,9 +66,7 @@ def create_handler_docs_toolset(mcp_url: str | None = None) -> McpToolset:
     load_runtime_dotenv()
 
     effective_mcp_url = (
-        mcp_url
-        or os.getenv("HANDLER_DOCS_MCP_URL")
-        or DEFAULT_HANDLER_DOCS_MCP_URL
+        mcp_url or os.getenv("HANDLER_DOCS_MCP_URL") or DEFAULT_HANDLER_DOCS_MCP_URL
     )
     logger.info("Enabling Handler docs MCP toolset at %s", effective_mcp_url)
 

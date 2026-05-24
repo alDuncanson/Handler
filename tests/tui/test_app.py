@@ -820,7 +820,9 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
     with (
         patch(
             "a2a_handler.tui.server.tab.load_server_catalog",
-            return_value=ServerCatalog(global_servers=(default_handler_agent_server(),)),
+            return_value=ServerCatalog(
+                global_servers=(default_handler_agent_server(),)
+            ),
         ),
         patch(
             "a2a_handler.tui.server.tab.ensure_default_handler_agent_running",

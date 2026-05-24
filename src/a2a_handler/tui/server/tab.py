@@ -671,9 +671,8 @@ class ServerTab(Container):
             credentials = messages_panel.get_auth_credentials()
             startup_message: str | None = None
 
-            if (
-                selected_server is not None
-                and is_default_handler_agent_server(selected_server)
+            if selected_server is not None and is_default_handler_agent_server(
+                selected_server
             ):
                 connection_bar.set_status("Starting Handler agent...", tone="accent")
                 started = await ensure_default_handler_agent_running(agent_url)

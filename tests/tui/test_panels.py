@@ -211,7 +211,9 @@ async def test_tasks_panel_labels_protocol_history_parts() -> None:
         assert any("parts: text" in text for text in detail_texts)
         assert any("Summarize this file" in text for text in detail_texts)
         assert any("parts: data" in text for text in detail_texts)
-        assert any("toolCall" in text and "search_handler" in text for text in detail_texts)
+        assert any(
+            "toolCall" in text and "search_handler" in text for text in detail_texts
+        )
         assert any("parts: file" in text for text in detail_texts)
         assert any("report.md (text/markdown)" in text for text in detail_texts)
 
@@ -358,7 +360,10 @@ async def test_messages_panel_renders_markdown_message_bodies() -> None:
         await pilot.pause()
 
         markdown_widgets = list(panel.query(Markdown))
-        assert any("Please show `handler message send`" in widget.source for widget in markdown_widgets)
+        assert any(
+            "Please show `handler message send`" in widget.source
+            for widget in markdown_widgets
+        )
         assert any("```bash" in widget.source for widget in markdown_widgets)
 
 
@@ -409,7 +414,9 @@ async def test_messages_panel_opens_relative_markdown_links_as_docs_urls() -> No
         markdown.post_message(Markdown.LinkClicked(markdown, "/guides/servers"))
         await pilot.pause()
 
-        open_url.assert_called_once_with("https://handler.alduncanson.com/guides/servers")
+        open_url.assert_called_once_with(
+            "https://handler.alduncanson.com/guides/servers"
+        )
 
 
 @pytest.mark.asyncio

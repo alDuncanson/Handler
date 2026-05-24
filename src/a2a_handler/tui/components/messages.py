@@ -167,7 +167,9 @@ class AgentMessage(Message):
         content = extract_text(response) or "(no text in response)"
         self.task_id = response_task_id(response)
         self.context_id = response_context_id(response)
-        self.artifacts = list(response.artifacts or []) if isinstance(response, Task) else []
+        self.artifacts = (
+            list(response.artifacts or []) if isinstance(response, Task) else []
+        )
         self.protocol_fields = self._protocol_fields(response)
         metadata = self._metadata(response)
         super().__init__(

@@ -432,7 +432,8 @@ def load_server_catalog(
             if server_def.name is not None
         }
         configured_urls = {
-            server_def.agent_url for server_def in (*repository_servers, *global_servers)
+            server_def.agent_url
+            for server_def in (*repository_servers, *global_servers)
         }
         if (
             DEFAULT_HANDLER_AGENT_NAME.casefold() not in configured_names
