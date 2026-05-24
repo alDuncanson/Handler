@@ -166,11 +166,11 @@ def test_create_runner_factory_returns_callable() -> None:
     assert callable(factory)
 
 
-# -- reference agent docs MCP --
+# -- embedded agent docs MCP --
 
 
 def test_create_handler_docs_toolset_uses_hosted_docs_mcp(monkeypatch) -> None:
-    """The reference agent docs toolset defaults to Handler's hosted MCP endpoint."""
+    """The embedded agent docs toolset defaults to Handler's hosted MCP endpoint."""
     monkeypatch.delenv("HANDLER_DOCS_MCP_URL", raising=False)
 
     toolset = create_handler_docs_toolset()
@@ -189,7 +189,7 @@ def test_create_handler_docs_toolset_allows_url_override(monkeypatch) -> None:
 
 
 def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
-    """The reference agent can consult Handler docs, source, and A2A docs."""
+    """The embedded agent can consult Handler docs, source, and A2A docs."""
     monkeypatch.delenv("HANDLER_DOCS_MCP_ENABLED", raising=False)
     monkeypatch.delenv("A2A_DOCS_TOOLS_ENABLED", raising=False)
     monkeypatch.delenv("HANDLER_SOURCE_TOOLS_ENABLED", raising=False)
@@ -216,7 +216,7 @@ def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
 
 
 def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:
-    """Docs MCP can be disabled for fully offline reference-agent runs."""
+    """Docs MCP can be disabled for fully offline embedded-agent runs."""
     monkeypatch.setenv("HANDLER_DOCS_MCP_ENABLED", "false")
     monkeypatch.setenv("A2A_DOCS_TOOLS_ENABLED", "false")
     monkeypatch.setenv("HANDLER_SOURCE_TOOLS_ENABLED", "false")
@@ -232,7 +232,7 @@ def test_create_llm_agent_can_disable_docs_mcp_toolset(monkeypatch) -> None:
 
 
 def test_create_a2a_docs_tools_registers_fetch_and_search_tools() -> None:
-    """The reference agent exposes local tools for A2A protocol docs lookup."""
+    """The embedded agent exposes local tools for A2A protocol docs lookup."""
     tools = create_a2a_docs_tools()
 
     assert [tool.name for tool in tools] == [
@@ -276,7 +276,7 @@ def test_search_a2a_protocol_docs_returns_rg_style_excerpts(monkeypatch) -> None
 
 
 def test_create_handler_source_tools_registers_source_search_tool() -> None:
-    """The reference agent exposes a local Handler source search tool."""
+    """The embedded agent exposes a local Handler source search tool."""
     tools = create_handler_source_tools()
 
     assert [tool.name for tool in tools] == ["search_handler_source"]

@@ -32,7 +32,7 @@ just test     # Run tests
 ```bash
 uv run handler --help       # Run any CLI command
 uv run handler tui          # Launch the TUI
-uv run handler server agent # Start the reference agent (requires Ollama)
+uv run handler server agent # Start the embedded agent (requires Ollama)
 ```
 
 ### Working on the docs

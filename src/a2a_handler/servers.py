@@ -108,7 +108,7 @@ class ServerCatalog:
 
 
 def default_handler_agent_server() -> ServerDefinition:
-    """Return Handler's built-in local reference-agent server entry."""
+    """Return Handler's built-in embedded-agent server entry."""
     return ServerDefinition(
         server_id=DEFAULT_HANDLER_AGENT_SERVER_ID,
         source=ServerSource.GLOBAL,

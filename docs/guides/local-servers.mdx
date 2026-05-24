@@ -1,16 +1,16 @@
 ---
 title: "Local servers"
-description: "Run Handler's bundled A2A reference agent and local webhook server for development, demos, and integration testing."
+description: "Run Handler's embedded A2A agent and local webhook server for development, demos, and integration testing."
 ---
 
 # Local servers
 
 Handler ships with two useful local servers for development work:
 
-- a documentation-aware reference A2A agent for local testing and Handler help
+- a documentation-aware embedded A2A agent for local testing and Handler help
 - a webhook receiver for task push notifications
 
-## Run the reference agent
+## Run the embedded agent
 
 ```bash
 handler server run agent
@@ -19,10 +19,10 @@ handler server run agent
 By default it binds to `0.0.0.0:8000`.
 
 In the TUI, Handler includes this local agent as the built-in `Handler Agent`
-server. Selecting it and pressing **CONNECT** auto-starts the reference agent if
+server. Selecting it and pressing **CONNECT** auto-starts the embedded agent if
 nothing is already listening at `http://localhost:8000`.
 
-The reference agent is Handler-aware: it uses Google ADK tools to connect to
+The embedded agent is Handler-aware: it uses Google ADK tools to connect to
 Handler's hosted documentation MCP server at
 `https://handler.alduncanson.com/mcp`. That lets it answer questions about the
 Handler CLI, TUI, MCP bridge, authentication, local servers, and common A2A

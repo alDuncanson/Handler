@@ -91,7 +91,7 @@ def _raise_if_handler_agent_model_unavailable() -> None:
 
 
 def shutdown_default_handler_agent() -> None:
-    """Stop the auto-started Handler reference-agent process, if any.
+    """Stop the auto-started Handler embedded-agent process, if any.
 
     The TUI only owns the process it launched itself. If the user already had a
     server listening on the default URL, no process is stored and this is a no-op.
@@ -102,17 +102,17 @@ def shutdown_default_handler_agent() -> None:
         _handler_agent_process = None
         return
 
-    logger.info("Stopping auto-started Handler reference agent")
+    logger.info("Stopping auto-started Handler embedded agent")
     process.terminate()
     try:
         process.wait(timeout=_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        logger.warning("Handler reference agent did not stop; killing process")
+        logger.warning("Handler embedded agent did not stop; killing process")
         process.kill()
         try:
             process.wait(timeout=_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            logger.error("Handler reference agent process did not exit after kill")
+            logger.error("Handler embedded agent process did not exit after kill")
             return
 
     _handler_agent_process = None
@@ -136,7 +136,7 @@ async def _handler_agent_card_available(agent_url: str) -> bool:
 async def ensure_default_handler_agent_running(
     agent_url: str = DEFAULT_HANDLER_AGENT_URL,
 ) -> bool:
-    """Start Handler's local reference agent if it is not already reachable.
+    """Start Handler's embedded agent if it is not already reachable.
 
     Returns True when this call launched the server process, and False when an
     agent was already listening.
@@ -149,7 +149,7 @@ async def ensure_default_handler_agent_running(
     _raise_if_handler_agent_model_unavailable()
 
     if _handler_agent_process is None or _handler_agent_process.poll() is not None:
-        logger.info("Auto-starting Handler reference agent at %s", agent_url)
+        logger.info("Auto-starting Handler embedded agent at %s", agent_url)
         _handler_agent_process = subprocess.Popen(
             [
                 sys.executable,
@@ -176,7 +176,7 @@ async def ensure_default_handler_agent_running(
         await asyncio.sleep(0.25)
 
     raise RuntimeError(
-        "Handler's local reference agent did not become ready. "
+        "Handler's embedded agent did not become ready. "
         "Run `handler server run agent` in a terminal to see startup details."
     )
 
@@ -704,7 +704,7 @@ class ServerTab(Container):
                 connection_bar.set_status("Starting Handler agent...", tone="accent")
                 started = await ensure_default_handler_agent_running(agent_url)
                 if started:
-                    startup_message = "Started Handler's local reference agent."
+                    startup_message = "Started Handler's embedded agent."
                 connection_bar.set_status(f"Connecting to {agent_url}...")
 
             agent_card = await self._connect_to_agent(agent_url, credentials)

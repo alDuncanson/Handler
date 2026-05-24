@@ -857,7 +857,7 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
             assert "Embedded Server" in str(source_badge.content)
             messages_panel = workspace.query_one(TabbedMessagesPanel)
             assert any(
-                "Started Handler's local reference agent" in text
+                "Started Handler's embedded agent" in text
                 for text in _chat_texts(messages_panel)
             )
 
