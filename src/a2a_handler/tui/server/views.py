@@ -240,7 +240,7 @@ class ServerView(Container):
         ).border_title = "Agent Card"
         self.query_one(
             "#messages-container", TabbedMessagesPanel
-        ).border_title = "Activity"
+        ).border_subtitle = "Activity"
         self.query_one("#input-container", InputPanel).border_title = "Compose"
         self.input_panel().set_enabled(False)
 

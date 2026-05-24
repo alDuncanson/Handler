@@ -286,6 +286,8 @@ ConnectionBar {
 #messages-container {
     height: 1fr;
     padding: 0;
+    border-subtitle-align: left;
+    border-subtitle-color: $text-muted;
 }
 
 #input-container {
