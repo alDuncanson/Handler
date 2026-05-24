@@ -45,11 +45,11 @@ class HandlerTUI(App[Any]):
 
     BINDINGS = [
         Binding(
-            "ctrl+c",
+            "ctrl+q",
             "quit",
             "Quit",
             show=True,
-            key_display="Ctrl+C",
+            key_display="Ctrl+Q",
             priority=True,
         ),
         Binding(
@@ -122,7 +122,7 @@ class HandlerTUI(App[Any]):
         )
         with Horizontal(id="app-footer"):
             yield Static(
-                "Ctrl+C Quit  Ctrl+P Command Palette  ? Keybindings",
+                "Ctrl+Q Quit  Ctrl+P Command Palette  ? Keybindings",
                 id="app-footer-bindings",
             )
             yield Static(f"v{HANDLER_VERSION}", id="app-version")

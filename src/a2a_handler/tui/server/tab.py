@@ -7,10 +7,12 @@ import asyncio
 import contextlib
 import os
 import shutil
+import socket
 import subprocess
 import sys
 from collections.abc import Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from a2a.client.errors import A2AClientJSONRPCError
@@ -63,9 +65,11 @@ from a2a_handler.tui.server.views import ConnectionBar, ServerView
 logger = get_logger(__name__)
 
 _DEFAULT_HANDLER_AGENT_HOST = "127.0.0.1"
-_DEFAULT_HANDLER_AGENT_PORT = "8000"
+_DEFAULT_HANDLER_AGENT_PORT = 8000
+_HANDLER_AGENT_PORT_ATTEMPTS = 20
 _HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS = 3
 _handler_agent_process: subprocess.Popen | None = None
+_handler_agent_process_url: str | None = None
 
 
 def _handler_agent_model() -> str:
@@ -96,10 +100,11 @@ def shutdown_default_handler_agent() -> None:
     The TUI only owns the process it launched itself. If the user already had a
     server listening on the default URL, no process is stored and this is a no-op.
     """
-    global _handler_agent_process
+    global _handler_agent_process, _handler_agent_process_url
     process = _handler_agent_process
     if process is None or process.poll() is not None:
         _handler_agent_process = None
+        _handler_agent_process_url = None
         return
 
     logger.info("Stopping auto-started Handler embedded agent")
@@ -116,6 +121,7 @@ def shutdown_default_handler_agent() -> None:
             return
 
     _handler_agent_process = None
+    _handler_agent_process_url = None
 
 
 atexit.register(shutdown_default_handler_agent)
@@ -133,23 +139,66 @@ async def _handler_agent_card_available(agent_url: str) -> bool:
         return False
 
 
+def _handler_agent_url(host: str, port: int) -> str:
+    """Build the local URL for an auto-started Handler agent."""
+    return f"http://{host}:{port}"
+
+
+def _port_is_available(host: str, port: int) -> bool:
+    """Return whether the local host/port can be bound by a new server."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host, port))
+    except OSError:
+        return False
+    return True
+
+
+def _first_available_handler_agent_port(start_port: int) -> int | None:
+    """Return the first available local embedded-agent port at or above start."""
+    for port in range(start_port, start_port + _HANDLER_AGENT_PORT_ATTEMPTS):
+        if _port_is_available(_DEFAULT_HANDLER_AGENT_HOST, port):
+            return port
+    return None
+
+
 async def ensure_default_handler_agent_running(
     agent_url: str = DEFAULT_HANDLER_AGENT_URL,
-) -> bool:
+) -> tuple[bool, str]:
     """Start Handler's embedded agent if it is not already reachable.
 
-    Returns True when this call launched the server process, and False when an
-    agent was already listening.
+    Returns ``(started, agent_url)`` where ``started`` is True when this call
+    launched the server process. The returned URL may use a later port when the
+    preferred default port is already in use by another local process.
     """
-    global _handler_agent_process
+    global _handler_agent_process, _handler_agent_process_url
 
     if await _handler_agent_card_available(agent_url):
-        return False
+        return False, agent_url
+
+    if _handler_agent_process is not None:
+        if _handler_agent_process.poll() is None and _handler_agent_process_url:
+            return False, _handler_agent_process_url
+        _handler_agent_process = None
+        _handler_agent_process_url = None
 
     _raise_if_handler_agent_model_unavailable()
 
+    parsed_url = urlparse(agent_url)
+    start_port = parsed_url.port or _DEFAULT_HANDLER_AGENT_PORT
+    port = _first_available_handler_agent_port(start_port)
+    if port is None:
+        last_port = start_port + _HANDLER_AGENT_PORT_ATTEMPTS - 1
+        raise RuntimeError(
+            "Handler's embedded agent could not find an available local port "
+            f"between {start_port} and {last_port}."
+        )
+
+    launch_url = _handler_agent_url(parsed_url.hostname or "localhost", port)
+
     if _handler_agent_process is None or _handler_agent_process.poll() is not None:
-        logger.info("Auto-starting Handler embedded agent at %s", agent_url)
+        logger.info("Auto-starting Handler embedded agent at %s", launch_url)
         _handler_agent_process = subprocess.Popen(
             [
                 sys.executable,
@@ -161,18 +210,19 @@ async def ensure_default_handler_agent_running(
                 "--host",
                 _DEFAULT_HANDLER_AGENT_HOST,
                 "--port",
-                _DEFAULT_HANDLER_AGENT_PORT,
+                str(port),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        _handler_agent_process_url = launch_url
 
     for _ in range(40):
         if _handler_agent_process.poll() is not None:
             break
-        if await _handler_agent_card_available(agent_url):
-            return True
+        if await _handler_agent_card_available(launch_url):
+            return True, launch_url
         await asyncio.sleep(0.25)
 
     raise RuntimeError(
@@ -702,9 +752,9 @@ class ServerTab(Container):
                 selected_server
             ):
                 connection_bar.set_status("Starting Handler agent...", tone="accent")
-                started = await ensure_default_handler_agent_running(agent_url)
+                started, agent_url = await ensure_default_handler_agent_running(agent_url)
                 if started:
-                    startup_message = "Started Handler's embedded agent."
+                    startup_message = f"Started Handler's embedded agent at {agent_url}."
                 connection_bar.set_status(f"Connecting to {agent_url}...")
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
