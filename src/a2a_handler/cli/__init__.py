@@ -54,10 +54,10 @@ PACKAGE_NAME = "a2a-handler"
 @click.option(
     "--output",
     "output_format",
-    type=click.Choice(["json", "ndjson"]),
-    default="json",
+    type=click.Choice(["text", "json", "ndjson"]),
+    default="text",
     show_default=True,
-    help="Output format",
+    help="Output format (use json/ndjson for structured output)",
 )
 @click.option(
     "--quiet",

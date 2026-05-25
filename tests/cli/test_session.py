@@ -123,7 +123,7 @@ class TestSessionClear:
         result = runner.invoke(session, ["clear"])
 
         assert result.exit_code == 0
-        assert "missing_target" in result.output
+        assert "Provide --url or --server" in result.output
 
     def test_clear_rejects_invalid_agent_url(self, runner):
         """Test clearing a malformed URL fails with validation error."""

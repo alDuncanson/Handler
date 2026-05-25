@@ -6,7 +6,19 @@ from unittest.mock import patch as mock_patch
 
 import pytest
 from click.testing import CliRunner
-from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
+from a2a.types import (
+    DataPart,
+    FilePart,
+    FileWithBytes,
+    Message,
+    Part,
+    Role,
+    Task,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+    TextPart,
+)
 
 from a2a_handler.cli.message import message, _format_response, _stream_message
 from a2a_handler.common import Output
@@ -382,10 +394,40 @@ class TestFormatResponse:
         """Test formatting a result without text."""
         mock_task = _make_task(TaskState.completed)
         output = MagicMock(spec=Output)
+        output.is_structured = True
 
         _format_response(mock_task, output)
 
         output.json.assert_called_once()
+
+    def test_format_data_and_file_parts_as_readable_text(self):
+        """Test text mode formats non-text parts without raw protocol reprs."""
+        mock_message = Message(
+            message_id="msg-1",
+            role=Role.agent,
+            parts=[
+                Part(root=TextPart(text="Here is data:")),
+                Part(root=DataPart(data={"answer": 42})),
+                Part(
+                    root=FilePart(
+                        file=FileWithBytes(
+                            bytes="YWJj",
+                            name="example.txt",
+                            mime_type="text/plain",
+                        )
+                    )
+                ),
+            ],
+        )
+        output = MagicMock(spec=Output)
+        output.is_structured = False
+
+        _format_response(mock_message, output)
+
+        text = output.text.call_args.args[0]
+        assert "Here is data:" in text
+        assert '"answer": 42' in text
+        assert "[file: example.txt, text/plain, inline bytes" in text
 
 
 class TestStreamMessage:
@@ -393,7 +435,7 @@ class TestStreamMessage:
 
     @pytest.mark.asyncio
     async def test_stream_message_collects_response(self):
-        """Test _stream_message emits JSON for last response."""
+        """Test _stream_message emits JSON for last response in JSON mode."""
         mock_task = _make_task(TaskState.completed)
 
         async def mock_stream(*args, **kwargs):
@@ -412,6 +454,7 @@ class TestStreamMessage:
         mock_service.stream = mock_stream
 
         output = MagicMock(spec=Output)
+        output.output_format = "json"
 
         with patch("a2a_handler.cli.message.update_session"):
             await _stream_message(
@@ -424,6 +467,129 @@ class TestStreamMessage:
             )
 
         output.json.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_message_prints_text_chunks(self):
+        """Test _stream_message streams text chunks in default text mode."""
+        mock_task = _make_task(TaskState.completed)
+        user_message = Message(
+            message_id="user-msg",
+            role=Role.user,
+            parts=[Part(root=TextPart(text="Echoed user prompt"))],
+        )
+
+        async def mock_stream(*args, **kwargs):
+            yield StreamEvent(
+                event_type="message",
+                text="Echoed user prompt",
+                message=user_message,
+            )
+            yield StreamEvent(
+                event_type="artifact",
+                text="First chunk ",
+                task=mock_task,
+            )
+            yield StreamEvent(
+                event_type="artifact",
+                text="Second chunk",
+                task=mock_task,
+            )
+
+        mock_service = MagicMock()
+        mock_service.stream = mock_stream
+
+        output = MagicMock(spec=Output)
+        output.output_format = "text"
+
+        with patch("a2a_handler.cli.message.update_session"):
+            await _stream_message(
+                mock_service,
+                "Hello",
+                None,
+                None,
+                "http://localhost:8000",
+                output,
+            )
+
+        output.text.assert_any_call("First chunk ", end="", flush=True)
+        output.text.assert_any_call("Second chunk", end="", flush=True)
+        assert all(
+            call.args != ("Echoed user prompt",) for call in output.text.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_message_prints_event_summaries_before_text(self):
+        """Test text streams include task/tool summaries before response text."""
+        mock_task = _make_task(TaskState.working)
+        tool_call = Message(
+            message_id="tool-call-msg",
+            role=Role.agent,
+            parts=[
+                Part(
+                    root=DataPart(
+                        data={
+                            "id": "call-1",
+                            "name": "search_a2a_protocol_docs",
+                            "args": {"query": "streaming"},
+                        }
+                    )
+                )
+            ],
+        )
+        answer = Message(
+            message_id="answer-msg",
+            role=Role.agent,
+            parts=[Part(root=TextPart(text="A2A supports streaming updates."))],
+        )
+
+        async def mock_stream(*args, **kwargs):
+            yield StreamEvent(
+                event_type="status",
+                task=mock_task,
+                status=TaskStatusUpdateEvent(
+                    task_id="task-123",
+                    context_id="ctx-123",
+                    final=False,
+                    status=TaskStatus(state=TaskState.working, message=tool_call),
+                ),
+            )
+            yield StreamEvent(
+                event_type="status",
+                task=mock_task,
+                status=TaskStatusUpdateEvent(
+                    task_id="task-123",
+                    context_id="ctx-123",
+                    final=False,
+                    status=TaskStatus(state=TaskState.working, message=answer),
+                ),
+            )
+
+        mock_service = MagicMock()
+        mock_service.stream = mock_stream
+
+        output = MagicMock(spec=Output)
+        output.output_format = "text"
+
+        with patch("a2a_handler.cli.message.update_session"):
+            await _stream_message(
+                mock_service,
+                "Hello",
+                None,
+                None,
+                "http://localhost:8000",
+                output,
+            )
+
+        calls = output.text.call_args_list
+        assert calls[0].args == ("event: task working (task-123)",)
+        assert calls[1].args == (
+            "event: tool call search_a2a_protocol_docs (task-123)",
+        )
+        assert calls[2].args == ("event: message text (task-123)",)
+        assert calls[3].args == ()
+        assert calls[3].kwargs == {"flush": True}
+        assert calls[4].args == ("A2A supports streaming updates.",)
+        assert calls[4].kwargs == {"end": "", "flush": True}
 
     @pytest.mark.asyncio
     async def test_stream_message_auth_required(self):
@@ -440,6 +606,7 @@ class TestStreamMessage:
         mock_service.stream = mock_stream
 
         output = MagicMock(spec=Output)
+        output.output_format = "json"
 
         with patch("a2a_handler.cli.message.update_session"):
             await _stream_message(
@@ -455,6 +622,38 @@ class TestStreamMessage:
         assert call_data["status"]["state"] == "auth-required"
 
     @pytest.mark.asyncio
+    async def test_stream_message_emits_ndjson_events(self):
+        """Test _stream_message emits each event in NDJSON mode."""
+        mock_task = _make_task(TaskState.completed)
+
+        async def mock_stream(*args, **kwargs):
+            yield StreamEvent(
+                event_type="artifact",
+                text="Chunk",
+                task=mock_task,
+            )
+
+        mock_service = MagicMock()
+        mock_service.stream = mock_stream
+
+        output = MagicMock(spec=Output)
+        output.output_format = "ndjson"
+
+        with patch("a2a_handler.cli.message.update_session"):
+            await _stream_message(
+                mock_service,
+                "Hello",
+                None,
+                None,
+                "http://localhost:8000",
+                output,
+            )
+
+        call_data = output.json.call_args[0][0]
+        assert call_data["type"] == "artifact"
+        assert call_data["text"] == "Chunk"
+
+    @pytest.mark.asyncio
     async def test_stream_message_no_response(self):
         """Test _stream_message emits error when no response received."""
 
@@ -466,6 +665,7 @@ class TestStreamMessage:
         mock_service.stream = mock_stream
 
         output = MagicMock(spec=Output)
+        output.output_format = "text"
 
         with patch("a2a_handler.cli.message.update_session"):
             await _stream_message(

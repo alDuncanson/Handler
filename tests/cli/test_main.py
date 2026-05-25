@@ -73,6 +73,14 @@ def test_version_output(runner: CliRunner) -> None:
     assert '"version"' in result.output
 
 
+def test_version_json_output(runner: CliRunner) -> None:
+    """Version command emits JSON when requested."""
+    result = runner.invoke(cli, ["--output", "json", "version"])
+
+    assert result.exit_code == 0
+    assert '"version"' in result.output
+
+
 def test_docs_opens_deployed_documentation(runner: CliRunner) -> None:
     """Docs command opens the hosted documentation URL."""
     with patch("a2a_handler.cli.webbrowser.open", return_value=True) as mock_open:
@@ -138,4 +146,4 @@ def test_update_errors_when_no_supported_installer_is_available(
         result = runner.invoke(cli, ["update"])
 
     assert result.exit_code == 1
-    assert '"code": "installer_not_found"' in result.output
+    assert "Could not find uv or pipx" in result.output

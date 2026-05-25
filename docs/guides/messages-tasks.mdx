@@ -5,8 +5,10 @@ description: "Send messages, stream responses, manage tasks, and reuse saved con
 
 # Messages, tasks, and sessions
 
-The CLI is best when you want repeatable A2A operations, automation, or shell-
-friendly workflows.
+Message responses default to readable text for interactive use. Pass
+`--output json` for full protocol responses, or `--output ndjson` before
+streaming commands when you need structured event output for automation or
+agent-driven workflows.
 
 ## Inspect an agent card first
 
@@ -37,8 +39,19 @@ handler message send --url http://localhost:8000 --text "Hello"
 handler message stream --server demo --text "Summarize your capabilities"
 ```
 
+In text mode, streaming prints lightweight `event:` summaries for task state
+changes, tool calls, tool results, data/file parts, and response text before the
+final answer content. That makes it clear when the agent is still working even
+if the model's text arrives in one larger chunk.
+
 The `send` command also accepts `--stream` when you want the same request shape
 but prefer one command form.
+
+Use newline-delimited JSON when you want structured stream events:
+
+```bash
+handler --output ndjson message stream --server demo --text "Summarize your capabilities"
+```
 
 ## Continue a saved conversation
 
@@ -63,10 +76,10 @@ handler message send \
 ## Send custom payloads or headers
 
 For agent-friendly invocation and integration testing, Handler exposes raw JSON
-and repeatable header flags:
+input, structured output, and repeatable header flags:
 
 ```bash
-handler message send \
+handler --output json message send \
   --server demo \
   --json '{"message":{"role":"user","parts":[{"text":"hello"}]}}' \
   --header 'X-Trace-Id: local-test'
