@@ -10,7 +10,6 @@ from a2a.types import DataPart, FilePart, TextPart
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.message import Message as TextualMessage
 from textual.reactive import reactive
 from textual.widgets import Collapsible, Label, ListItem, ListView, Static
 
@@ -282,7 +281,6 @@ class TasksPanel(Container):
         Binding("up", "cursor_up", "Up", show=False),
         Binding("ctrl+d", "scroll_detail_down", "½ Page ↓", show=False),
         Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=False),
-        Binding("enter", "select_task", "View", show=False),
         Binding("y", "copy_task_id", "Copy ID", show=False),
         Binding("Y", "copy_context_id", "Copy Ctx", show=False),
     ]
@@ -291,13 +289,6 @@ class TasksPanel(Container):
 
     selected_index: reactive[int] = reactive(0)
     _tasks: list[TaskEntry] = []
-
-    class TaskSelected(TextualMessage):
-        """Posted when a task is selected."""
-
-        def __init__(self, entry: TaskEntry) -> None:
-            super().__init__()
-            self.entry = entry
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks-split"):
@@ -386,20 +377,6 @@ class TasksPanel(Container):
         """Scroll the detail panel up by half a page."""
         detail = self._get_detail_panel()
         detail.scroll_relative(y=-(detail.size.height // 2), animate=False)
-
-    def action_select_task(self) -> None:
-        list_view = self._get_list_view()
-        list_view.action_select_cursor()
-
-    def select_task(self, task_id: str) -> bool:
-        """Select a task by ID if it is present in the panel."""
-        for index, entry in enumerate(self._tasks):
-            if entry.task_id == task_id:
-                self.selected_index = index
-                self._get_list_view().index = index
-                self._update_detail()
-                return True
-        return False
 
     def action_copy_task_id(self) -> None:
         """Copy the selected task ID to clipboard."""

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.message import Message as TextualMessage
 from textual.reactive import reactive
 from textual.widgets import Collapsible, Label, ListItem, ListView, Static
 
@@ -152,7 +151,6 @@ class ArtifactsPanel(Container):
         Binding("up", "cursor_up", "Up", show=False),
         Binding("ctrl+d", "scroll_detail_down", "½ Page ↓", show=False),
         Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=False),
-        Binding("enter", "select_artifact", "View", show=False),
         Binding("y", "copy_artifact_id", "Copy ID", show=False),
         Binding("Y", "copy_task_id", "Copy Task", show=False),
     ]
@@ -161,13 +159,6 @@ class ArtifactsPanel(Container):
 
     selected_index: reactive[int] = reactive(0)
     _artifacts: list[ArtifactEntry] = []
-
-    class ArtifactSelected(TextualMessage):
-        """Posted when an artifact is selected."""
-
-        def __init__(self, entry: ArtifactEntry) -> None:
-            super().__init__()
-            self.entry = entry
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="artifacts-split"):
@@ -261,24 +252,6 @@ class ArtifactsPanel(Container):
         """Scroll the detail panel up by half a page."""
         detail = self._get_detail_panel()
         detail.scroll_relative(y=-(detail.size.height // 2), animate=False)
-
-    def action_select_artifact(self) -> None:
-        list_view = self._get_list_view()
-        list_view.action_select_cursor()
-
-    def select_artifact(
-        self, *, task_id: str | None = None, artifact_id: str | None = None
-    ) -> bool:
-        """Select an artifact by artifact ID and/or task ID if present."""
-        for index, entry in enumerate(self._artifacts):
-            artifact_matches = artifact_id is None or entry.artifact_id == artifact_id
-            task_matches = task_id is None or entry.task_id == task_id
-            if artifact_matches and task_matches:
-                self.selected_index = index
-                self._get_list_view().index = index
-                self._update_detail()
-                return True
-        return False
 
     def action_copy_artifact_id(self) -> None:
         """Copy the selected artifact ID to clipboard."""

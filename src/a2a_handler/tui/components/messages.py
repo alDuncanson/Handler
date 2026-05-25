@@ -443,25 +443,6 @@ class TabbedMessagesPanel(Container):
         artifacts_panel = self._get_artifacts_panel()
         artifacts_panel.update_artifact(artifact, task_id, context_id)
 
-    def show_task(self, task_id: str) -> None:
-        """Open the Tasks tab and select the requested task when present."""
-        tabbed_content = self.query_one("#messages-tabs", TabbedContent)
-        tabbed_content.active = "tasks-tab"
-        self._get_tasks_panel().select_task(task_id)
-        self.focus()
-
-    def show_artifacts(
-        self, *, task_id: str | None = None, artifact_id: str | None = None
-    ) -> None:
-        """Open the Artifacts tab and select the requested artifact when present."""
-        tabbed_content = self.query_one("#messages-tabs", TabbedContent)
-        tabbed_content.active = "artifacts-tab"
-        self._get_artifacts_panel().select_artifact(
-            task_id=task_id,
-            artifact_id=artifact_id,
-        )
-        self.focus()
-
     def _get_active_tab_id(self) -> str:
         tabbed_content = self.query_one("#messages-tabs", TabbedContent)
         return tabbed_content.active

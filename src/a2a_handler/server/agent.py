@@ -1,35 +1,22 @@
 """LLM agent creation and configuration."""
 
 import os
-import re
-import urllib.request
-from functools import lru_cache
-from pathlib import Path
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools import FunctionTool
-from google.adk.tools.mcp_tool.mcp_toolset import (
-    McpToolset,
-    StreamableHTTPConnectionParams,
-)
 
 from a2a_handler.common import get_logger
 from a2a_handler.common.dotenv import load_runtime_dotenv
+from a2a_handler.server.tools import (
+    create_a2a_docs_tools,
+    create_handler_docs_toolset,
+    create_handler_source_tools,
+)
 
 logger = get_logger(__name__)
 
 DEFAULT_OLLAMA_API_BASE = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "gemma4:e2b"
-DEFAULT_HANDLER_DOCS_MCP_URL = "https://handler.alduncanson.com/mcp"
-DEFAULT_A2A_LLMS_URL = "https://a2a-protocol.org/llms.txt"
-DEFAULT_A2A_LLMS_FULL_URL = "https://a2a-protocol.org/llms-full.txt"
-A2A_DOCS_FETCH_TIMEOUT_SECONDS = 10
-A2A_DOCS_MAX_FETCH_CHARS = 20_000
-A2A_DOCS_MAX_SEARCH_CHARS = 12_000
-HANDLER_SOURCE_MAX_FILE_BYTES = 200_000
-HANDLER_SOURCE_MAX_SEARCH_CHARS = 12_000
-HANDLER_SOURCE_EXTENSIONS = frozenset({".py", ".tcss"})
 
 
 def _handler_docs_mcp_enabled() -> bool:
@@ -56,226 +43,6 @@ def _handler_source_tools_enabled() -> bool:
     return enabled.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _a2a_docs_url(source: str) -> str:
-    """Return the configured URL for the requested A2A docs source."""
-    normalized = source.strip().lower()
-    if normalized in {"full", "llms-full", "llms-full.txt"}:
-        return os.getenv("A2A_LLMS_FULL_URL", DEFAULT_A2A_LLMS_FULL_URL)
-    return os.getenv("A2A_LLMS_URL", DEFAULT_A2A_LLMS_URL)
-
-
-@lru_cache(maxsize=4)
-def _fetch_a2a_docs_text(source: str) -> str:
-    """Fetch and cache A2A protocol docs from the public llms text endpoints."""
-    url = _a2a_docs_url(source)
-    request = urllib.request.Request(url, headers={"User-Agent": "a2a-handler/agent"})
-    with urllib.request.urlopen(
-        request,
-        timeout=A2A_DOCS_FETCH_TIMEOUT_SECONDS,
-    ) as response:
-        return response.read().decode("utf-8", errors="replace")
-
-
-def _bounded_text(
-    text: str,
-    max_chars: int,
-    *,
-    truncated_hint: str = "Use search_a2a_protocol_docs for targeted excerpts.",
-) -> str:
-    """Return text truncated to a safe size for an LLM tool response."""
-    safe_max_chars = max(1_000, min(max_chars, A2A_DOCS_MAX_FETCH_CHARS))
-    if len(text) <= safe_max_chars:
-        return text
-    return text[:safe_max_chars] + f"\n\n[truncated] {truncated_hint}"
-
-
-def fetch_a2a_protocol_docs(source: str = "summary", max_chars: int = 12_000) -> str:
-    """Fetch A2A protocol documentation text.
-
-    Args:
-        source: Use "summary" for llms.txt or "full" for llms-full.txt.
-        max_chars: Maximum characters to return. Large responses are truncated.
-
-    Returns:
-        A bounded documentation excerpt from the official A2A protocol site.
-    """
-    try:
-        return _bounded_text(_fetch_a2a_docs_text(source), max_chars)
-    except Exception as error:
-        return f"Failed to fetch A2A protocol docs: {error}"
-
-
-def _line_score(line: str, terms: list[str]) -> int:
-    """Score a line by query term frequency."""
-    lowered = line.lower()
-    return sum(lowered.count(term) for term in terms)
-
-
-def _query_terms(query: str) -> list[str]:
-    """Return normalized query terms for lightweight lexical search."""
-    return [term.lower() for term in re.findall(r"\w+", query) if len(term) > 1]
-
-
-def search_a2a_protocol_docs(query: str, max_results: int = 5) -> str:
-    """Search official A2A protocol documentation excerpts.
-
-    Args:
-        query: Plain-text search terms, such as "tasks vs messages".
-        max_results: Maximum matching excerpts to return.
-
-    Returns:
-        Ranked, rg-style excerpts from the A2A llms-full.txt documentation.
-    """
-    terms = _query_terms(query)
-    if not terms:
-        return (
-            "Provide one or more search terms, for example: tasks messages artifacts."
-        )
-
-    try:
-        text = _fetch_a2a_docs_text("full")
-        source = _a2a_docs_url("full")
-    except Exception:
-        try:
-            text = _fetch_a2a_docs_text("summary")
-            source = _a2a_docs_url("summary")
-        except Exception as error:
-            return f"Failed to search A2A protocol docs: {error}"
-
-    lines = text.splitlines()
-    scored_lines = [
-        (score, index)
-        for index, line in enumerate(lines)
-        if (score := _line_score(line, terms)) > 0
-    ]
-    if not scored_lines:
-        return f"No A2A protocol docs matches for: {query}"
-
-    max_results = max(1, min(max_results, 10))
-    excerpts: list[str] = [f"Source: {source}"]
-    used_ranges: list[range] = []
-    for _score, index in sorted(scored_lines, reverse=True):
-        start = max(0, index - 2)
-        end = min(len(lines), index + 3)
-        current_range = range(start, end)
-        if any(set(current_range).intersection(used) for used in used_ranges):
-            continue
-        used_ranges.append(current_range)
-        excerpt_lines = []
-        for line_number in current_range:
-            marker = ">" if line_number == index else " "
-            excerpt_lines.append(f"{marker} {line_number + 1}: {lines[line_number]}")
-        excerpts.append("\n".join(excerpt_lines))
-        if len(excerpts) > max_results:
-            break
-
-    return _bounded_text("\n\n".join(excerpts), A2A_DOCS_MAX_SEARCH_CHARS)
-
-
-def _handler_source_root() -> Path:
-    """Return the installed Handler package source root."""
-    return Path(__file__).resolve().parents[1]
-
-
-def _iter_handler_source_files(path_filter: str = ""):
-    """Yield searchable Handler source files from the installed package."""
-    root = _handler_source_root()
-    normalized_filter = path_filter.strip().lower()
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        if "__pycache__" in path.parts:
-            continue
-        if path.suffix not in HANDLER_SOURCE_EXTENSIONS:
-            continue
-        if path.stat().st_size > HANDLER_SOURCE_MAX_FILE_BYTES:
-            continue
-        relative_path = path.relative_to(root).as_posix()
-        if normalized_filter and normalized_filter not in relative_path.lower():
-            continue
-        yield relative_path, path
-
-
-def search_handler_source(
-    query: str,
-    path_filter: str = "",
-    max_results: int = 8,
-) -> str:
-    """Search the locally installed Handler package source.
-
-    Args:
-        query: Plain-text search terms, such as "loading indicator".
-        path_filter: Optional substring to restrict relative source paths.
-        max_results: Maximum matching excerpts to return.
-
-    Returns:
-        Ranked, rg-style excerpts from the installed `a2a_handler` package.
-    """
-    terms = _query_terms(query)
-    if not terms:
-        return "Provide one or more source search terms, for example: agent card."
-
-    matches: list[tuple[int, str, int, list[str]]] = []
-    try:
-        source_files = list(_iter_handler_source_files(path_filter))
-    except Exception as error:
-        return f"Failed to search Handler source: {error}"
-
-    for relative_path, path in source_files:
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for index, line in enumerate(lines):
-            score = _line_score(line, terms)
-            if score <= 0:
-                continue
-            start = max(0, index - 2)
-            end = min(len(lines), index + 3)
-            excerpt_lines = []
-            for line_number in range(start, end):
-                marker = ">" if line_number == index else " "
-                excerpt_lines.append(
-                    f"{marker} {line_number + 1}: {lines[line_number]}"
-                )
-            matches.append((score, relative_path, index, excerpt_lines))
-
-    if not matches:
-        suffix = f" in paths matching '{path_filter}'" if path_filter else ""
-        return f"No Handler source matches for: {query}{suffix}"
-
-    max_results = max(1, min(max_results, 20))
-    output = ["Source: locally installed a2a_handler package"]
-    seen_locations: set[tuple[str, int]] = set()
-    for _score, relative_path, index, excerpt_lines in sorted(matches, reverse=True):
-        location = (relative_path, index)
-        if location in seen_locations:
-            continue
-        seen_locations.add(location)
-        output.append(f"File: {relative_path}\n" + "\n".join(excerpt_lines))
-        if len(output) > max_results:
-            break
-
-    return _bounded_text(
-        "\n\n".join(output),
-        HANDLER_SOURCE_MAX_SEARCH_CHARS,
-        truncated_hint="Narrow the query or use path_filter for targeted source excerpts.",
-    )
-
-
-def create_a2a_docs_tools() -> list[FunctionTool]:
-    """Create local function tools for A2A protocol documentation lookup."""
-    return [
-        FunctionTool(fetch_a2a_protocol_docs),
-        FunctionTool(search_a2a_protocol_docs),
-    ]
-
-
-def create_handler_source_tools() -> list[FunctionTool]:
-    """Create local function tools for Handler source lookup."""
-    return [FunctionTool(search_handler_source)]
-
-
 def create_language_model(model: str | None = None) -> LiteLlm:
     """Create an Ollama language model via LiteLLM.
 
@@ -299,33 +66,6 @@ def create_language_model(model: str | None = None) -> LiteLlm:
         model=f"ollama_chat/{effective_model}",
         api_base=ollama_api_base,
         reasoning_effort="none",
-    )
-
-
-def create_handler_docs_toolset(mcp_url: str | None = None) -> McpToolset:
-    """Create the MCP toolset that lets the agent consult Handler docs.
-
-    Args:
-        mcp_url: Optional MCP endpoint override. If not provided, uses the
-            HANDLER_DOCS_MCP_URL environment variable or the hosted docs MCP.
-
-    Returns:
-        A configured ADK MCP toolset for Handler documentation tools.
-    """
-    load_runtime_dotenv()
-
-    effective_mcp_url = (
-        mcp_url or os.getenv("HANDLER_DOCS_MCP_URL") or DEFAULT_HANDLER_DOCS_MCP_URL
-    )
-    logger.info("Enabling Handler docs MCP toolset at %s", effective_mcp_url)
-
-    return McpToolset(
-        connection_params=StreamableHTTPConnectionParams(
-            url=effective_mcp_url,
-            timeout=10.0,
-            sse_read_timeout=300.0,
-        ),
-        tool_name_prefix="handler_docs",
     )
 
 

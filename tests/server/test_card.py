@@ -6,16 +6,18 @@ from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from starlette.applications import Starlette
 
 from a2a_handler.server import agent as agent_module
-from a2a_handler.server.agent import (
+from a2a_handler.server.tools import a2a_docs as a2a_docs_module
+from a2a_handler.server.tools import source as source_module
+from a2a_handler.server.agent import create_llm_agent
+from a2a_handler.server.tools import (
     DEFAULT_A2A_LLMS_FULL_URL,
     DEFAULT_HANDLER_DOCS_MCP_URL,
     create_a2a_docs_tools,
     create_handler_docs_toolset,
     create_handler_source_tools,
-    create_llm_agent,
     fetch_a2a_protocol_docs,
-    search_handler_source,
     search_a2a_protocol_docs,
+    search_handler_source,
 )
 from a2a_handler.server.app import (
     create_a2a_application,
@@ -244,7 +246,7 @@ def test_create_a2a_docs_tools_registers_fetch_and_search_tools() -> None:
 def test_fetch_a2a_protocol_docs_uses_bounded_llms_text(monkeypatch) -> None:
     """A2A docs fetch should return bounded official llms text."""
     monkeypatch.setattr(
-        agent_module,
+        a2a_docs_module,
         "_fetch_a2a_docs_text",
         lambda source: f"{source}: " + "A" * 2_000,
     )
@@ -266,7 +268,7 @@ def test_search_a2a_protocol_docs_returns_rg_style_excerpts(monkeypatch) -> None
             "Artifacts contain text, data, or file parts.",
         ]
     )
-    monkeypatch.setattr(agent_module, "_fetch_a2a_docs_text", lambda source: docs)
+    monkeypatch.setattr(a2a_docs_module, "_fetch_a2a_docs_text", lambda source: docs)
 
     result = search_a2a_protocol_docs("tasks artifacts", max_results=2)
 
@@ -285,10 +287,10 @@ def test_create_handler_source_tools_registers_source_search_tool() -> None:
 def test_search_handler_source_returns_installed_package_excerpts(monkeypatch) -> None:
     """Handler source search should read only local installed package files."""
     monkeypatch.setattr(
-        agent_module,
+        source_module,
         "_iter_handler_source_files",
         lambda path_filter="": [
-            ("server/agent.py", agent_module._handler_source_root() / "server/agent.py")
+            ("server/agent.py", source_module._handler_source_root() / "server/agent.py")
         ],
     )
 
@@ -302,7 +304,7 @@ def test_search_handler_source_returns_installed_package_excerpts(monkeypatch) -
 def test_search_handler_source_supports_no_matches(monkeypatch) -> None:
     """Handler source search should explain empty search results."""
     monkeypatch.setattr(
-        agent_module, "_iter_handler_source_files", lambda path_filter="": []
+        source_module, "_iter_handler_source_files", lambda path_filter="": []
     )
 
     result = search_handler_source("definitely_missing", path_filter="tui")

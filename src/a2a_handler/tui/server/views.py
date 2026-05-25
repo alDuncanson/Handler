@@ -91,7 +91,6 @@ class ConnectionBar(Container):
             connect_button.add_class("reconnect")
         else:
             connect_button.remove_class("reconnect")
-        connect_button.refresh(layout=True)
 
     def set_server_catalog(
         self,
