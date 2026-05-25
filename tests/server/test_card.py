@@ -290,7 +290,10 @@ def test_search_handler_source_returns_installed_package_excerpts(monkeypatch) -
         source_module,
         "_iter_handler_source_files",
         lambda path_filter="": [
-            ("server/agent.py", source_module._handler_source_root() / "server/agent.py")
+            (
+                "server/agent.py",
+                source_module._handler_source_root() / "server/agent.py",
+            )
         ],
     )
 
