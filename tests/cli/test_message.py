@@ -330,7 +330,7 @@ class TestMessageStream:
         mock_task = _make_task(TaskState.completed)
 
         with (
-            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.build_streaming_http_client") as mock_client,
             patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
             patch("a2a_handler.cli.message.update_session"),
         ):
@@ -520,7 +520,8 @@ class TestStreamMessage:
     @pytest.mark.asyncio
     async def test_stream_message_prints_event_summaries_before_text(self):
         """Test text streams include task/tool summaries before response text."""
-        mock_task = _make_task(TaskState.working)
+        task_id = "task-1234567890abcdef"
+        mock_task = _make_task(TaskState.working, task_id=task_id)
         tool_call = Message(
             message_id="tool-call-msg",
             role=Role.agent,
@@ -547,7 +548,7 @@ class TestStreamMessage:
                 event_type="status",
                 task=mock_task,
                 status=TaskStatusUpdateEvent(
-                    task_id="task-123",
+                    task_id=task_id,
                     context_id="ctx-123",
                     final=False,
                     status=TaskStatus(state=TaskState.working, message=tool_call),
@@ -557,7 +558,7 @@ class TestStreamMessage:
                 event_type="status",
                 task=mock_task,
                 status=TaskStatusUpdateEvent(
-                    task_id="task-123",
+                    task_id=task_id,
                     context_id="ctx-123",
                     final=False,
                     status=TaskStatus(state=TaskState.working, message=answer),
@@ -581,15 +582,16 @@ class TestStreamMessage:
             )
 
         calls = output.text.call_args_list
-        assert calls[0].args == ("event: task working (task-123)",)
-        assert calls[1].args == (
+        assert calls[0].args == (f"task id: {task_id}",)
+        assert calls[1].args == ("event: task working (task-123)",)
+        assert calls[2].args == (
             "event: tool call search_a2a_protocol_docs (task-123)",
         )
-        assert calls[2].args == ("event: message text (task-123)",)
-        assert calls[3].args == ()
-        assert calls[3].kwargs == {"flush": True}
-        assert calls[4].args == ("A2A supports streaming updates.",)
-        assert calls[4].kwargs == {"end": "", "flush": True}
+        assert calls[3].args == ("event: message text (task-123)",)
+        assert calls[4].args == ()
+        assert calls[4].kwargs == {"flush": True}
+        assert calls[5].args == ("A2A supports streaming updates.",)
+        assert calls[5].kwargs == {"end": "", "flush": True}
 
     @pytest.mark.asyncio
     async def test_stream_message_auth_required(self):

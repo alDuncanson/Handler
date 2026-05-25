@@ -356,7 +356,7 @@ class TestTaskResubscribe:
             )
 
         with (
-            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.build_streaming_http_client") as mock_client,
             patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
         ):
             mock_http = AsyncMock()
@@ -389,7 +389,7 @@ class TestTaskResubscribe:
             yield StreamEvent(event_type="status", task=mock_task)
 
         with (
-            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.build_streaming_http_client") as mock_client,
             patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
         ):
             mock_http = AsyncMock()

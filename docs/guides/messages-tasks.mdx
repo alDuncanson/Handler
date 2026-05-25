@@ -42,7 +42,9 @@ handler message stream --server demo --text "Summarize your capabilities"
 In text mode, streaming prints lightweight `event:` summaries for task state
 changes, tool calls, tool results, data/file parts, and response text before the
 final answer content. That makes it clear when the agent is still working even
-if the model's text arrives in one larger chunk.
+if the model's text arrives in one larger chunk. Handler also prints the full
+task ID once when the stream starts so you can resubscribe if the connection is
+interrupted.
 
 The `send` command also accepts `--stream` when you want the same request shape
 but prefer one command form.

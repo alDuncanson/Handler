@@ -37,6 +37,7 @@ from a2a_handler.session import get_session, update_session
 
 from ._helpers import (
     build_http_client,
+    build_streaming_http_client,
     handle_client_error,
     handle_validation_error,
     resolve_agent_selection,
@@ -232,7 +233,10 @@ def message_send(
 
     async def do_send() -> None:
         try:
-            async with build_http_client(credentials=credentials) as http_client:
+            client_factory = (
+                build_streaming_http_client if stream else build_http_client
+            )
+            async with client_factory(credentials=credentials) as http_client:
                 service = A2AService(
                     http_client,
                     resolved_url,
@@ -343,6 +347,7 @@ async def _stream_message(
     text_line_open = False
     separated_text_from_events = False
     last_output_was_text = False
+    emitted_full_task_id: str | None = None
 
     async for event in service.stream(text, context_id, task_id):
         last_context_id = event.context_id or last_context_id
@@ -355,6 +360,10 @@ async def _stream_message(
         if output.output_format == "ndjson":
             output.json(_stream_event_dump(event))
         elif output.output_format == "text":
+            if event.task_id and emitted_full_task_id is None:
+                output.text(f"task id: {event.task_id}", flush=True)
+                emitted_full_task_id = event.task_id
+
             for summary in _format_stream_event_summaries(event):
                 if summary in emitted_summaries:
                     continue

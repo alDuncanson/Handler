@@ -39,7 +39,7 @@ class AgentSelection:
 
 
 def build_http_client(
-    timeout: int = TIMEOUT,
+    timeout: int | float | httpx.Timeout = TIMEOUT,
     credentials: AuthCredentials | None = None,
 ) -> httpx.AsyncClient:
     """Build an HTTP client with the specified timeout."""
@@ -50,6 +50,26 @@ def build_http_client(
             trust_env=False,
         )
     return httpx.AsyncClient(timeout=timeout, trust_env=False)
+
+
+def build_streaming_http_client(
+    credentials: AuthCredentials | None = None,
+) -> httpx.AsyncClient:
+    """Build an HTTP client for long-lived streaming responses.
+
+    Streaming keeps the usual finite connect/write/pool timeouts but disables
+    the read timeout so an active long-running A2A task is not aborted just
+    because the server has no SSE event ready for a while.
+    """
+    return build_http_client(
+        timeout=httpx.Timeout(
+            connect=TIMEOUT,
+            read=None,
+            write=TIMEOUT,
+            pool=TIMEOUT,
+        ),
+        credentials=credentials,
+    )
 
 
 def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> None:

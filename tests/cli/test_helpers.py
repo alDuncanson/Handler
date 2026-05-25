@@ -16,11 +16,12 @@ from a2a_handler.auth import AuthType
 from a2a_handler.cli._helpers import (
     AgentSelection,
     build_http_client,
+    build_streaming_http_client,
     handle_client_error,
+    TIMEOUT,
     resolve_agent_selection,
     resolve_selection_credentials,
     resolve_agent_target,
-    TIMEOUT,
 )
 from a2a_handler.common import Output
 from a2a_handler.servers import (
@@ -51,6 +52,14 @@ class TestBuildHttpClient:
         client = build_http_client(timeout=60)
         assert client.timeout.connect == 60
         assert client.timeout.read == 60
+
+    def test_streaming_timeout_disables_read_timeout(self):
+        """Test streaming clients keep finite setup timeouts but no read timeout."""
+        client = build_streaming_http_client()
+        assert client.timeout.connect == TIMEOUT
+        assert client.timeout.read is None
+        assert client.timeout.write == TIMEOUT
+        assert client.timeout.pool == TIMEOUT
 
 
 class TestHandleClientError:
