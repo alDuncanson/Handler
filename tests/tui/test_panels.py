@@ -7,6 +7,9 @@ from unittest.mock import Mock, call
 import pytest
 from a2a.types import (
     Artifact,
+    DataPart,
+    FilePart,
+    FileWithUri,
     Message,
     Part,
     Role,
@@ -16,7 +19,7 @@ from a2a.types import (
     TextPart,
 )
 from textual.app import App, ComposeResult
-from textual.widgets import TabbedContent
+from textual.widgets import Markdown, TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
 from a2a_handler.tui.components.logs import LogsPanel
@@ -143,6 +146,79 @@ async def test_tasks_panel_updates_detail_view_and_copies_ids() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tasks_panel_labels_protocol_history_parts() -> None:
+    """Task history should show A2A message part kinds, not just chat text."""
+    app = _TasksPanelHarness()
+    task = Task(
+        id="task-structured",
+        context_id="ctx-structured",
+        status=TaskStatus(state=TaskState.working),
+        history=[
+            Message(
+                message_id="msg-user-structured",
+                role=Role.user,
+                parts=[Part(root=TextPart(text="Summarize this file"))],
+                context_id="ctx-structured",
+                task_id="task-structured",
+            ),
+            Message(
+                message_id="msg-agent-data",
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=DataPart(
+                            data={
+                                "toolCall": {
+                                    "name": "search_handler",
+                                    "query": "handler mcp",
+                                }
+                            }
+                        )
+                    )
+                ],
+                context_id="ctx-structured",
+                task_id="task-structured",
+            ),
+            Message(
+                message_id="msg-agent-file",
+                role=Role.agent,
+                parts=[
+                    Part(
+                        root=FilePart(
+                            file=FileWithUri(
+                                uri="https://example.com/report.md",
+                                name="report.md",
+                                mime_type="text/markdown",
+                            )
+                        )
+                    )
+                ],
+                context_id="ctx-structured",
+                task_id="task-structured",
+            ),
+        ],
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TasksPanel)
+        panel.add_task(task)
+        await pilot.pause()
+
+        detail_texts = _rendered_texts(panel.query_one("#task-detail"))
+        assert any("Task History" in text for text in detail_texts)
+        assert any("parts: text" in text for text in detail_texts)
+        assert any("Summarize this file" in text for text in detail_texts)
+        assert any("parts: data" in text for text in detail_texts)
+        assert any(
+            "toolCall" in text and "search_handler" in text for text in detail_texts
+        )
+        assert any("parts: file" in text for text in detail_texts)
+        assert any("report.md (text/markdown)" in text for text in detail_texts)
+
+
+@pytest.mark.asyncio
 async def test_artifacts_panel_updates_detail_view_and_copies_ids() -> None:
     """Artifact details and copy actions should follow the selected artifact entry."""
     app = _ArtifactsPanelHarness()
@@ -255,6 +331,147 @@ async def test_messages_panel_renders_completed_tasks_and_empty_agent_responses(
         chat_texts = _chat_texts(panel)
         assert any("Recovered completed task output" in text for text in chat_texts)
         assert any("(no text in response)" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_renders_markdown_message_bodies() -> None:
+    """Conversation messages should keep markdown available for rich rendering."""
+    app = _MessagesPanelHarness()
+    response = Message(
+        message_id="msg-markdown-1",
+        role=Role.agent,
+        parts=[
+            Part(
+                root=TextPart(
+                    text="## Handler CLI\n\nUse `handler message send`:\n\n```bash\nhandler message send http://agent.test 'hi'\n```"
+                )
+            )
+        ],
+        context_id="ctx-markdown",
+        task_id="task-markdown",
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_message("user", "Please show `handler message send`")
+        panel.add_agent_message(response)
+        await pilot.pause()
+
+        markdown_widgets = list(panel.query(Markdown))
+        assert any(
+            "Please show `handler message send`" in widget.source
+            for widget in markdown_widgets
+        )
+        assert any("```bash" in widget.source for widget in markdown_widgets)
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_opens_markdown_links() -> None:
+    """Clicking a markdown link in a message should open the target URL."""
+    app = _MessagesPanelHarness()
+    open_url = Mock()
+    setattr(app, "open_url", open_url)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_message(
+            "agent",
+            "Read the [authentication guide](https://handler.alduncanson.com/guides/auth).",
+        )
+        await pilot.pause()
+
+        markdown = panel.query_one(Markdown)
+        markdown.post_message(
+            Markdown.LinkClicked(
+                markdown,
+                "https://handler.alduncanson.com/guides/auth",
+            )
+        )
+        await pilot.pause()
+
+        open_url.assert_called_once_with("https://handler.alduncanson.com/guides/auth")
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_opens_relative_markdown_links_as_docs_urls() -> None:
+    """Relative docs links from MCP responses should open against Handler docs."""
+    app = _MessagesPanelHarness()
+    open_url = Mock()
+    setattr(app, "open_url", open_url)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_message("agent", "See [servers](/guides/servers).")
+        await pilot.pause()
+
+        markdown = panel.query_one(Markdown)
+        markdown.post_message(Markdown.LinkClicked(markdown, "/guides/servers"))
+        await pilot.pause()
+
+        open_url.assert_called_once_with(
+            "https://handler.alduncanson.com/guides/servers"
+        )
+
+
+@pytest.mark.asyncio
+async def test_agent_message_metadata_links_to_task_and_artifact_payloads() -> None:
+    """Agent timeline cards should summarize related task/artifact payloads."""
+    app = _MessagesPanelHarness()
+    task = Task(
+        id="task-with-artifacts",
+        context_id="ctx-with-artifacts",
+        status=TaskStatus(state=TaskState.completed),
+        artifacts=[
+            Artifact(
+                artifact_id="artifact-data",
+                name="Processing Result",
+                description="Structured processing payload",
+                parts=[Part(root=DataPart(data={"status": "processed"}))],
+            )
+        ],
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.add_agent_message(task)
+        panel.update_task(task)
+        for artifact in task.artifacts or []:
+            panel.update_artifact(artifact, task.id, task.context_id)
+        await pilot.pause()
+
+        chat_texts = _chat_texts(panel)
+        assert any("Processing Result (data)" in text for text in chat_texts)
+        assert not panel.query(".message-artifact-summary")
+        metadata_values = _rendered_texts(panel.query_one(".message-metadata-row"))
+        assert "artifact" in metadata_values
+        assert "Processing Result (data)" in metadata_values
+        assert not panel.query(".view-task")
+        assert not panel.query(".view-artifacts")
+
+        tabs = panel.query_one("#messages-tabs", TabbedContent)
+        tabs.active = "artifacts-tab"
+        await pilot.pause()
+
+        assert tabs.active == "artifacts-tab"
+        selected_artifact = panel.query_one(ArtifactsPanel).get_selected_artifact()
+        assert selected_artifact is not None
+        assert selected_artifact.artifact_id == "artifact-data"
+
+        tabs.active = "tasks-tab"
+        await pilot.pause()
+
+        assert tabs.active == "tasks-tab"
+        selected_task = panel.query_one(TasksPanel).get_selected_task()
+        assert selected_task is not None
+        assert selected_task.task_id == "task-with-artifacts"
 
 
 @pytest.mark.asyncio

@@ -2,14 +2,18 @@
 
 import logging
 from collections.abc import Callable, Iterable
+from importlib.metadata import version
 from typing import Any
 
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
+from textual.css.query import NoMatches
+from textual.containers import Horizontal
 from textual.logging import TextualHandler
 from textual.screen import Screen
-from textual.widgets import Footer, Tabs
+from textual.widgets import HelpPanel, Static, Tabs
 
 from a2a_handler.common import get_theme, install_tui_log_handler, save_theme
 from a2a_handler.common.logging import TUILogHandler
@@ -20,6 +24,7 @@ from a2a_handler.tui.commands import (
 )
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.save import save_connections_to_workspace
+from a2a_handler.tui.server.tab import shutdown_default_handler_agent
 from a2a_handler.tui.server.tabs import ServerTabs
 from a2a_handler.tui.server.workspace import (
     remove_workspace_server,
@@ -31,6 +36,19 @@ logging.basicConfig(
     handlers=[TextualHandler()],
 )
 logger = logging.getLogger(__name__)
+HANDLER_VERSION = version("a2a-handler")
+
+
+def _footer_bindings_text() -> Text:
+    """Return footer keybindings with chords visually distinct from actions."""
+    return Text.assemble(
+        ("Ctrl+Q", "bold yellow"),
+        (" Quit  ", "dim"),
+        ("Ctrl+P", "bold yellow"),
+        (" Command Palette  ", "dim"),
+        ("?", "bold yellow"),
+        (" Keybindings", "dim"),
+    )
 
 
 class HandlerTUI(App[Any]):
@@ -40,37 +58,42 @@ class HandlerTUI(App[Any]):
 
     BINDINGS = [
         Binding(
-            "ctrl+c",
+            "ctrl+q",
             "quit",
             "Quit",
             show=True,
-            key_display="Ctrl+C",
+            key_display="Ctrl+Q",
             priority=True,
         ),
         Binding(
-            "ctrl+p", "command_palette", "Palette", show=True, key_display="Ctrl+P"
+            "ctrl+p",
+            "command_palette",
+            "Command Palette",
+            show=True,
+            key_display="Ctrl+P",
         ),
-        Binding("ctrl+m", "toggle_maximize", "Maximize", show=True),
+        Binding("?", "toggle_help_panel", "Keybindings", show=True),
+        Binding("ctrl+m", "toggle_maximize", "Maximize", show=False),
         Binding(
             "ctrl+b",
             "previous_server",
             "Prev Server",
-            show=True,
+            show=False,
             key_display="Ctrl+B",
         ),
         Binding(
             "ctrl+t",
             "next_server",
             "Next Server",
-            show=True,
+            show=False,
             key_display="Ctrl+T",
         ),
-        Binding("ctrl+n", "new_server", "New Server", show=True, key_display="Ctrl+N"),
+        Binding("ctrl+n", "new_server", "New Server", show=False, key_display="Ctrl+N"),
         Binding(
             "ctrl+w",
             "close_server",
             "Close Server",
-            show=True,
+            show=False,
             key_display="Ctrl+W",
         ),
     ]
@@ -110,7 +133,12 @@ class HandlerTUI(App[Any]):
             connect_servers=self._connect_servers,
             connect_url=self._connect_url,
         )
-        yield Footer(show_command_palette=False)
+        with Horizontal(id="app-footer"):
+            yield Static(
+                _footer_bindings_text(),
+                id="app-footer-bindings",
+            )
+            yield Static(f"v{HANDLER_VERSION}", id="app-version")
 
     async def on_mount(self) -> None:
         logger.info("TUI application starting")
@@ -159,6 +187,15 @@ class HandlerTUI(App[Any]):
                 self.screen.maximize(panel)
                 self._is_maximized = True
                 return
+
+    def action_toggle_help_panel(self) -> None:
+        """Toggle Textual's keybindings help panel."""
+        try:
+            self.screen.query_one(HelpPanel)
+        except NoMatches:
+            self.action_show_help_panel()
+        else:
+            self.action_hide_help_panel()
 
     def action_previous_server(self) -> None:
         """Activate the previous server tab."""
@@ -372,6 +409,7 @@ class HandlerTUI(App[Any]):
     async def on_unmount(self) -> None:
         if self._tui_log_handler is not None:
             self._tui_log_handler.set_callback(None)
+        shutdown_default_handler_agent()
         logger.info("Shutting down TUI application")
 
 

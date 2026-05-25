@@ -29,6 +29,8 @@ class TUILogHandler(logging.Handler):
     Stores formatted log lines and notifies a callback when new records arrive.
     """
 
+    IGNORED_LOGGER_PREFIXES = ("markdown_it.",)
+
     def __init__(
         self,
         max_records: int = 1000,
@@ -43,25 +45,45 @@ class TUILogHandler(logging.Handler):
         """Set or update the callback for new log lines."""
         self.callback = callback
 
-    def emit(self, record: logging.LogRecord) -> None:
-        """Handle a log record."""
+    def handle(self, record: logging.LogRecord) -> bool:
+        """Store a log record, then notify the TUI outside the handler lock."""
+        if record.name.startswith(self.IGNORED_LOGGER_PREFIXES):
+            return False
+        if not self.filter(record):
+            return False
+
+        line: str | None = None
         try:
-            timestamp = datetime.fromtimestamp(record.created)
-            time_str = timestamp.strftime("%H:%M:%S.%f")[:-3]
-            short_name = record.name.split(".")[-1]
-            message = self.format(record)
+            self.acquire()
+            try:
+                line = self._store_record(record)
+            finally:
+                self.release()
 
-            line = f"{time_str} {record.levelname:>5} {short_name}: {message}"
-            self.lines.append(line)
-
-            if len(self.lines) > self.max_records:
-                self.lines = self.lines[-self.max_records :]
-
-            if self.callback:
+            if self.callback and line is not None:
                 self.callback(line)
-
         except Exception:
             self.handleError(record)
+        return True
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Handle a log record."""
+        self._store_record(record)
+
+    def _store_record(self, record: logging.LogRecord) -> str:
+        """Format and store a log record, returning the visible log line."""
+        timestamp = datetime.fromtimestamp(record.created)
+        time_str = timestamp.strftime("%H:%M:%S.%f")[:-3]
+        short_name = record.name.split(".")[-1]
+        message = self.format(record)
+
+        line = f"{time_str} {record.levelname:>5} {short_name}: {message}"
+        self.lines.append(line)
+
+        if len(self.lines) > self.max_records:
+            self.lines = self.lines[-self.max_records :]
+
+        return line
 
     def get_lines(self) -> list[str]:
         """Get all stored log lines."""

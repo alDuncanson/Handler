@@ -1,5 +1,7 @@
 """Tests for the server-based TUI shell."""
 
+import asyncio
+import subprocess
 from collections.abc import Generator
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -17,14 +19,16 @@ from a2a.types import (
     TextPart,
 )
 from textual.app import App as TextualApp, SystemCommand
-from textual.widgets import Button, Input, Select, Static, Tab, Tabs
+from textual.widgets import Button, HelpPanel, Input, Select, Static, Tab, Tabs
 
 from a2a_handler.auth import AuthType, create_bearer_auth
 from a2a_handler.servers import (
+    DEFAULT_HANDLER_AGENT_URL,
     ServerAuthConfig,
     ServerCatalog,
     ServerDefinition,
     ServerSource,
+    default_handler_agent_server,
 )
 from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
@@ -134,6 +138,10 @@ async def test_app_starts_with_server_shell_and_initial_server() -> None:
         assert workspace.region.height > 5
         assert connect_view.query_one("#server-bar")
         assert len(list(live_view.query("#server-summary"))) == 0
+        assert connect_view.query_one("#connect-shell").border_subtitle == "Server"
+        assert connect_view.query_one("#connect-shell").border_title is None
+        assert live_view.messages_panel().border_subtitle == "Activity"
+        assert live_view.messages_panel().border_title is None
 
         status = connect_view.query_one("#badge-status", Static)
         assert "Disconnected" in str(status.content)
@@ -146,10 +154,10 @@ def test_server_shell_does_not_hijack_tab_navigation() -> None:
     assert all(binding.key != "shift+tab" for binding in ServerTabs.BINDINGS)
 
 
-def test_app_uses_ctrl_c_for_quit_binding() -> None:
-    """The app should advertise ctrl+c as the quit shortcut."""
-    assert any(binding.key == "ctrl+c" for binding in HandlerTUIApplication.BINDINGS)
-    assert all(binding.key != "ctrl+q" for binding in HandlerTUIApplication.BINDINGS)
+def test_app_uses_ctrl_q_for_quit_binding() -> None:
+    """The app should leave ctrl+c available for terminal copy."""
+    assert any(binding.key == "ctrl+q" for binding in HandlerTUIApplication.BINDINGS)
+    assert all(binding.key != "ctrl+c" for binding in HandlerTUIApplication.BINDINGS)
 
 
 def test_app_advertises_server_hotkeys() -> None:
@@ -164,24 +172,45 @@ def test_app_advertises_server_hotkeys() -> None:
 
 
 @pytest.mark.asyncio
-async def test_footer_shows_quit_and_server_hotkeys() -> None:
-    """Global bindings should be visible and ctrl+c should override copy."""
+async def test_footer_shows_global_help_and_version() -> None:
+    """The footer should stay compact while surfacing app-level help."""
     app = HandlerTUI()
 
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        assert app.screen.active_bindings["ctrl+c"].binding.action == "quit"
+        assert app.screen.active_bindings["ctrl+q"].binding.action == "quit"
 
-        footer = app.query_one("Footer")
-        footer_labels = [str(child.render()) for child in footer.children]
+        footer = app.query_one("#app-footer-bindings", Static)
+        footer_labels = str(footer.content)
 
-        assert any("Ctrl+C" in label and "Quit" in label for label in footer_labels)
-        assert any("Ctrl+B" in label for label in footer_labels)
-        assert any("Ctrl+T" in label for label in footer_labels)
-        assert any(
-            "Ctrl+N" in label and "New Server" in label for label in footer_labels
-        )
+        assert "Ctrl+Q Quit" in footer_labels
+        assert "Ctrl+P Command Palette" in footer_labels
+        assert "? Keybindings" in footer_labels
+        assert "Ctrl+B" not in footer_labels
+        assert "Ctrl+T" not in footer_labels
+        assert "Ctrl+N" not in footer_labels
+
+        version = app.query_one("#app-version", Static)
+        assert str(version.content) == "v0.1.21"
+
+
+@pytest.mark.asyncio
+async def test_keybindings_shortcut_toggles_help_panel() -> None:
+    """The keybindings shortcut should open and close the help panel."""
+    app = HandlerTUI()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not app.screen.query(HelpPanel)
+
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.query(HelpPanel)
+
+        await pilot.press("?")
+        await pilot.pause()
+        assert not app.screen.query(HelpPanel)
 
 
 @pytest.mark.asyncio
@@ -288,6 +317,12 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
             await pilot.pause()
             await pilot.click("#connect-btn")
             await pilot.pause()
+            connected_server = app.query_one(ServerTabs).query_one("#server-1")
+            connect_button = connected_server.query_one("#connect-btn", Button)
+            assert str(connect_button.label) == "RECONNECT"
+            assert connect_button.has_class("reconnect")
+            assert connect_button.region.width >= 13
+
             await app.action_new_server()
             await pilot.pause()
 
@@ -301,11 +336,6 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
             assert "Remove Saved Workspace Server" in titles
             assert "Close Server 2" in titles
             assert "Git Add Servers" in titles
-
-            connected_server = app.query_one(ServerTabs).query_one("#server-1")
-            connect_button = connected_server.query_one("#connect-btn", Button)
-            assert str(connect_button.label) == "RECONNECT"
-            assert connect_button.has_class("reconnect")
 
             switch_command = next(
                 command
@@ -749,6 +779,264 @@ async def test_picker_labels_show_source_and_resume_intent(
                 "Recent: echo_agent (resume)",
                 "URL...",
             ]
+
+
+@pytest.mark.asyncio
+async def test_default_handler_agent_appears_in_picker() -> None:
+    """The built-in Handler agent should be selectable like a global server."""
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(global_servers=(default_handler_agent_server(),)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            connect_view = workspace.query_one(ConnectionBar)
+            selected = connect_view.get_selected_server()
+            select = connect_view.query_one("#server-select", Select)
+            labels = [
+                prompt
+                for prompt, value in select._options
+                if value is not Select.BLANK and isinstance(prompt, str)
+            ]
+
+            assert selected == default_handler_agent_server()
+            assert connect_view.get_url() == DEFAULT_HANDLER_AGENT_URL
+            assert labels == ["Handler Agent", "URL..."]
+
+
+@pytest.mark.asyncio
+async def test_connecting_default_handler_agent_auto_starts_local_server() -> None:
+    """Connecting the built-in Handler agent starts it before fetching its card."""
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Handler"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Handler"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(
+                global_servers=(default_handler_agent_server(),)
+            ),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.ensure_default_handler_agent_running",
+            AsyncMock(return_value=(True, DEFAULT_HANDLER_AGENT_URL)),
+        ) as mock_ensure_running,
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace.is_connected
+            mock_ensure_running.assert_awaited_once_with(DEFAULT_HANDLER_AGENT_URL)
+            mock_service.get_card.assert_awaited_once()
+            source_badge = workspace.query_one("#badge-source", Static)
+            assert "Embedded Server" in str(source_badge.content)
+            messages_panel = workspace.query_one(TabbedMessagesPanel)
+            assert any(
+                "Started Handler's embedded agent" in text
+                for text in _chat_texts(messages_panel)
+            )
+
+
+@pytest.mark.asyncio
+async def test_connecting_default_handler_agent_uses_auto_incremented_port() -> None:
+    """When port 8000 is occupied, the TUI should connect to the launched port."""
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Handler"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Handler"}
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(
+                global_servers=(default_handler_agent_server(),)
+            ),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.ensure_default_handler_agent_running",
+            AsyncMock(return_value=(True, "http://localhost:8001")),
+        ) as mock_ensure_running,
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            mock_ensure_running.assert_awaited_once_with(DEFAULT_HANDLER_AGENT_URL)
+            assert workspace.current_agent_url == "http://localhost:8001"
+            mock_service_cls.assert_called_once()
+            assert mock_service_cls.call_args.args[1] == "http://localhost:8001"
+            messages_panel = workspace.query_one(TabbedMessagesPanel)
+            assert any(
+                "http://localhost:8001" in text for text in _chat_texts(messages_panel)
+            )
+
+
+@pytest.mark.asyncio
+async def test_auto_starting_default_handler_agent_requires_ollama(monkeypatch) -> None:
+    """The TUI should fail early with setup guidance when Ollama is missing."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    async def unavailable(_agent_url: str) -> bool:
+        return False
+
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.setattr(tab_module, "_handler_agent_card_available", unavailable)
+    monkeypatch.setattr(tab_module.shutil, "which", lambda _name: None)
+    popen = Mock()
+    monkeypatch.setattr(tab_module.subprocess, "Popen", popen)
+
+    with pytest.raises(RuntimeError, match="requires Ollama"):
+        await tab_module.ensure_default_handler_agent_running()
+
+    popen.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_starting_default_handler_agent_requires_model(monkeypatch) -> None:
+    """The TUI should point users to pull the configured Ollama model."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    async def unavailable(_agent_url: str) -> bool:
+        return False
+
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.setattr(tab_module, "_handler_agent_card_available", unavailable)
+    monkeypatch.setattr(tab_module.shutil, "which", lambda _name: "/usr/bin/ollama")
+    monkeypatch.setattr(tab_module, "check_ollama_model", lambda _model: False)
+    popen = Mock()
+    monkeypatch.setattr(tab_module.subprocess, "Popen", popen)
+
+    with pytest.raises(RuntimeError, match="ollama pull gemma4:e2b"):
+        await tab_module.ensure_default_handler_agent_running()
+
+    popen.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_starting_default_handler_agent_auto_increments_port(
+    monkeypatch,
+) -> None:
+    """The launcher should skip occupied port 8000 and start on the next port."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    checked_urls: list[str] = []
+
+    async def card_available(agent_url: str) -> bool:
+        checked_urls.append(agent_url)
+        return agent_url == "http://localhost:8001" and len(checked_urls) > 2
+
+    monkeypatch.setattr(tab_module, "_handler_agent_card_available", card_available)
+    monkeypatch.setattr(tab_module.shutil, "which", lambda _name: "/usr/bin/ollama")
+    monkeypatch.setattr(tab_module, "check_ollama_model", lambda _model: True)
+    monkeypatch.setattr(
+        tab_module,
+        "_first_available_handler_agent_port",
+        lambda _start_port: 8001,
+    )
+    process = Mock()
+    process.poll.return_value = None
+    popen = Mock(return_value=process)
+    monkeypatch.setattr(tab_module.subprocess, "Popen", popen)
+
+    try:
+        started, agent_url = await tab_module.ensure_default_handler_agent_running()
+    finally:
+        tab_module._handler_agent_process = None
+        tab_module._handler_agent_process_url = None
+
+    assert started is True
+    assert agent_url == "http://localhost:8001"
+    command = popen.call_args.args[0]
+    assert command[command.index("--port") + 1] == "8001"
+
+
+def test_shutdown_default_handler_agent_waits_after_terminate(monkeypatch) -> None:
+    """Auto-started Handler agent cleanup should terminate and reap the child."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    process = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(tab_module, "_handler_agent_process", process)
+
+    tab_module.shutdown_default_handler_agent()
+
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(
+        timeout=tab_module._HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS
+    )
+    process.kill.assert_not_called()
+    assert tab_module._handler_agent_process is None
+
+
+def test_shutdown_default_handler_agent_kills_after_timeout(monkeypatch) -> None:
+    """Cleanup should escalate to kill when the server ignores SIGTERM."""
+    from a2a_handler.tui.server import tab as tab_module
+
+    process = Mock()
+    process.poll.return_value = None
+    process.wait.side_effect = [subprocess.TimeoutExpired("handler", 3), None]
+    monkeypatch.setattr(tab_module, "_handler_agent_process", process)
+
+    tab_module.shutdown_default_handler_agent()
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+    assert process.wait.call_count == 2
+    assert tab_module._handler_agent_process is None
+
+
+@pytest.mark.asyncio
+async def test_tui_shutdown_stops_auto_started_handler_agent() -> None:
+    """App shutdown should explicitly stop the auto-started Handler agent."""
+    from a2a_handler.tui import app as app_module
+
+    app = HandlerTUI()
+    with patch.object(app_module, "shutdown_default_handler_agent") as cleanup:
+        await app.on_unmount()
+
+    cleanup.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -1816,6 +2104,85 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
             chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("Hello agent" in text for text in chat_texts)
             assert any("Hello from the agent" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_send_shows_loading_indicator_while_waiting_for_response() -> None:
+    """Slow A2A responses should show an in-flight loading indicator."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = Mock()
+    mock_card.name = "Demo Agent"
+    mock_card.protocol_version = None
+    mock_card.version = None
+    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.agent,
+        parts=[Part(root=TextPart(text="Delayed response"))],
+        context_id="ctx-response",
+        task_id=None,
+    )
+    send_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def slow_send(*args, **kwargs):
+        send_started.set()
+        await release_response.wait()
+        return response_message
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.send.side_effect = slow_send
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            message_input = workspace.query_one("#message-input", Input)
+            message_input.value = "Slow request"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await asyncio.wait_for(send_started.wait(), timeout=1)
+            await pilot.pause()
+
+            loading_label = workspace.query_one("#send-loading-label", Static)
+            assert "Waiting for agent" in str(loading_label.content)
+            assert not loading_label.has_class("hidden")
+            assert message_input.disabled is True
+            assert workspace.query_one("#send-btn").disabled is True
+
+            release_response.set()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert loading_label.has_class("hidden")
+            assert message_input.disabled is False
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("Delayed response" in text for text in chat_texts)
 
 
 @pytest.mark.asyncio

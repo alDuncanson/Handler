@@ -6,17 +6,17 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from a2a.types import DataPart, FilePart, TextPart
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.message import Message as TextualMessage
 from textual.reactive import reactive
 from textual.widgets import Collapsible, Label, ListItem, ListView, Static
 
 from a2a_handler.common import get_logger
 
 if TYPE_CHECKING:
-    from a2a.types import Task, TaskState
+    from a2a.types import Message, Part, Task, TaskState
 
 logger = get_logger(__name__)
 
@@ -45,6 +45,91 @@ class TaskEntry:
     @property
     def state_str(self) -> str:
         return str(self.state.value) if self.state else "unknown"
+
+
+def _truncate_preview(value: str, limit: int = 120) -> str:
+    """Return a single-line preview capped to a readable width."""
+    preview = value.replace("\n", " ").strip()
+    if len(preview) > limit:
+        return f"{preview[: limit - 3]}..."
+    return preview
+
+
+def _part_kind(part: Part) -> str:
+    """Return a display label for an A2A message part kind."""
+    root = part.root
+    if isinstance(root, TextPart):
+        return "text"
+    if isinstance(root, DataPart):
+        return "data"
+    if isinstance(root, FilePart):
+        return "file"
+    return getattr(root, "kind", type(root).__name__)
+
+
+def _data_part_preview(part: DataPart) -> str:
+    """Build a compact preview for structured A2A data parts."""
+    data = part.data
+    for key in (
+        "name",
+        "type",
+        "functionCall",
+        "function_call",
+        "functionResponse",
+        "function_response",
+        "toolCall",
+        "tool_call",
+        "toolResult",
+        "tool_result",
+    ):
+        if key in data:
+            return _truncate_preview(f"{key}: {data[key]}")
+    return _truncate_preview(json.dumps(data, default=str))
+
+
+def _file_part_preview(part: FilePart) -> str:
+    """Build a compact preview for file parts."""
+    file_part = part.file
+    name = getattr(file_part, "name", None)
+    uri = getattr(file_part, "uri", None)
+    mime_type = getattr(file_part, "mime_type", None)
+    if name and mime_type:
+        return f"{name} ({mime_type})"
+    if name:
+        return name
+    if uri:
+        return _truncate_preview(uri)
+    if mime_type:
+        return mime_type
+    return "inline file"
+
+
+def _part_preview(part: Part) -> str:
+    """Return a human-readable preview for any A2A message part."""
+    root = part.root
+    if isinstance(root, TextPart):
+        return _truncate_preview(root.text)
+    if isinstance(root, DataPart):
+        return _data_part_preview(root)
+    if isinstance(root, FilePart):
+        return _file_part_preview(root)
+    return _truncate_preview(json.dumps(part.model_dump(), default=str))
+
+
+def _message_part_kinds(message: Message) -> str:
+    """Summarize the part kinds carried by a protocol message."""
+    if not message.parts:
+        return "no parts"
+    kinds = [_part_kind(part) for part in message.parts]
+    return ", ".join(kinds)
+
+
+def _message_preview(message: Message) -> str:
+    """Return the best available single-line preview for a protocol message."""
+    if not message.parts:
+        return "(no parts)"
+    previews = [_part_preview(part) for part in message.parts]
+    return _truncate_preview(" | ".join(preview for preview in previews if preview))
 
 
 class TaskListItem(ListItem):
@@ -149,7 +234,7 @@ class TaskDetailPanel(VerticalScroll):
                 )
 
         if task.history:
-            content.mount(self._section_heading("Messages"))
+            content.mount(self._section_heading("Task History"))
             for message in task.history:
                 role_value = (
                     message.role.value
@@ -164,20 +249,14 @@ class TaskDetailPanel(VerticalScroll):
                     else "history-role-user"
                 )
 
-                preview = ""
-                if hasattr(message, "parts") and message.parts:
-                    from a2a_handler.service import extract_text_from_message_parts
-
-                    text = extract_text_from_message_parts(message.parts)
-                    if text:
-                        preview = text[:100].replace("\n", " ")
-                        if len(text) > 100:
-                            preview += "..."
-
                 content.mount(
                     Container(
                         Static(role_value, classes=role_class),
-                        Static(preview, classes="history-message"),
+                        Static(
+                            f"parts: {_message_part_kinds(message)}",
+                            classes="history-part-kinds",
+                        ),
+                        Static(_message_preview(message), classes="history-message"),
                         classes="history-item",
                     )
                 )
@@ -196,28 +275,20 @@ class TasksPanel(Container):
     """Panel with split view: task list on left, details on right."""
 
     BINDINGS = [
-        Binding("j", "cursor_down", "↓ Select", show=True, key_display="j/↓"),
-        Binding("k", "cursor_up", "↑ Select", show=True, key_display="k/↑"),
+        Binding("j", "cursor_down", "↓ Select", show=False, key_display="j/↓"),
+        Binding("k", "cursor_up", "↑ Select", show=False, key_display="k/↑"),
         Binding("down", "cursor_down", "Down", show=False),
         Binding("up", "cursor_up", "Up", show=False),
-        Binding("ctrl+d", "scroll_detail_down", "½ Page ↓", show=True),
-        Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=True),
-        Binding("enter", "select_task", "View", show=True),
-        Binding("y", "copy_task_id", "Copy ID", show=True),
-        Binding("Y", "copy_context_id", "Copy Ctx", show=True),
+        Binding("ctrl+d", "scroll_detail_down", "½ Page ↓", show=False),
+        Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=False),
+        Binding("y", "copy_task_id", "Copy ID", show=False),
+        Binding("Y", "copy_context_id", "Copy Ctx", show=False),
     ]
 
     can_focus = False
 
     selected_index: reactive[int] = reactive(0)
     _tasks: list[TaskEntry] = []
-
-    class TaskSelected(TextualMessage):
-        """Posted when a task is selected."""
-
-        def __init__(self, entry: TaskEntry) -> None:
-            super().__init__()
-            self.entry = entry
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks-split"):
@@ -306,10 +377,6 @@ class TasksPanel(Container):
         """Scroll the detail panel up by half a page."""
         detail = self._get_detail_panel()
         detail.scroll_relative(y=-(detail.size.height // 2), animate=False)
-
-    def action_select_task(self) -> None:
-        list_view = self._get_list_view()
-        list_view.action_select_cursor()
 
     def action_copy_task_id(self) -> None:
         """Copy the selected task ID to clipboard."""

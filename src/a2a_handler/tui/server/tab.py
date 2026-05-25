@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import atexit
+import asyncio
 import contextlib
+import os
+import shutil
+import socket
+import subprocess
+import sys
 from collections.abc import Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from a2a.client.errors import A2AClientJSONRPCError
@@ -22,12 +30,15 @@ from a2a_handler.common.input_validation import (
     validate_agent_url,
 )
 from a2a_handler.servers import (
+    DEFAULT_HANDLER_AGENT_URL,
     ServerCatalog,
     ServerDefinition,
     ServerSource,
+    is_default_handler_agent_server,
     load_server_catalog,
     resolve_server_credentials,
 )
+from a2a_handler.server import DEFAULT_OLLAMA_MODEL, check_ollama_model
 from a2a_handler.service import (
     A2AService,
     extract_text_from_message_parts,
@@ -52,6 +63,172 @@ from a2a_handler.tui.server.types import (
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
 logger = get_logger(__name__)
+
+_DEFAULT_HANDLER_AGENT_HOST = "127.0.0.1"
+_DEFAULT_HANDLER_AGENT_PORT = 8000
+_HANDLER_AGENT_PORT_ATTEMPTS = 20
+_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS = 3
+_handler_agent_process: subprocess.Popen | None = None
+_handler_agent_process_url: str | None = None
+
+
+def _handler_agent_model() -> str:
+    """Return the Ollama model used by the auto-started Handler agent."""
+    return os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+
+
+def _raise_if_handler_agent_model_unavailable() -> None:
+    """Fail early with an actionable message when the built-in agent can't run."""
+    model = _handler_agent_model()
+    if shutil.which("ollama") is None:
+        raise RuntimeError(
+            "Handler's built-in agent requires Ollama, but the Ollama CLI was not found. "
+            "Install Ollama, then run `ollama pull "
+            f"{model}` or `handler server run agent` before connecting."
+        )
+    if not check_ollama_model(model):
+        raise RuntimeError(
+            "Handler's built-in agent requires the Ollama model "
+            f"'{model}'. Run `ollama pull {model}` or `handler server run agent` "
+            "before connecting."
+        )
+
+
+def shutdown_default_handler_agent() -> None:
+    """Stop the auto-started Handler embedded-agent process, if any.
+
+    The TUI only owns the process it launched itself. If the user already had a
+    server listening on the default URL, no process is stored and this is a no-op.
+    """
+    global _handler_agent_process, _handler_agent_process_url
+    process = _handler_agent_process
+    if process is None or process.poll() is not None:
+        _handler_agent_process = None
+        _handler_agent_process_url = None
+        return
+
+    logger.info("Stopping auto-started Handler embedded agent")
+    process.terminate()
+    try:
+        process.wait(timeout=_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        logger.warning("Handler embedded agent did not stop; killing process")
+        process.kill()
+        try:
+            process.wait(timeout=_HANDLER_AGENT_SHUTDOWN_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.error("Handler embedded agent process did not exit after kill")
+            return
+
+    _handler_agent_process = None
+    _handler_agent_process_url = None
+
+
+atexit.register(shutdown_default_handler_agent)
+
+
+async def _handler_agent_card_available(agent_url: str) -> bool:
+    """Return whether an A2A agent card is reachable at the given URL."""
+    try:
+        async with httpx.AsyncClient(timeout=1.0, trust_env=False) as client:
+            response = await client.get(
+                f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
+            )
+            return response.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+def _handler_agent_url(host: str, port: int) -> str:
+    """Build the local URL for an auto-started Handler agent."""
+    return f"http://{host}:{port}"
+
+
+def _port_is_available(host: str, port: int) -> bool:
+    """Return whether the local host/port can be bound by a new server."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host, port))
+    except OSError:
+        return False
+    return True
+
+
+def _first_available_handler_agent_port(start_port: int) -> int | None:
+    """Return the first available local embedded-agent port at or above start."""
+    for port in range(start_port, start_port + _HANDLER_AGENT_PORT_ATTEMPTS):
+        if _port_is_available(_DEFAULT_HANDLER_AGENT_HOST, port):
+            return port
+    return None
+
+
+async def ensure_default_handler_agent_running(
+    agent_url: str = DEFAULT_HANDLER_AGENT_URL,
+) -> tuple[bool, str]:
+    """Start Handler's embedded agent if it is not already reachable.
+
+    Returns ``(started, agent_url)`` where ``started`` is True when this call
+    launched the server process. The returned URL may use a later port when the
+    preferred default port is already in use by another local process.
+    """
+    global _handler_agent_process, _handler_agent_process_url
+
+    if await _handler_agent_card_available(agent_url):
+        return False, agent_url
+
+    if _handler_agent_process is not None:
+        if _handler_agent_process.poll() is None and _handler_agent_process_url:
+            return False, _handler_agent_process_url
+        _handler_agent_process = None
+        _handler_agent_process_url = None
+
+    _raise_if_handler_agent_model_unavailable()
+
+    parsed_url = urlparse(agent_url)
+    start_port = parsed_url.port or _DEFAULT_HANDLER_AGENT_PORT
+    port = _first_available_handler_agent_port(start_port)
+    if port is None:
+        last_port = start_port + _HANDLER_AGENT_PORT_ATTEMPTS - 1
+        raise RuntimeError(
+            "Handler's embedded agent could not find an available local port "
+            f"between {start_port} and {last_port}."
+        )
+
+    launch_url = _handler_agent_url(parsed_url.hostname or "localhost", port)
+
+    if _handler_agent_process is None or _handler_agent_process.poll() is not None:
+        logger.info("Auto-starting Handler embedded agent at %s", launch_url)
+        _handler_agent_process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "from a2a_handler.cli import main; main()",
+                "server",
+                "run",
+                "agent",
+                "--host",
+                _DEFAULT_HANDLER_AGENT_HOST,
+                "--port",
+                str(port),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _handler_agent_process_url = launch_url
+
+    for _ in range(40):
+        if _handler_agent_process.poll() is not None:
+            break
+        if await _handler_agent_card_available(launch_url):
+            return True, launch_url
+        await asyncio.sleep(0.25)
+
+    raise RuntimeError(
+        "Handler's embedded agent did not become ready. "
+        "Run `handler server run agent` in a terminal to see startup details."
+    )
 
 
 class ServerTab(Container):
@@ -374,6 +551,8 @@ class ServerTab(Container):
         """Return a short label for where the live connection came from."""
         if connected_server is None:
             return "Direct URL"
+        if is_default_handler_agent_server(connected_server):
+            return "Embedded Server"
         source_labels = {
             ServerSource.REPOSITORY: "Repository Server",
             ServerSource.GLOBAL: "User Server",
@@ -567,6 +746,20 @@ class ServerTab(Container):
 
         try:
             credentials = messages_panel.get_auth_credentials()
+            startup_message: str | None = None
+
+            if selected_server is not None and is_default_handler_agent_server(
+                selected_server
+            ):
+                connection_bar.set_status("Starting Handler agent...", tone="accent")
+                started, agent_url = await ensure_default_handler_agent_running(
+                    agent_url
+                )
+                if started:
+                    startup_message = (
+                        f"Started Handler's embedded agent at {agent_url}."
+                    )
+                connection_bar.set_status(f"Connecting to {agent_url}...")
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
             context_id: str | None = None
@@ -589,6 +782,7 @@ class ServerTab(Container):
                     if saved_conversation is not None
                     else "fresh server context"
                 ),
+                warning=startup_message,
                 saved_conversation=saved_conversation,
             )
             self._persist_session_state()
@@ -646,6 +840,7 @@ class ServerTab(Container):
 
         messages_panel = server_view.messages_panel()
         messages_panel.add_message("user", message_text)
+        input_panel.set_waiting(True)
 
         try:
             credentials = messages_panel.get_auth_credentials()
@@ -712,6 +907,10 @@ class ServerTab(Container):
                 exc_info=True,
             )
             messages_panel.add_system_message(f"Error: {error!s}")
+        finally:
+            if self.is_connected:
+                input_panel.set_waiting(False)
+                input_panel.focus_input()
 
     def _refresh_status_badges(self) -> None:
         server_view = self._try_get_server_view()

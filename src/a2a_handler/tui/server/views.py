@@ -8,7 +8,11 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Select, Static
 
-from a2a_handler.servers import ServerDefinition, ServerSource
+from a2a_handler.servers import (
+    ServerDefinition,
+    ServerSource,
+    is_default_handler_agent_server,
+)
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.types import MANUAL_SERVER_ID
 
@@ -27,6 +31,9 @@ MANUAL_SERVER_LABEL = "URL..."
 
 def _picker_option_label(server_def: ServerDefinition) -> str:
     """Build a plain-text picker label that stays readable in Textual selects."""
+    if is_default_handler_agent_server(server_def):
+        return server_def.label
+
     source_label = PICKER_GROUP_LABELS[server_def.source]
     if server_def.source == ServerSource.RECENT:
         return f"{source_label}: {server_def.label} (resume)"
@@ -82,8 +89,8 @@ class ConnectionBar(Container):
         connect_button.label = "RECONNECT" if is_connected else "CONNECT"
         if is_connected:
             connect_button.add_class("reconnect")
-            return
-        connect_button.remove_class("reconnect")
+        else:
+            connect_button.remove_class("reconnect")
 
     def set_server_catalog(
         self,
@@ -226,12 +233,14 @@ class ServerView(Container):
                     yield InputPanel(id="input-container", classes="panel")
 
     def on_mount(self) -> None:
+        connect_shell = self.query_one("#connect-shell")
+        connect_shell.border_subtitle = "Server"
         self.query_one(
             "#agent-card-container", AgentCardPanel
         ).border_title = "Agent Card"
         self.query_one(
             "#messages-container", TabbedMessagesPanel
-        ).border_title = "Activity"
+        ).border_subtitle = "Activity"
         self.query_one("#input-container", InputPanel).border_title = "Compose"
         self.input_panel().set_enabled(False)
 

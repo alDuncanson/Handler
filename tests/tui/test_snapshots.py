@@ -143,6 +143,7 @@ def _stable_export_screenshot(
         file=io.StringIO(),
         force_terminal=True,
         color_system="truecolor",
+        no_color=False,
         record=True,
         legacy_windows=False,
         safe_box=False,
@@ -203,6 +204,11 @@ def _patch_snapshot_environment(
 
     fake_handler = _FakeTUILogHandler()
     catalog = ServerCatalog(repository_servers=repository_servers)
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("CLICOLOR", "1")
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
 
     monkeypatch.setattr(app_module, "get_theme", lambda: "gruvbox")
     monkeypatch.setattr(app_module, "save_theme", lambda theme: None)

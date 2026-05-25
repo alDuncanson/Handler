@@ -34,7 +34,7 @@ handler tui                              # launch the interactive TUI
 handler message send URL "hello"         # send a message from the CLI
 handler card get URL                     # fetch an agent card
 handler mcp                              # start the MCP server
-handler server run agent                 # run the bundled reference agent
+handler server run agent                 # run the bundled embedded agent
 handler docs                             # open the hosted documentation
 handler update                           # upgrade Handler to the latest release
 ```

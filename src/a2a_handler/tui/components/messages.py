@@ -4,16 +4,23 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin, urlparse
 
+from a2a.types import DataPart, FilePart, Task, TextPart
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
-from textual.widgets import Static, TabbedContent, TabPane, Tabs
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
-from a2a_handler.service import extract_text, response_state, response_task_id
+from a2a_handler.service import (
+    extract_text,
+    response_context_id,
+    response_state,
+    response_task_id,
+)
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
 from a2a_handler.tui.components.headers import HeadersPanel
@@ -27,23 +34,121 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+HANDLER_DOCS_URL = "https://handler.alduncanson.com/"
 
-class Message(Static):
-    """A single message in the chat."""
+
+def _part_kind(part: Any) -> str:
+    """Return a compact display label for an A2A part."""
+    root = getattr(part, "root", part)
+    if isinstance(root, TextPart):
+        return "text"
+    if isinstance(root, DataPart):
+        return "data"
+    if isinstance(root, FilePart):
+        return "file"
+    return getattr(root, "kind", type(root).__name__)
+
+
+def _artifact_label(artifact: Artifact) -> str:
+    """Return a human-readable artifact identifier for timeline summaries."""
+    return artifact.name or artifact.artifact_id or "unnamed artifact"
+
+
+def _artifact_summary(artifact: Artifact) -> str:
+    """Summarize an artifact without forcing users into the raw protocol view."""
+    kinds = [_part_kind(part) for part in artifact.parts or []]
+    part_summary = ", ".join(kinds) if kinds else "no parts"
+    return f"{_artifact_label(artifact)} ({part_summary})"
+
+
+def _artifact_chip_summary(artifact: Artifact) -> str:
+    """Return a compact artifact summary suitable for a metadata chip."""
+    label = artifact.name or artifact.artifact_id or "unnamed artifact"
+    if artifact.artifact_id and not artifact.name:
+        label = _short_id(artifact.artifact_id)
+    kinds = [_part_kind(part) for part in artifact.parts or []]
+    part_summary = ", ".join(kinds) if kinds else "no parts"
+    return f"{label} ({part_summary})"
+
+
+def _short_id(value: str, *, prefix: int = 8, suffix: int = 5) -> str:
+    """Shorten protocol IDs while keeping them recognizable."""
+    if len(value) <= prefix + suffix + 1:
+        return value
+    return f"{value[:prefix]}…{value[-suffix:]}"
+
+
+def _external_link_url(href: str) -> str | None:
+    """Return an external URL for a markdown link if Handler can open it."""
+    parsed = urlparse(href)
+    if parsed.scheme in {"http", "https"}:
+        return href
+    if parsed.scheme:
+        return None
+    if href.startswith("#"):
+        return None
+    return urljoin(HANDLER_DOCS_URL, href)
+
+
+class Message(Container):
+    """A single message card in the conversation timeline."""
 
     def __init__(
         self,
         role: str,
         content: str,
         timestamp: datetime | None = None,
+        metadata: str | None = None,
+        markdown: bool = True,
+        render_metadata: bool = True,
         **kwargs: Any,
     ) -> None:
-        formatted_time = (timestamp or datetime.now()).strftime("%H:%M:%S")
-        super().__init__(f"{formatted_time} {content}", **kwargs)
+        super().__init__(**kwargs)
+        self.role = role
+        self.timestamp = timestamp or datetime.now()
+        self.body = content
+        self.metadata = metadata
+        self.markdown = markdown
+        self.render_metadata = render_metadata
+        self.content = self._plain_text()
         self.add_class(f"message-{role}")
 
+    def _plain_text(self) -> str:
+        """Return the text used by existing tests and simple transcript scans."""
+        formatted_time = self.timestamp.strftime("%H:%M:%S")
+        parts = [f"{formatted_time} {self.body}"]
+        if self.metadata:
+            parts.append(self.metadata)
+        return "\n".join(parts)
 
-class AgentMessage(Static):
+    def compose(self) -> ComposeResult:
+        formatted_time = self.timestamp.strftime("%H:%M:%S")
+        with Horizontal(classes="message-header"):
+            yield Static(self.role.title(), classes="message-role")
+            yield Static(formatted_time, classes="message-time")
+        if self.markdown:
+            yield Markdown(self.body, classes="message-body", open_links=False)
+        else:
+            yield Static(self.body, classes="message-body message-body-plain")
+        if self.metadata and self.render_metadata:
+            yield Static(self.metadata, classes="message-metadata")
+
+    def on_mount(self) -> None:
+        for widget in self.query("Markdown, Static"):
+            widget.can_focus = False
+
+    @on(Markdown.LinkClicked)
+    def _open_markdown_link(self, event: Markdown.LinkClicked) -> None:
+        """Open external markdown links from message bodies."""
+        event.stop()
+        url = _external_link_url(event.href)
+        if url is None:
+            self.notify(f"Unsupported link: {event.href}", severity="warning")
+            return
+        self.app.open_url(url)
+
+
+class AgentMessage(Message):
     """An agent message with A2A protocol metadata."""
 
     def __init__(
@@ -52,9 +157,73 @@ class AgentMessage(Static):
         timestamp: datetime | None = None,
         **kwargs: Any,
     ) -> None:
-        formatted_time = (timestamp or datetime.now()).strftime("%H:%M:%S")
         content = extract_text(response) or "(no text in response)"
-        super().__init__(f"{formatted_time} {content}", **kwargs)
+        self.task_id = response_task_id(response)
+        self.context_id = response_context_id(response)
+        self.artifacts = (
+            list(response.artifacts or []) if isinstance(response, Task) else []
+        )
+        self.protocol_fields = self._protocol_fields(response)
+        metadata = self._metadata(response)
+        super().__init__(
+            "agent",
+            content,
+            timestamp=timestamp,
+            metadata=metadata,
+            markdown=True,
+            render_metadata=False,
+            **kwargs,
+        )
+
+    def _protocol_fields(self, response: A2AResponse) -> list[tuple[str, str, str]]:
+        """Return protocol metadata fields as display label, value, and CSS tone."""
+        fields: list[tuple[str, str, str]] = []
+        state = response_state(response)
+        task_id = response_task_id(response)
+        context_id = response_context_id(response)
+        if state:
+            fields.append(("state", state.value, "metadata-state"))
+        if task_id:
+            fields.append(("task", _short_id(task_id), "metadata-task"))
+        if context_id:
+            fields.append(("context", _short_id(context_id), "metadata-context"))
+        if self.artifacts:
+            label = "artifact" if len(self.artifacts) == 1 else "artifacts"
+            value = (
+                _artifact_chip_summary(self.artifacts[0])
+                if len(self.artifacts) == 1
+                else str(len(self.artifacts))
+            )
+            fields.append((label, value, "metadata-artifacts"))
+        return fields
+
+    def _metadata(self, response: A2AResponse) -> str | None:
+        """Build compact protocol metadata for the message footer."""
+        fields = []
+        state = response_state(response)
+        task_id = response_task_id(response)
+        context_id = response_context_id(response)
+        if state:
+            fields.append(f"state: {state.value}")
+        if task_id:
+            fields.append(f"task: {task_id}")
+        if context_id:
+            fields.append(f"context: {context_id}")
+        if self.artifacts:
+            artifact_summaries = "; ".join(
+                _artifact_summary(artifact) for artifact in self.artifacts
+            )
+            fields.append(f"artifacts: {artifact_summaries}")
+        return " · ".join(fields) if fields else None
+
+    def compose(self) -> ComposeResult:
+        yield from super().compose()
+        if self.protocol_fields:
+            with Horizontal(classes="message-metadata-row"):
+                for label, value, tone_class in self.protocol_fields:
+                    with Horizontal(classes=f"message-metadata-chip {tone_class}"):
+                        yield Static(label, classes="message-metadata-label")
+                        yield Static(value, classes="message-metadata-value")
 
 
 class ChatScrollContainer(VerticalScroll):
@@ -67,20 +236,20 @@ class TabbedMessagesPanel(Container):
     """Panel with tabs for Messages and Logs."""
 
     BINDINGS = [
-        Binding("h", "previous_tab", "← Tab", show=True, key_display="h/←"),
-        Binding("l", "next_tab", "→ Tab", show=True, key_display="l/→"),
+        Binding("h", "previous_tab", "← Tab", show=False, key_display="h/←"),
+        Binding("l", "next_tab", "→ Tab", show=False, key_display="l/→"),
         Binding("left", "previous_tab", "Previous Tab", show=False),
         Binding("right", "next_tab", "Next Tab", show=False),
-        Binding("j", "scroll_down", "↓ Scroll", show=True, key_display="j/↓"),
-        Binding("k", "scroll_up", "↑ Scroll", show=True, key_display="k/↑"),
+        Binding("j", "scroll_down", "↓ Scroll", show=False, key_display="j/↓"),
+        Binding("k", "scroll_up", "↑ Scroll", show=False, key_display="k/↑"),
         Binding("down", "scroll_down", "Scroll Down", show=False),
         Binding("up", "scroll_up", "Scroll Up", show=False),
-        Binding("ctrl+h", "scroll_left", "← Scroll", show=True),
-        Binding("ctrl+l", "scroll_right", "→ Scroll", show=True),
+        Binding("ctrl+h", "scroll_left", "← Scroll", show=False),
+        Binding("ctrl+l", "scroll_right", "→ Scroll", show=False),
         Binding("ctrl+left", "scroll_left", "Scroll Left", show=False),
         Binding("ctrl+right", "scroll_right", "Scroll Right", show=False),
-        Binding("ctrl+d", "scroll_half_down", "½ Page ↓", show=True),
-        Binding("ctrl+u", "scroll_half_up", "½ Page ↑", show=True),
+        Binding("ctrl+d", "scroll_half_down", "½ Page ↓", show=False),
+        Binding("ctrl+u", "scroll_half_up", "½ Page ↑", show=False),
         Binding("y", "copy_task_id", "Copy ID", show=False),
         Binding("Y", "copy_context_id", "Copy Ctx", show=False),
         Binding("a", "copy_artifact_id", "Copy ID", show=False),
@@ -149,7 +318,7 @@ class TabbedMessagesPanel(Container):
     def add_message(self, role: str, content: str) -> None:
         logger.debug("Adding %s message: %s", role, content[:50])
         chat_container = self._get_chat_container()
-        message_widget = Message(role, content)
+        message_widget = Message(role, content, markdown=role != "system")
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 

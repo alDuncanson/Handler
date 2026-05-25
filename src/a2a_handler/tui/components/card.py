@@ -27,12 +27,14 @@ class AgentCardPanel(Container):
     """Panel displaying agent card information with tabs."""
 
     BINDINGS = [
-        Binding("j", "scroll_down", "\u2193 Scroll", show=True, key_display="j/\u2193"),
-        Binding("k", "scroll_up", "\u2191 Scroll", show=True, key_display="k/\u2191"),
+        Binding(
+            "j", "scroll_down", "\u2193 Scroll", show=False, key_display="j/\u2193"
+        ),
+        Binding("k", "scroll_up", "\u2191 Scroll", show=False, key_display="k/\u2191"),
         Binding("down", "scroll_down", "Scroll Down", show=False),
         Binding("up", "scroll_up", "Scroll Up", show=False),
-        Binding("ctrl+d", "scroll_half_down", "\u00bd Page \u2193", show=True),
-        Binding("ctrl+u", "scroll_half_up", "\u00bd Page \u2191", show=True),
+        Binding("ctrl+d", "scroll_half_down", "\u00bd Page \u2193", show=False),
+        Binding("ctrl+u", "scroll_half_up", "\u00bd Page \u2191", show=False),
     ]
 
     can_focus = True
