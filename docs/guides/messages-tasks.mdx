@@ -55,6 +55,25 @@ Use newline-delimited JSON when you want structured stream events:
 handler --output ndjson message stream --server demo --text "Summarize your capabilities"
 ```
 
+If you need to tune networking behavior, Handler exposes global timeout flags
+and matching environment variables. Values are seconds, or `none` to disable a
+specific timeout:
+
+```bash
+handler \
+  --connect-timeout 120 \
+  --read-timeout 120 \
+  --write-timeout 120 \
+  --pool-timeout 120 \
+  --stream-read-timeout none \
+  message stream --server demo --text "Summarize your capabilities"
+```
+
+The same knobs are available as `HANDLER_CONNECT_TIMEOUT`,
+`HANDLER_READ_TIMEOUT`, `HANDLER_WRITE_TIMEOUT`, `HANDLER_POOL_TIMEOUT`, and
+`HANDLER_STREAM_READ_TIMEOUT`. Streaming disables the read timeout by default so
+long-running tasks are not aborted during idle gaps between SSE events.
+
 ## Continue a saved conversation
 
 Handler persists conversation identifiers locally so you can continue later:

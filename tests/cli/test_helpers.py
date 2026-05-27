@@ -17,6 +17,7 @@ from a2a_handler.cli._helpers import (
     AgentSelection,
     build_http_client,
     build_streaming_http_client,
+    configure_http_timeouts,
     handle_client_error,
     TIMEOUT,
     resolve_agent_selection,
@@ -60,6 +61,43 @@ class TestBuildHttpClient:
         assert client.timeout.read is None
         assert client.timeout.write == TIMEOUT
         assert client.timeout.pool == TIMEOUT
+
+    def test_configured_timeouts_apply_to_standard_and_streaming_clients(self):
+        """Test configured timeout knobs are used by HTTP clients."""
+        configure_http_timeouts(
+            connect_timeout="5",
+            read_timeout="6",
+            write_timeout="7",
+            pool_timeout="8",
+            stream_read_timeout="9",
+        )
+
+        standard_client = build_http_client()
+        assert standard_client.timeout.connect == 5
+        assert standard_client.timeout.read == 6
+        assert standard_client.timeout.write == 7
+        assert standard_client.timeout.pool == 8
+
+        streaming_client = build_streaming_http_client()
+        assert streaming_client.timeout.connect == 5
+        assert streaming_client.timeout.read == 9
+        assert streaming_client.timeout.write == 7
+        assert streaming_client.timeout.pool == 8
+
+    def test_timeout_none_value_disables_timeout(self):
+        """Test 'none' disables a configured timeout."""
+        configure_http_timeouts(read_timeout="none", stream_read_timeout="30")
+
+        standard_client = build_http_client()
+        assert standard_client.timeout.read is None
+
+        streaming_client = build_streaming_http_client()
+        assert streaming_client.timeout.read == 30
+
+    def test_invalid_timeout_value_raises_click_error(self):
+        """Test invalid timeout values are rejected."""
+        with pytest.raises(click.BadParameter):
+            configure_http_timeouts(connect_timeout="not-a-number")
 
 
 class TestHandleClientError:
