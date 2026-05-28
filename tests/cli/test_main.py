@@ -9,6 +9,7 @@ from unittest.mock import patch as mock_patch
 import pytest
 from click.testing import CliRunner
 
+from a2a_handler.cli._helpers import build_http_client, build_streaming_http_client
 from a2a_handler.cli import cli
 
 
@@ -73,6 +74,14 @@ def test_version_output(runner: CliRunner) -> None:
     assert '"version"' in result.output
 
 
+def test_version_json_output(runner: CliRunner) -> None:
+    """Version command emits JSON when requested."""
+    result = runner.invoke(cli, ["--output", "json", "version"])
+
+    assert result.exit_code == 0
+    assert '"version"' in result.output
+
+
 def test_docs_opens_deployed_documentation(runner: CliRunner) -> None:
     """Docs command opens the hosted documentation URL."""
     with patch("a2a_handler.cli.webbrowser.open", return_value=True) as mock_open:
@@ -82,6 +91,92 @@ def test_docs_opens_deployed_documentation(runner: CliRunner) -> None:
     mock_open.assert_called_once_with("https://handler.alduncanson.com/")
     assert '"url": "https://handler.alduncanson.com/"' in result.output
     assert '"opened": true' in result.output
+
+
+def test_timeout_flags_configure_http_clients(runner: CliRunner) -> None:
+    """Global timeout flags configure standard and streaming HTTP clients."""
+    result = runner.invoke(
+        cli,
+        [
+            "--connect-timeout",
+            "10",
+            "--read-timeout",
+            "11",
+            "--write-timeout",
+            "12",
+            "--pool-timeout",
+            "13",
+            "--stream-read-timeout",
+            "none",
+            "version",
+        ],
+    )
+
+    assert result.exit_code == 0
+    standard_client = build_http_client()
+    assert standard_client.timeout.connect == 10
+    assert standard_client.timeout.read == 11
+    assert standard_client.timeout.write == 12
+    assert standard_client.timeout.pool == 13
+    assert build_streaming_http_client().timeout.read is None
+
+
+def test_timeout_env_vars_configure_http_clients(runner: CliRunner) -> None:
+    """Timeout environment variables configure HTTP clients."""
+    result = runner.invoke(
+        cli,
+        ["version"],
+        env={
+            "HANDLER_CONNECT_TIMEOUT": "20",
+            "HANDLER_READ_TIMEOUT": "21",
+            "HANDLER_WRITE_TIMEOUT": "22",
+            "HANDLER_POOL_TIMEOUT": "23",
+            "HANDLER_STREAM_READ_TIMEOUT": "24",
+        },
+    )
+
+    assert result.exit_code == 0
+    standard_client = build_http_client()
+    assert standard_client.timeout.connect == 20
+    assert standard_client.timeout.read == 21
+    assert standard_client.timeout.write == 22
+    assert standard_client.timeout.pool == 23
+    assert build_streaming_http_client().timeout.read == 24
+
+
+def test_timeout_env_vars_load_from_workspace_dotenv_before_click_parses(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Timeout envvars in .env are loaded before Click resolves options."""
+    workspace = tmp_path / "repo"
+    nested_dir = workspace / "src"
+    nested_dir.mkdir(parents=True)
+    (workspace / ".env").write_text(
+        "HANDLER_CONNECT_TIMEOUT=30\n"
+        "HANDLER_READ_TIMEOUT=31\n"
+        "HANDLER_WRITE_TIMEOUT=32\n"
+        "HANDLER_POOL_TIMEOUT=33\n"
+        "HANDLER_STREAM_READ_TIMEOUT=34\n"
+    )
+    monkeypatch.chdir(nested_dir)
+    for name in (
+        "HANDLER_CONNECT_TIMEOUT",
+        "HANDLER_READ_TIMEOUT",
+        "HANDLER_WRITE_TIMEOUT",
+        "HANDLER_POOL_TIMEOUT",
+        "HANDLER_STREAM_READ_TIMEOUT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    result = runner.invoke(cli, ["version"])
+
+    assert result.exit_code == 0
+    standard_client = build_http_client()
+    assert standard_client.timeout.connect == 30
+    assert standard_client.timeout.read == 31
+    assert standard_client.timeout.write == 32
+    assert standard_client.timeout.pool == 33
+    assert build_streaming_http_client().timeout.read == 34
 
 
 def test_update_uses_uv_when_available(runner: CliRunner) -> None:
@@ -138,4 +233,4 @@ def test_update_errors_when_no_supported_installer_is_available(
         result = runner.invoke(cli, ["update"])
 
     assert result.exit_code == 1
-    assert '"code": "installer_not_found"' in result.output
+    assert "Could not find uv or pipx" in result.output

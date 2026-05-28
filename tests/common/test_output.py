@@ -10,7 +10,7 @@ class TestOutput:
 
     def test_json(self, capsys):
         """Test JSON output."""
-        output = Output()
+        output = Output(output_format="json")
         output.json({"key": "value"})
         captured = capsys.readouterr()
         data = json.loads(captured.out)
@@ -20,7 +20,7 @@ class TestOutput:
         """Test JSON output with non-serializable type (uses default=str)."""
         from datetime import datetime
 
-        output = Output()
+        output = Output(output_format="json")
         now = datetime.now()
         output.json({"time": now})
         captured = capsys.readouterr()
@@ -29,7 +29,7 @@ class TestOutput:
 
     def test_error(self, capsys):
         """Test error output."""
-        output = Output()
+        output = Output(output_format="json")
         output.error(code="test_error", message="Something went wrong")
         captured = capsys.readouterr()
         data = json.loads(captured.err)
@@ -39,7 +39,7 @@ class TestOutput:
 
     def test_error_with_details(self, capsys):
         """Test error output with details and suggestion."""
-        output = Output()
+        output = Output(output_format="json")
         output.error(
             code="test_error",
             message="Something went wrong",
@@ -64,6 +64,28 @@ class TestOutput:
         output.error(code="x", message="bad")
         captured = capsys.readouterr()
         assert captured.err != ""
+
+    def test_json_output_stays_structured_by_default(self, capsys):
+        """json() keeps structured output by default."""
+        output = Output()
+        output.json({"key": "value", "items": ["one", "two"]})
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data == {"key": "value", "items": ["one", "two"]}
+
+    def test_text_output(self, capsys):
+        """text() emits readable text."""
+        output = Output()
+        output.text("hello")
+        captured = capsys.readouterr()
+        assert captured.out == "hello\n"
+
+    def test_text_error_is_readable(self, capsys):
+        """Default errors render readable text."""
+        output = Output()
+        output.error(code="test_error", message="Something went wrong")
+        captured = capsys.readouterr()
+        assert "Error: Something went wrong" in captured.err
 
 
 class TestNdjsonOutput:

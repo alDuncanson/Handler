@@ -5,8 +5,11 @@ description: "Send messages, stream responses, manage tasks, and reuse saved con
 
 # Messages, tasks, and sessions
 
-The CLI is best when you want repeatable A2A operations, automation, or shell-
-friendly workflows.
+Message responses and errors default to readable text for interactive use.
+Pass `--output json` for full protocol responses, or `--output ndjson` before
+streaming commands when you need structured event output for automation or
+agent-driven workflows. Commands without a custom text formatter may still emit
+JSON in the default mode.
 
 ## Inspect an agent card first
 
@@ -37,8 +40,41 @@ handler message send --url http://localhost:8000 --text "Hello"
 handler message stream --server demo --text "Summarize your capabilities"
 ```
 
+In text mode, streaming prints lightweight `event:` summaries for task state
+changes, tool calls, tool results, data/file parts, and response text before the
+final answer content. That makes it clear when the agent is still working even
+if the model's text arrives in one larger chunk. Handler also prints the full
+task ID once when the stream starts so you can resubscribe if the connection is
+interrupted.
+
 The `send` command also accepts `--stream` when you want the same request shape
 but prefer one command form.
+
+Use newline-delimited JSON when you want structured stream events:
+
+```bash
+handler --output ndjson message stream --server demo --text "Summarize your capabilities"
+```
+
+If you need to tune networking behavior, Handler exposes global timeout flags
+and matching environment variables. Values are seconds, or `none` to disable a
+specific timeout:
+
+```bash
+handler \
+  --connect-timeout 120 \
+  --read-timeout 120 \
+  --write-timeout 120 \
+  --pool-timeout 120 \
+  --stream-read-timeout none \
+  message stream --server demo --text "Summarize your capabilities"
+```
+
+The same knobs are available as `HANDLER_CONNECT_TIMEOUT`,
+`HANDLER_READ_TIMEOUT`, `HANDLER_WRITE_TIMEOUT`, `HANDLER_POOL_TIMEOUT`, and
+`HANDLER_STREAM_READ_TIMEOUT`, including from a workspace `.env` file. Streaming
+disables the read timeout by default so long-running tasks are not aborted during
+idle gaps between SSE events.
 
 ## Continue a saved conversation
 
@@ -63,10 +99,10 @@ handler message send \
 ## Send custom payloads or headers
 
 For agent-friendly invocation and integration testing, Handler exposes raw JSON
-and repeatable header flags:
+input, structured output, and repeatable header flags:
 
 ```bash
-handler message send \
+handler --output json message send \
   --server demo \
   --json '{"message":{"role":"user","parts":[{"text":"hello"}]}}' \
   --header 'X-Trace-Id: local-test'

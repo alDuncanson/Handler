@@ -500,7 +500,9 @@ class A2AService:
                 if isinstance(task_update, TaskStatusUpdateEvent):
                     status_message_text = ""
                     if task_update.status and task_update.status.message:
-                        status_message_text = str(task_update.status.message)
+                        status_message_text = extract_text_from_message_parts(
+                            task_update.status.message.parts
+                        )
                     yield StreamEvent(
                         event_type="status",
                         task=received_task,

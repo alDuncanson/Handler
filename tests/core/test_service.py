@@ -15,6 +15,7 @@ from a2a.types import (
     TaskPushNotificationConfig,
     TaskState,
     TaskStatus,
+    TaskStatusUpdateEvent,
     TextPart,
 )
 from typing import cast
@@ -492,6 +493,40 @@ class TestA2AServiceStreamingCompatibility:
         assert events[0].event_type == "task"
         assert events[0].task_id == task.id
         assert events[0].text == extract_text_from_task(task)
+
+    async def test_stream_extracts_status_message_text(self):
+        """Test stream() does not stringify status message objects."""
+        task = _make_task(TaskState.working)
+        status_update = TaskStatusUpdateEvent(
+            task_id=task.id,
+            context_id=task.context_id,
+            final=False,
+            status=TaskStatus(
+                state=TaskState.working,
+                message=Message(
+                    message_id="msg-1",
+                    role=Role.agent,
+                    parts=[Part(root=TextPart(text="Working on it"))],
+                ),
+            ),
+        )
+        fake_client = _FakeStreamingClient(events=[(task, status_update)])
+
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+
+            async def _get_client():
+                return fake_client
+
+            service._get_or_create_client = _get_client  # type: ignore[method-assign]
+
+            events = [event async for event in service.stream("hello")]
+
+        assert len(events) == 1
+        assert events[0].event_type == "status"
+        assert events[0].text == "Working on it"
 
     async def test_resubscribe_handles_tuple_with_none_update(self):
         """Test resubscribe() maps tuple events with None update to task events."""

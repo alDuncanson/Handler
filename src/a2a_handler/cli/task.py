@@ -25,6 +25,7 @@ from a2a_handler.service import (
 
 from ._helpers import (
     build_http_client,
+    build_streaming_http_client,
     handle_client_error,
     handle_validation_error,
     resolve_agent_selection,
@@ -217,7 +218,9 @@ def task_resubscribe(
 
     async def do_resubscribe() -> None:
         try:
-            async with build_http_client(credentials=credentials) as http_client:
+            async with build_streaming_http_client(
+                credentials=credentials
+            ) as http_client:
                 service = A2AService(http_client, resolved_url, credentials=credentials)
 
                 last_task: Task | None = None

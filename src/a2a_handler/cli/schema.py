@@ -85,7 +85,6 @@ def schema(ctx: click.Context) -> None:
 
     \b
     Examples:
-      $ handler schema
       $ handler --output json schema
     """
     root = ctx.find_root().command
@@ -102,9 +101,9 @@ def describe(ctx: click.Context, command_path: tuple[str, ...]) -> None:
 
     \b
     Examples:
-      $ handler describe message send
-      $ handler describe task get
-      $ handler describe server add
+      $ handler --output json describe message send
+      $ handler --output json describe task get
+      $ handler --output json describe server add
     """
     root = ctx.find_root().command
     assert isinstance(root, click.Group)

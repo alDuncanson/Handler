@@ -11,8 +11,8 @@ from a2a_handler.common.input_validation import InputValidationError, validate_a
 from a2a_handler.service import A2AService
 from a2a_handler.validation import (
     ValidationResult,
+    ValidationSource,
     validate_agent_card_from_file,
-    validate_agent_card_from_url,
 )
 
 from ._helpers import (
@@ -155,7 +155,14 @@ def card_validate(
 
     async def do_validate() -> None:
         async with build_http_client(credentials=credentials) as http_client:
-            result = await validate_agent_card_from_url(resolved_url, http_client)
+            service = A2AService(http_client, resolved_url, credentials=credentials)
+            agent_card = await service.get_card()
+            result = ValidationResult(
+                valid=True,
+                source=resolved_url,
+                source_type=ValidationSource.URL,
+                agent_card=agent_card,
+            )
 
         _format_validation_result(result, output)
 
