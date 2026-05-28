@@ -8,12 +8,15 @@
 [![Pepy total downloads](https://img.shields.io/pepy/dt/a2a-handler?label=total%20downloads)](https://pepy.tech/projects/a2a-handler)
 [![GitHub stars](https://img.shields.io/github/stars/alDuncanson/handler)](https://github.com/alDuncanson/handler/stargazers)
 
-![Handler TUI](https://github.com/alDuncanson/Handler/blob/main/assets/handler-tui.png?raw=true)
+![Handler TUI showing an A2A agent session, task panels, and connection details](https://github.com/alDuncanson/Handler/blob/main/assets/handler-tui.png?raw=true)
 
-Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A) client for your terminal.
+Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A)
+client for your terminal.
 
-Use the TUI or CLI to send messages, manage tasks, and inspect agent cards.
-An included MCP server lets your AI assistant talk to A2A agents too.
+Use it to talk to A2A agents from an interactive TUI, scriptable CLI, or MCP
+server. Handler supports reusable server profiles, structured output for
+automation, and production auth patterns including bearer tokens, API keys,
+mTLS, and OAuth2 client credentials.
 
 ## Install
 
@@ -30,13 +33,11 @@ pipx install a2a-handler   # or: pip install a2a-handler
 ## Quick Start
 
 ```bash
-handler tui                              # launch the interactive TUI
-handler message send URL "hello"         # send a message from the CLI
-handler card get URL                     # fetch an agent card
-handler mcp                              # start the MCP server
-handler server run agent                 # run the bundled embedded agent
-handler docs                             # open the hosted documentation
-handler update                           # upgrade Handler to the latest release
+handler tui                                      # launch the interactive TUI
+handler card get --url http://localhost:8000     # inspect an agent card
+handler message send --url URL --text "hello"    # send a CLI message
+handler mcp                                      # expose Handler as MCP tools
+handler docs                                     # open the hosted docs
 ```
 
 ## Run Without Installing
@@ -45,7 +46,7 @@ handler update                           # upgrade Handler to the latest release
 uvx --from a2a-handler handler           # or: pipx run a2a-handler
 ```
 
-## Servers
+## Save a server profile
 
 Handler supports named servers in `$XDG_CONFIG_HOME/handler/servers.toml`
 (global) and `.handler/servers.toml` (repo-local).
@@ -61,8 +62,15 @@ type = "bearer"
 env = "HANDLER_LOCAL_TOKEN"
 ```
 
-See [docs/](docs) for the full auth reference covering bearer, API key, mTLS,
-and OAuth2.
+Server profiles are especially useful for OAuth-authenticated, gateway-fronted,
+or enterprise A2A services where URLs and auth shape should be reused while
+secrets stay in environment variables.
+
+## Documentation
+
+- Hosted docs: <https://handler.alduncanson.com>
+- Quickstart source: [docs/quickstart.mdx](docs/quickstart.mdx)
+- CLI reference source: [docs/reference/cli.mdx](docs/reference/cli.mdx)
 
 ## Development
 

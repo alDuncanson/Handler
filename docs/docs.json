@@ -23,7 +23,7 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Docs",
+        "tab": "Get started",
         "groups": [
           {
             "group": "Getting started",
@@ -31,21 +31,39 @@
               "index",
               "quickstart"
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
           {
-            "group": "Workflows",
+            "group": "Core workflows",
             "pages": [
               "guides/tui",
               "guides/messages-tasks",
-              "guides/mcp",
-              "guides/local-servers"
+              "guides/servers",
+              "guides/authentication"
             ]
           },
           {
-            "group": "Configuration",
+            "group": "Agent and MCP workflows",
             "pages": [
-              "guides/servers",
-              "guides/authentication"
+              "guides/mcp",
+              "guides/agent-docs-mcp",
+              "guides/enterprise-a2a",
+              "guides/local-servers"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "CLI",
+            "pages": [
+              "reference/cli"
             ]
           }
         ]

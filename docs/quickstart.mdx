@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "Get Handler running locally, send your first message, and save a reusable server definition."
+description: "Install Handler, inspect an A2A agent, send a first message, and save a reusable server profile."
 ---
 
 # Quickstart
@@ -25,7 +25,7 @@ handler update
 handler upgrade
 ```
 
-## Start with the TUI
+## 1. Start with the TUI
 
 ```bash
 handler tui
@@ -34,14 +34,21 @@ handler tui
 The TUI is the easiest place to browse cards, inspect tasks, and manage auth for
 a connection interactively.
 
-## Try the CLI
+## 2. Try the CLI
 
 ```bash
-handler card get http://localhost:8000
-handler message send http://localhost:8000 "hello"
+handler card get --url http://localhost:8000
+handler message send --url http://localhost:8000 --text "hello"
 ```
 
-## Save a named server
+If you do not already have an A2A server available, start Handler's bundled
+local agent in another terminal:
+
+```bash
+handler server run agent
+```
+
+## 3. Save a named server
 
 Named servers let you reuse a URL and auth configuration instead of typing them
 on every command.
@@ -58,7 +65,7 @@ handler server add demo --url http://localhost:8000 --repository
 
 That creates or updates a `.handler/servers.toml` file at the git root.
 
-## Inspect configured servers
+## 4. Inspect configured servers
 
 ```bash
 handler server list
@@ -66,7 +73,7 @@ handler server show demo
 handler server validate
 ```
 
-## Keep the conversation going
+## 5. Keep the conversation going
 
 Once you have a live task or saved conversation, you can keep using the same
 context from the CLI:

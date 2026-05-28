@@ -1,0 +1,185 @@
+---
+title: "CLI reference"
+description: "Complete reference for Handler commands, global options, structured output, and machine-readable CLI metadata."
+---
+
+# CLI reference
+
+Handler's command line is optimized for both humans and agents. Use text output
+interactively, JSON for scripts, and NDJSON for streaming event consumers.
+
+## Global options
+
+| Option | Description |
+| --- | --- |
+| `--version` | Show the version and exit. |
+| `-v, --verbose` | Enable verbose logging. |
+| `-d, --debug` | Enable debug logging. |
+| `--output text/json/ndjson` | Select output format. Defaults to `text`. |
+| `--quiet` | Suppress non-error output. |
+| `--connect-timeout SECONDS/none` | HTTP connect timeout. Env: `HANDLER_CONNECT_TIMEOUT`. |
+| `--read-timeout SECONDS/none` | HTTP read timeout for non-streaming calls. Env: `HANDLER_READ_TIMEOUT`. |
+| `--write-timeout SECONDS/none` | HTTP write timeout. Env: `HANDLER_WRITE_TIMEOUT`. |
+| `--pool-timeout SECONDS/none` | HTTP connection pool timeout. Env: `HANDLER_POOL_TIMEOUT`. |
+| `--stream-read-timeout SECONDS/none` | HTTP read timeout for streaming calls. Defaults to `none`. Env: `HANDLER_STREAM_READ_TIMEOUT`. |
+
+## Machine-readable metadata
+
+Use these commands when generating wrappers, validating agent plans, or building
+docs from the installed CLI:
+
+```bash
+handler --output json schema
+handler --output json describe message send
+handler --output json describe task get
+handler --output json describe server add
+```
+
+## Core commands
+
+### `handler card get`
+
+Retrieve an agent's card.
+
+```bash
+handler card get --server my-agent
+handler card get --url http://localhost:8000
+```
+
+Options: `--url`, `-s, --server`, `-b, --bearer-env`, `-k, --api-key-env`.
+
+### `handler card validate`
+
+Validate an agent card from a URL, named server, or local file.
+
+```bash
+handler card validate --server my-agent
+handler card validate --file ./agent-card.json
+```
+
+Options: `--url`, `--file`, `-s, --server`, `-b, --bearer-env`, `-k, --api-key-env`.
+
+### `handler message send`
+
+Send a message and receive a response.
+
+```bash
+handler message send --server my-agent --text "Hello"
+handler --output json message send --server my-agent --text "Hello"
+```
+
+Options: `--url`, `-s, --server`, `-t, --text`, `--stream`, `--json`,
+`--context-id`, `--task-id`, `-C, --continue`, `--push-url`, `--push-token`,
+`-b, --bearer-env`, `-k, --api-key-env`, `-H, --header`.
+
+### `handler message stream`
+
+Send a message and stream the response in real time.
+
+```bash
+handler message stream --server my-agent --text "Run the workflow"
+handler --output ndjson message stream --server my-agent --text "Run the workflow"
+```
+
+Options match `message send`, except `--text` is required and streaming is
+always enabled.
+
+### `handler task get`
+
+Retrieve task status.
+
+```bash
+handler task get --server my-agent --task task-123
+handler task get --server my-agent --task task-123 --history-length 10
+```
+
+Options: `--url`, `-s, --server`, `--task`, `-n, --history-length`, `--params`,
+`-b, --bearer-env`, `-k, --api-key-env`.
+
+### `handler task cancel`
+
+Request cancellation of a task.
+
+```bash
+handler task cancel --server my-agent --task task-123
+```
+
+### `handler task resubscribe`
+
+Resubscribe to a task's SSE stream after disconnection.
+
+```bash
+handler task resubscribe --server my-agent --task task-123
+```
+
+### `handler task notification get`
+
+Get the push notification configuration for a task.
+
+```bash
+handler task notification get --server my-agent --task task-123
+```
+
+Options: `--url`, `-s, --server`, `--task`, `-c, --config-id`, `-b, --bearer-env`, `-k, --api-key-env`.
+
+### `handler task notification set`
+
+Configure a push notification webhook for a task.
+
+```bash
+handler task notification set \
+  --server my-agent \
+  --task task-123 \
+  --webhook-url http://127.0.0.1:9000/webhook \
+  --token local-secret
+```
+
+Options: `--url`, `-s, --server`, `--task`, `--webhook-url`, `-t, --token`,
+`-b, --bearer-env`, `-k, --api-key-env`.
+
+## Session commands
+
+| Command | Description |
+| --- | --- |
+| `handler session list` | List all saved conversation sessions. |
+| `handler session show --server my-agent` | Display saved conversation state. |
+| `handler session clear --server my-agent` | Clear saved conversation state for one agent. |
+| `handler session clear --all` | Clear all saved conversation state. |
+
+## Server commands
+
+### `handler server add`
+
+Add a server to the global or repository-local configuration.
+
+```bash
+handler server add demo --url http://localhost:8000
+handler server add prod --url https://agent.example.com --repository
+```
+
+Options include `--url`, `--bearer-env`, `--api-key-env`, `--api-key-header`,
+`--cert`, `--key`, `--oauth2-token-url`, `--oauth2-client-id-env`,
+`--oauth2-client-secret-env`, `--oauth2-scope`, `--global`, and `--repository`.
+
+### Other server commands
+
+| Command | Description |
+| --- | --- |
+| `handler server list` | List configured repository and global servers. |
+| `handler server show NAME` | Show details for a configured server. |
+| `handler server remove NAME` | Remove a server from the configuration. |
+| `handler server validate` | Validate configured servers and default auth resolution. |
+| `handler server run agent` | Start Handler's local A2A agent server. |
+| `handler server run push` | Start a local webhook server for push notifications. |
+
+## Interface and integration commands
+
+| Command | Description |
+| --- | --- |
+| `handler mcp` | Run a local MCP server exposing A2A capabilities. Supports `stdio`, `sse`, and `streamable-http`. |
+| `handler tui` | Launch the interactive terminal interface. |
+| `handler web` | Serve the TUI as a web application. |
+| `handler docs` | Open the Handler documentation in your browser. |
+| `handler version` | Display the current version. |
+| `handler update` | Update Handler to the latest published version. |
+| `handler upgrade` | Alias for `handler update`. |

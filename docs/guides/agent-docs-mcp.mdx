@@ -1,0 +1,86 @@
+---
+title: "Connect agents to Handler docs"
+description: "Use Handler's hosted documentation MCP server so agents can discover Handler commands and structured CLI workflows."
+---
+
+# Connect agents to Handler docs
+
+Handler's documentation is available through a hosted MCP server at:
+
+```text
+https://handler.alduncanson.com/mcp
+```
+
+Connect an agent to this MCP endpoint when you want it to use Handler reliably
+instead of guessing command names or output shapes from model memory.
+
+## When this is useful
+
+- an AI coding assistant needs to call A2A agents from a shell
+- an internal agent should generate `handler --output json ...` commands
+- a workflow needs up-to-date examples for sessions, tasks, and server profiles
+- you want agents to discover Handler docs through MCP rather than a web browser
+
+## Recommended agent instruction
+
+Give the agent a short, operational instruction like this:
+
+```text
+Use the Handler documentation MCP server to look up current Handler CLI syntax.
+Prefer structured output with `handler --output json` or `handler --output ndjson`
+when another program or agent will consume the result.
+```
+
+## Agent-friendly CLI pattern
+
+For single responses, prefer JSON:
+
+```bash
+handler --output json message send \
+  --server production-agent \
+  --text "Summarize the current task state"
+```
+
+For streaming responses, prefer newline-delimited JSON:
+
+```bash
+handler --output ndjson message stream \
+  --server production-agent \
+  --text "Run the long workflow and stream progress"
+```
+
+## Discover commands programmatically
+
+Handler also exposes its own CLI shape for agents and automation:
+
+```bash
+handler --output json schema
+handler --output json describe message send
+handler --output json describe task get
+```
+
+Use these commands when an agent needs to construct invocations dynamically.
+They are also useful for validating wrapper tools, command palettes, and
+generated documentation.
+
+## Built-in local agent behavior
+
+The bundled local agent uses the same hosted docs MCP endpoint by default:
+
+```bash
+handler server run agent
+```
+
+Override the endpoint when testing documentation changes:
+
+```bash
+export HANDLER_DOCS_MCP_URL=http://localhost:3000/mcp
+handler server run agent
+```
+
+Disable the docs MCP toolset for offline runs:
+
+```bash
+export HANDLER_DOCS_MCP_ENABLED=false
+handler server run agent
+```
