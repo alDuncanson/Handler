@@ -5,10 +5,11 @@ description: "Send messages, stream responses, manage tasks, and reuse saved con
 
 # Messages, tasks, and sessions
 
-Message responses default to readable text for interactive use. Pass
-`--output json` for full protocol responses, or `--output ndjson` before
+Message responses and errors default to readable text for interactive use.
+Pass `--output json` for full protocol responses, or `--output ndjson` before
 streaming commands when you need structured event output for automation or
-agent-driven workflows.
+agent-driven workflows. Commands without a custom text formatter may still emit
+JSON in the default mode.
 
 ## Inspect an agent card first
 
@@ -71,8 +72,9 @@ handler \
 
 The same knobs are available as `HANDLER_CONNECT_TIMEOUT`,
 `HANDLER_READ_TIMEOUT`, `HANDLER_WRITE_TIMEOUT`, `HANDLER_POOL_TIMEOUT`, and
-`HANDLER_STREAM_READ_TIMEOUT`. Streaming disables the read timeout by default so
-long-running tasks are not aborted during idle gaps between SSE events.
+`HANDLER_STREAM_READ_TIMEOUT`, including from a workspace `.env` file. Streaming
+disables the read timeout by default so long-running tasks are not aborted during
+idle gaps between SSE events.
 
 ## Continue a saved conversation
 

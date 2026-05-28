@@ -544,7 +544,7 @@ def _stream_text_delta(emitted_text: str, event_text: str) -> str:
     """Return only the not-yet-emitted portion of a stream text event."""
     if not emitted_text:
         return event_text
-    if event_text == emitted_text or event_text in emitted_text:
+    if event_text == emitted_text:
         return ""
     if event_text.startswith(emitted_text):
         return event_text[len(emitted_text) :]

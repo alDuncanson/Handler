@@ -22,6 +22,8 @@ import os
 import shutil
 import subprocess
 import webbrowser
+from collections.abc import Sequence
+from typing import Any
 
 logging.getLogger().setLevel(logging.WARNING)
 
@@ -48,7 +50,31 @@ DOCS_URL = "https://handler.alduncanson.com/"
 PACKAGE_NAME = "a2a-handler"
 
 
-@click.group()
+class RuntimeDotenvGroup(click.Group):
+    """Click group that loads workspace .env before option envvars resolve."""
+
+    def main(
+        self,
+        args: Sequence[str] | None = None,
+        prog_name: str | None = None,
+        complete_var: str | None = None,
+        standalone_mode: bool = True,
+        windows_expand_args: bool = True,
+        **extra: Any,
+    ) -> Any:
+        """Load runtime dotenv before Click parses envvar-backed options."""
+        load_runtime_dotenv()
+        return super().main(
+            args=args,
+            prog_name=prog_name,
+            complete_var=complete_var,
+            standalone_mode=standalone_mode,
+            windows_expand_args=windows_expand_args,
+            **extra,
+        )
+
+
+@click.group(cls=RuntimeDotenvGroup)
 @click.version_option(version=__version__, prog_name="handler")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 @click.option("--debug", "-d", is_flag=True, help="Enable debug logging")
@@ -109,7 +135,6 @@ def cli(
     stream_read_timeout: str | None,
 ) -> None:
     """Handler - A2A protocol client CLI."""
-    load_runtime_dotenv()
     ctx.ensure_object(dict)
     ctx.obj["output_format"] = output_format
     ctx.obj["quiet"] = quiet

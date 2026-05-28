@@ -144,6 +144,41 @@ def test_timeout_env_vars_configure_http_clients(runner: CliRunner) -> None:
     assert build_streaming_http_client().timeout.read == 24
 
 
+def test_timeout_env_vars_load_from_workspace_dotenv_before_click_parses(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Timeout envvars in .env are loaded before Click resolves options."""
+    workspace = tmp_path / "repo"
+    nested_dir = workspace / "src"
+    nested_dir.mkdir(parents=True)
+    (workspace / ".env").write_text(
+        "HANDLER_CONNECT_TIMEOUT=30\n"
+        "HANDLER_READ_TIMEOUT=31\n"
+        "HANDLER_WRITE_TIMEOUT=32\n"
+        "HANDLER_POOL_TIMEOUT=33\n"
+        "HANDLER_STREAM_READ_TIMEOUT=34\n"
+    )
+    monkeypatch.chdir(nested_dir)
+    for name in (
+        "HANDLER_CONNECT_TIMEOUT",
+        "HANDLER_READ_TIMEOUT",
+        "HANDLER_WRITE_TIMEOUT",
+        "HANDLER_POOL_TIMEOUT",
+        "HANDLER_STREAM_READ_TIMEOUT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    result = runner.invoke(cli, ["version"])
+
+    assert result.exit_code == 0
+    standard_client = build_http_client()
+    assert standard_client.timeout.connect == 30
+    assert standard_client.timeout.read == 31
+    assert standard_client.timeout.write == 32
+    assert standard_client.timeout.pool == 33
+    assert build_streaming_http_client().timeout.read == 34
+
+
 def test_update_uses_uv_when_available(runner: CliRunner) -> None:
     """Update command uses uv tool upgrade when uv is available."""
     completed = subprocess.CompletedProcess(

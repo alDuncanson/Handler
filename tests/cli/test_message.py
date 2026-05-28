@@ -20,7 +20,12 @@ from a2a.types import (
     TextPart,
 )
 
-from a2a_handler.cli.message import message, _format_response, _stream_message
+from a2a_handler.cli.message import (
+    message,
+    _format_response,
+    _stream_message,
+    _stream_text_delta,
+)
 from a2a_handler.common import Output
 from a2a_handler.service import StreamEvent
 
@@ -432,6 +437,12 @@ class TestFormatResponse:
 
 class TestStreamMessage:
     """Tests for _stream_message helper."""
+
+    def test_stream_text_delta_emits_repeated_non_snapshot_text(self):
+        """Repeated chunks are emitted unless they are exact cumulative snapshots."""
+        assert _stream_text_delta("OK", "OK") == ""
+        assert _stream_text_delta("Hello", "Hello world") == " world"
+        assert _stream_text_delta("OK, done", "OK") == "OK"
 
     @pytest.mark.asyncio
     async def test_stream_message_collects_response(self):
