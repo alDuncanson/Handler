@@ -223,28 +223,58 @@ class TestCardValidate:
 
     def test_validate_url(self, runner):
         """Test validating a card from URL."""
-        mock_result = ValidationResult(
-            valid=True,
-            source="http://localhost:8000/.well-known/agent.json",
-            source_type=ValidationSource.URL,
-            agent_card=_make_agent_card(),
-        )
+        mock_card = _make_agent_card()
 
         with (
             patch("a2a_handler.cli.card.build_http_client") as mock_client,
-            patch("a2a_handler.cli.card.validate_agent_card_from_url") as mock_validate,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
         ):
             mock_http = AsyncMock()
             mock_http.__aenter__.return_value = mock_http
             mock_http.__aexit__.return_value = None
             mock_client.return_value = mock_http
 
-            mock_validate.return_value = mock_result
+            mock_service = AsyncMock()
+            mock_service.get_card.return_value = mock_card
+            mock_service_cls.return_value = mock_service
 
             result = runner.invoke(card, ["validate", "--url", "http://localhost:8000"])
 
             assert result.exit_code == 0
             assert '"valid": true' in result.output
+
+    def test_validate_url_uses_resolved_credentials(self, runner):
+        """Test card validate passes resolved credentials through service."""
+        mock_card = _make_agent_card()
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_card.return_value = mock_card
+            mock_service_cls.return_value = mock_service
+
+            with mock_patch.dict(os.environ, {"TEST_BEARER_TOKEN": "test-token"}):
+                result = runner.invoke(
+                    card,
+                    [
+                        "validate",
+                        "--url",
+                        "http://localhost:8000",
+                        "--bearer-env",
+                        "TEST_BEARER_TOKEN",
+                    ],
+                )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_service_cls.call_args
+        assert call_kwargs[1]["credentials"] is not None
 
     def test_validate_rejects_invalid_url(self, runner):
         """Test validating malformed URL source fails with validation envelope."""

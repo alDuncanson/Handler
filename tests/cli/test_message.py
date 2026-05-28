@@ -125,7 +125,7 @@ class TestMessageSend:
             mock_service.send.assert_called_once_with("Hello", "ctx-456", None)
 
     def test_message_send_with_continue_flag(self, runner):
-        """Test message send with --continue flag uses session."""
+        """Test --continue resumes the saved context without a terminal task."""
         from a2a_handler.session import AgentSession
 
         mock_session = AgentSession(
@@ -163,9 +163,7 @@ class TestMessageSend:
             )
 
             assert result.exit_code == 0
-            mock_service.send.assert_called_once_with(
-                "Hello", "saved-ctx", "saved-task"
-            )
+            mock_service.send.assert_called_once_with("Hello", "saved-ctx", None)
 
     def test_message_send_with_bearer_auth(self, runner):
         """Test message send with bearer token."""
