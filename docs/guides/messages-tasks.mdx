@@ -131,7 +131,7 @@ input, structured output, and repeatable header flags:
 ```bash
 handler --output json message send \
   --server demo \
-  --json '{"message":{"role":"user","parts":[{"text":"hello"}]}}' \
+  --json '{"text":"hello"}' \
   --header 'X-Trace-Id: local-test'
 ```
 

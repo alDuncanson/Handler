@@ -32,15 +32,18 @@ def session_list() -> None:
     if not sessions:
         return
 
+    data: list[dict[str, object]] = []
     for session_entry in sessions:
-        data: dict[str, object] = {"agent_url": session_entry.agent_url}
+        session_data: dict[str, object] = {"agent_url": session_entry.agent_url}
         if session_entry.context_id:
-            data["context_id"] = session_entry.context_id
+            session_data["context_id"] = session_entry.context_id
         if session_entry.task_id:
-            data["task_id"] = session_entry.task_id
+            session_data["task_id"] = session_entry.task_id
         if session_entry.last_used_at:
-            data["last_used_at"] = session_entry.last_used_at
-        output.json(data)
+            session_data["last_used_at"] = session_entry.last_used_at
+        data.append(session_data)
+
+    output.json(data)
 
 
 @session.command("show")
