@@ -8,18 +8,17 @@
 [![GitHub stars](https://img.shields.io/github/stars/alDuncanson/handler)](https://github.com/alDuncanson/handler/stargazers)
 
 Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A)
-client for your terminal.
+client for software engineers building, testing, and operating agentic systems.
+It provides an interactive TUI, a scriptable CLI with structured output, and an
+MCP server that lets other agents integrate with A2A services directly. Handler
+also supports global and repo-scoped A2A server configuration with bearer,
+API key, mTLS, and OAuth2 client credentials auth.
 
-Use it to talk to A2A agents from an interactive TUI, scriptable CLI, or MCP
-server. Handler supports reusable server profiles, structured output for
-automation, and production auth patterns including bearer tokens, API keys,
-mTLS, and OAuth2 client credentials.
-
-![Handler TUI connected to the built-in Handler Agent, showing the agent card and a completed assistant response](https://github.com/alDuncanson/Handler/blob/main/assets/handler-tui.png?raw=true&v=2026-05-29)
+![Handler TUI connected to the built-in Handler Agent, showing the agent card and a completed assistant response](https://github.com/alDuncanson/Handler/blob/main/assets/tui.png?raw=true)
 
 ## Install
 
-Install Handler as a `uv` tool:
+Install Handler from the [PyPI package](https://pypi.org/project/a2a-handler/) as a `uv` tool:
 
 ```bash
 uv tool install a2a-handler

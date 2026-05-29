@@ -1,14 +1,14 @@
 ---
 title: "Servers"
-description: "Configure reusable global or repository-local server definitions for Handler."
+description: "Configure global or repo-scoped A2A server definitions for Handler."
 ---
 
-# Servers
+# Configure A2A servers
 
-Handler can load named server definitions from two places:
+Handler can load configured A2A server definitions from two places:
 
 - global config at `$XDG_CONFIG_HOME/handler/servers.toml`
-- repository-local config at `.handler/servers.toml`
+- repo-scoped config at `.handler/servers.toml`
 
 Handler also includes a built-in global entry named `Handler Agent` at
 `http://localhost:8000`. It appears in the TUI server picker even before you
@@ -18,7 +18,7 @@ configured server already uses the `Handler Agent` name or the
 `http://localhost:8000` URL. When the TUI auto-starts the embedded agent and
 port `8000` is already occupied, it tries the next available local port.
 
-Repository-local config is useful when a project should travel with a shared
+Repo-scoped config is useful when a project should travel with a shared
 agent URL or auth shape, while secrets continue to come from environment
 variables on each developer machine.
 
@@ -33,7 +33,7 @@ url = "http://localhost:8000"
 
 Each server entry needs a `url`. Auth is optional.
 
-## Global vs repository-local
+## Global vs repo-scoped
 
 Use global config by default:
 
@@ -41,7 +41,7 @@ Use global config by default:
 handler server add demo --url http://localhost:8000
 ```
 
-Use repository-local config when the server definition belongs with the repo:
+Use repo-scoped config when the server definition belongs with the repo:
 
 ```bash
 handler server add demo --url http://localhost:8000 --repository
@@ -52,15 +52,21 @@ handler server add demo --url http://localhost:8000 --repository
 Handler validates server files when it loads them and skips only the invalid
 entries instead of failing the whole file.
 
-These commands help you inspect what is available:
+Use these commands to inspect what is available.
+
+List every configured server Handler can load:
 
 ```bash
 handler server list
 ```
 
+Show one server's resolved configuration:
+
 ```bash
 handler server show demo
 ```
+
+Validate configured servers and auth references:
 
 ```bash
 handler server validate

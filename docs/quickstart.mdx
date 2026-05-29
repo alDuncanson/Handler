@@ -1,25 +1,25 @@
 ---
 title: "Quickstart"
-description: "Install Handler, inspect an A2A agent, send a first message, and save a reusable server profile."
+description: "Install Handler, start a local A2A server, send a first message, and save server configuration."
 ---
 
-# Quickstart
+# Send your first A2A message
 
 ## Install Handler
 
-Install Handler as a `uv` tool:
+Install Handler from the [PyPI package](https://pypi.org/project/a2a-handler/) as a `uv` tool:
 
 ```bash
 uv tool install a2a-handler
 ```
 
-If you prefer not to install it globally, you can run it directly:
+If you prefer not to install it globally, you can invoke Handler without installing:
 
 ```bash
 uvx --from a2a-handler handler --help
 ```
 
-To update Handler later:
+## Update Handler
 
 Use the primary update command:
 
@@ -46,6 +46,13 @@ an A2A server interactively.
 
 ## 2. Try the CLI
 
+If you do not already have an A2A server available, start Handler's bundled
+local agent in another terminal:
+
+```bash
+handler server run agent
+```
+
 Inspect the local A2A server's agent card:
 
 ```bash
@@ -58,31 +65,25 @@ Send your first message:
 handler message send --url http://localhost:8000 --text "hello"
 ```
 
-If you do not already have an A2A server available, start Handler's bundled
-local agent in another terminal:
+## 3. Configure an A2A server
 
-```bash
-handler server run agent
-```
+Handler can store A2A server definitions as configuration for repeated
+connections: the server URL, where the configuration lives, and any auth
+settings needed for Handler to connect as an A2A client.
 
-## 3. Save a named server
-
-Named servers let you reuse a URL and auth configuration instead of typing them
-on every command.
-
-Save a global server profile:
+Save a global server configuration:
 
 ```bash
 handler server add demo --url http://localhost:8000
 ```
 
-To store a server in the repository instead of your global config:
+Store the server configuration with the current repository instead of your global config:
 
 ```bash
 handler server add demo --url http://localhost:8000 --repository
 ```
 
-That creates or updates a `.handler/servers.toml` file at the git root.
+That creates or updates `.handler/servers.toml` at the git root.
 
 ## 4. Inspect configured servers
 
@@ -106,10 +107,10 @@ handler server validate
 
 ## 5. Keep the conversation going
 
-Once you have a live task or saved conversation, you can keep using the same
-context from the CLI:
+Once you have a live task or saved conversation, the CLI can continue from the
+same context.
 
-Start or resume a conversation with the named server:
+Start or resume a conversation with the configured server:
 
 ```bash
 handler message send --server demo --text "Hello"
@@ -155,7 +156,7 @@ Ready to go deeper? Choose the path that matches what you want to do next.
 
 <Columns cols={2}>
   <Card title="Read the guides" icon="book-open" href="/guides/tui" cta="Explore workflows" arrow>
-    Learn Handler's TUI, CLI messaging, server profiles, authentication, MCP,
+    Learn Handler's TUI, CLI messaging, server configuration, authentication, MCP,
     and enterprise A2A workflows.
   </Card>
 

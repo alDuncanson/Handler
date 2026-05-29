@@ -1,24 +1,27 @@
 ---
 title: "Overview"
-description: "Handler is a terminal-first A2A client with a TUI, scriptable CLI, MCP bridge, and reusable server authentication profiles."
+description: "Handler is a terminal-first A2A client with a TUI, scriptable CLI, MCP bridge, and server configuration for production auth."
 ---
 
-# Start using Handler
+# What is Handler?
 
 Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A)
-client for people building, testing, and operating agentic systems.
+client for software engineers building, testing, and operating agentic systems.
+It gives you a terminal-native control surface for A2A services: an interactive
+TUI for exploration, a scriptable CLI with structured output for automation,
+and an MCP server so other agents can call A2A services through Handler.
 
 Use Handler when you need to:
 
-- explore A2A agents interactively from a terminal UI
-- send messages, stream events, and manage tasks from scripts
 - inspect and validate agent cards before debugging deeper protocol issues
-- expose Handler as MCP tools so other agents can call A2A services
-- save reusable global or repository-local server definitions with enterprise auth
+- send messages, stream events, and manage tasks from shell scripts or CI
+- configure global or repo-scoped A2A servers with bearer, API key, mTLS,
+  or OAuth2 client credentials auth
+- expose A2A operations as MCP tools for agent harnesses such as Amp or Pi
 
 ## Install
 
-Install Handler as a `uv` tool:
+Install Handler from the [PyPI package](https://pypi.org/project/a2a-handler/) as a `uv` tool:
 
 ```bash
 uv tool install a2a-handler
@@ -67,9 +70,9 @@ agent's MCP server configuration. See [MCP server](./guides/mcp).
 
 ## Choose your path
 
-- [Quickstart](./quickstart) walks through install, first message, and server profiles.
+- [Quickstart](./quickstart) walks through install, first message, and configured servers.
 - [TUI and web UI](./guides/tui) covers the interactive workflow.
 - [Messages, tasks, and sessions](./guides/messages-tasks) explains CLI automation and structured output.
-- [Server profiles](./guides/servers) and [authentication](./guides/authentication) cover reusable enterprise configuration.
+- [Configured servers](./guides/servers) and [authentication](./guides/authentication) cover production connection configuration.
 - [MCP server](./guides/mcp) shows how to let MCP clients call A2A agents through Handler.
 - [CLI reference](./reference/cli) lists commands, flags, and machine-readable schema helpers.

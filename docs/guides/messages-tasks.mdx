@@ -3,8 +3,7 @@ title: "Messages, tasks, and sessions"
 description: "Send messages, stream responses, manage tasks, and reuse saved conversation state from the Handler CLI."
 ---
 
-# Messages, tasks, and sessions
-
+# Use the CLI for A2A workflows
 
 Message responses and errors default to readable text for interactive use.
 Pass `--output json` for full protocol responses, or `--output ndjson` before
@@ -14,15 +13,19 @@ JSON in the default mode.
 
 ## Inspect an agent card first
 
-Fetch the card for a named server:
+Fetch the card for a configured server:
 
 ```bash
 handler card get --server demo
 ```
 
+Validate the configured server's card:
+
 ```bash
 handler card validate --server demo
 ```
+
+Validate a saved agent card file:
 
 ```bash
 handler card validate --file ./agent-card.json
@@ -33,21 +36,21 @@ agent itself is advertising a valid card.
 
 ## Send a message
 
-Send a basic message to a named server:
+Send a basic message to a configured server:
 
 ```bash
 handler message send --server demo --text "Hello"
 ```
 
-You can target a URL directly instead of a named server:
+You can target a URL directly instead of a configured server:
 
 ```bash
 handler message send --url http://localhost:8000 --text "Hello"
 ```
 
-## Stream the response live
+## Stream the response
 
-Stream task events and response text from a named server:
+Stream task events and response text from a configured server:
 
 ```bash
 handler message stream --server demo --text "Summarize your capabilities"
@@ -98,9 +101,13 @@ Handler persists conversation identifiers locally so you can continue later:
 handler message send --server demo --text "Start a task"
 ```
 
+Continue using Handler's saved context and task IDs:
+
 ```bash
 handler message send --server demo --text "Continue that task" --continue
 ```
+
+Inspect the saved session for a configured server:
 
 ```bash
 handler session show --server demo
@@ -138,13 +145,19 @@ Fetch the latest task status:
 handler task get --server demo --task task-123
 ```
 
+Include recent message history with the task response:
+
 ```bash
 handler task get --server demo --task task-123 --history-length 10
 ```
 
+Cancel a running task:
+
 ```bash
 handler task cancel --server demo --task task-123
 ```
+
+Reconnect to a task's SSE stream after interruption:
 
 ```bash
 handler task resubscribe --server demo --task task-123
@@ -179,17 +192,25 @@ For a local receiver you can run the bundled webhook server described in
 Handler stores session metadata locally so repeated CLI calls can reuse
 conversation state.
 
+List all saved sessions:
+
 ```bash
 handler session list
 ```
+
+Show the saved session for a configured server:
 
 ```bash
 handler session show --server demo
 ```
 
+Clear the saved session for one configured server:
+
 ```bash
 handler session clear --server demo
 ```
+
+Clear all saved sessions:
 
 ```bash
 handler session clear --all

@@ -3,8 +3,7 @@ title: "MCP server"
 description: "Expose Handler's A2A capabilities through a local MCP server for Amp, Pi, and other MCP-compatible agent harnesses."
 ---
 
-# MCP server
-
+# Expose A2A tools through MCP
 
 Handler can expose its A2A features as an MCP server so other tools can call the
 same card, message, task, session, and auth operations.
@@ -49,9 +48,13 @@ Start the MCP server with the default stdio transport:
 handler mcp --transport stdio
 ```
 
+Start the MCP server with Server-Sent Events transport:
+
 ```bash
 handler mcp --transport sse
 ```
+
+Start the MCP server with streamable HTTP transport:
 
 ```bash
 handler mcp --transport streamable-http
@@ -76,7 +79,7 @@ That makes it useful as a bridge layer between MCP clients and A2A agents.
 
 One common pattern is:
 
-1. Save one or more named servers in Handler.
+1. Configure one or more A2A servers in Handler.
 2. Add `handler mcp` to your agent harness MCP config.
 3. Connect your MCP client.
 4. Use MCP tools to inspect cards, send messages, and manage tasks against those agents.

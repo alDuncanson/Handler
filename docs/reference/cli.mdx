@@ -3,7 +3,7 @@ title: "CLI reference"
 description: "Complete reference for Handler commands, global options, structured output, and machine-readable CLI metadata."
 ---
 
-# CLI reference
+# Look up Handler commands
 
 Handler's command line is optimized for both humans and agents. Use text output
 interactively, JSON for scripts, and NDJSON for streaming event consumers.
@@ -62,7 +62,7 @@ Options: `--url`, `-s, --server`, `-b, --bearer-env`, `-k, --api-key-env`.
 
 ### `handler card validate`
 
-Validate an agent card from a URL, named server, or local file.
+Validate an agent card from a URL, configured server, or local file.
 
 ```bash
 handler card validate --server my-agent
@@ -174,7 +174,7 @@ Options: `--url`, `-s, --server`, `--task`, `--webhook-url`, `-t, --token`,
 
 ### `handler server add`
 
-Add a server to the global or repository-local configuration.
+Add a server to the global or repo-scoped configuration.
 
 ```bash
 handler server add demo --url http://localhost:8000

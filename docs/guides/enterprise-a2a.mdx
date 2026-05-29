@@ -3,8 +3,7 @@ title: "Enterprise A2A setup"
 description: "Configure Handler for OAuth-authenticated, gateway-fronted, and team-shared A2A services."
 ---
 
-# Enterprise A2A setup
-
+# Connect to production A2A services
 
 Handler is designed to work with production A2A services, including agents
 behind API gateways, OAuth2 token endpoints, private clusters, and internal
@@ -12,8 +11,8 @@ developer platforms.
 
 ## Recommended production pattern
 
-Use repository-local server profiles for shared server shape and environment
-variables for secrets:
+Use repo-scoped server configuration for shared server shape and
+environment variables for secrets:
 
 ```toml
 version = 1
@@ -92,11 +91,11 @@ events do not abort long tasks.
 
 ## Production-readiness checklist
 
-- Use named servers instead of hard-coded URLs in scripts.
+- Use configured servers instead of hard-coded URLs in scripts.
 - Store secrets in environment variables, not TOML files.
 - Prefer OAuth2 client credentials, bearer tokens, API keys, or mTLS according
   to your gateway policy.
-- Validate agent cards and server profiles during onboarding and CI checks.
+- Validate agent cards and server configuration during onboarding and CI checks.
 - Use `--output json` or `--output ndjson` when another system consumes results.
 - Use `handler task resubscribe` for recoverable streaming interruptions.
 - Run the local webhook receiver before integrating push notifications with a
