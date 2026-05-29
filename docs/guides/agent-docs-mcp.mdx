@@ -55,7 +55,13 @@ Handler also exposes its own CLI shape for agents and automation:
 
 ```bash
 handler --output json schema
+```
+
+```bash
 handler --output json describe message send
+```
+
+```bash
 handler --output json describe task get
 ```
 
@@ -75,6 +81,9 @@ Override the endpoint when testing documentation changes:
 
 ```bash
 export HANDLER_DOCS_MCP_URL=http://localhost:3000/mcp
+```
+
+```bash
 handler server run agent
 ```
 
@@ -82,5 +91,8 @@ Disable the docs MCP toolset for offline runs:
 
 ```bash
 export HANDLER_DOCS_MCP_ENABLED=false
+```
+
+```bash
 handler server run agent
 ```

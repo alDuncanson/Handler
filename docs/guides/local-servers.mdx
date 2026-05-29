@@ -12,6 +12,8 @@ Handler ships with two useful local servers for development work:
 
 ## Run the embedded agent
 
+Start Handler's bundled local A2A agent:
+
 ```bash
 handler server run agent
 ```
@@ -33,6 +35,9 @@ docs locally:
 
 ```bash
 export HANDLER_DOCS_MCP_URL=http://localhost:3000/mcp
+```
+
+```bash
 handler server run agent
 ```
 
@@ -40,6 +45,9 @@ For fully offline runs, disable the docs toolset:
 
 ```bash
 export HANDLER_DOCS_MCP_ENABLED=false
+```
+
+```bash
 handler server run agent
 ```
 
@@ -58,7 +66,13 @@ Or set environment variables:
 
 ```bash
 export OLLAMA_MODEL=gemma4:e2b
+```
+
+```bash
 export OLLAMA_API_BASE=http://localhost:11434
+```
+
+```bash
 handler server run agent
 ```
 
@@ -67,8 +81,13 @@ If you do not override it, Handler defaults to `gemma4:e2b` and
 
 ## Protect the local agent with an API key
 
+Require API key auth with a generated key:
+
 ```bash
 handler server run agent --auth
+```
+
+```bash
 handler server run agent --auth --api-key my-secret
 ```
 
@@ -81,8 +100,13 @@ still discover the server.
 
 ## Run the push notification receiver
 
+Start the local webhook receiver on the default port:
+
 ```bash
 handler server run push
+```
+
+```bash
 handler server run push --port 9001
 ```
 

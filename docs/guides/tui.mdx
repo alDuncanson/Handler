@@ -5,10 +5,13 @@ description: "Use Handler's interactive terminal interface to connect to agents,
 
 # TUI and web UI
 
+
 The TUI is the fastest way to explore an A2A agent when you want a live,
 interactive workflow instead of one command at a time.
 
 ## Start the TUI
+
+Open the interactive terminal UI:
 
 ```bash
 handler tui
@@ -18,17 +21,26 @@ You can also pre-connect on startup:
 
 ```bash
 handler tui --server demo
+```
+
+```bash
 handler tui --server demo --server staging
+```
+
+```bash
 handler tui --url http://localhost:8000
+```
+
+```bash
 handler tui --bearer-env HANDLER_TOKEN
 ```
 
 ## What the TUI is good at
 
-- switching between multiple agent connections in tabs
+- switching between multiple A2A servers in tabs
 - inspecting agent cards and supported capabilities
-- sending messages and watching streaming responses
-- editing auth, custom headers, and connection details interactively
+- sending messages and inspecting task responses
+- editing auth, custom headers, and server details interactively
 - keeping recent sessions close at hand while testing agents repeatedly
 - viewing logs without leaving the interface
 
@@ -72,6 +84,9 @@ If you want the same interface in a browser tab, serve it as a web app:
 
 ```bash
 handler web
+```
+
+```bash
 handler web --port 9000
 ```
 

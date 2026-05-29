@@ -30,8 +30,17 @@ docs from the installed CLI:
 
 ```bash
 handler --output json schema
+```
+
+```bash
 handler --output json describe message send
+```
+
+```bash
 handler --output json describe task get
+```
+
+```bash
 handler --output json describe server add
 ```
 
@@ -43,6 +52,9 @@ Retrieve an agent's card.
 
 ```bash
 handler card get --server my-agent
+```
+
+```bash
 handler card get --url http://localhost:8000
 ```
 
@@ -54,6 +66,9 @@ Validate an agent card from a URL, named server, or local file.
 
 ```bash
 handler card validate --server my-agent
+```
+
+```bash
 handler card validate --file ./agent-card.json
 ```
 
@@ -65,6 +80,9 @@ Send a message and receive a response.
 
 ```bash
 handler message send --server my-agent --text "Hello"
+```
+
+```bash
 handler --output json message send --server my-agent --text "Hello"
 ```
 
@@ -78,6 +96,9 @@ Send a message and stream the response in real time.
 
 ```bash
 handler message stream --server my-agent --text "Run the workflow"
+```
+
+```bash
 handler --output ndjson message stream --server my-agent --text "Run the workflow"
 ```
 
@@ -90,6 +111,9 @@ Retrieve task status.
 
 ```bash
 handler task get --server my-agent --task task-123
+```
+
+```bash
 handler task get --server my-agent --task task-123 --history-length 10
 ```
 
@@ -154,6 +178,9 @@ Add a server to the global or repository-local configuration.
 
 ```bash
 handler server add demo --url http://localhost:8000
+```
+
+```bash
 handler server add prod --url https://agent.example.com --repository
 ```
 

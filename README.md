@@ -8,8 +8,6 @@
 [![Pepy total downloads](https://img.shields.io/pepy/dt/a2a-handler?label=total%20downloads)](https://pepy.tech/projects/a2a-handler)
 [![GitHub stars](https://img.shields.io/github/stars/alDuncanson/handler)](https://github.com/alDuncanson/handler/stargazers)
 
-![Handler TUI showing an A2A agent session, task panels, and connection details](https://github.com/alDuncanson/Handler/blob/main/assets/handler-tui.png?raw=true)
-
 Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A)
 client for your terminal.
 
@@ -20,36 +18,70 @@ mTLS, and OAuth2 client credentials.
 
 ## Install
 
+Install Handler as a `uv` tool:
+
 ```bash
 uv tool install a2a-handler
 ```
 
-Or with [pipx](https://pipx.pypa.io/) / pip:
+Or with [pipx](https://pipx.pypa.io/):
 
 ```bash
-pipx install a2a-handler   # or: pip install a2a-handler
+pipx install a2a-handler
+```
+
+Or with pip:
+
+```bash
+pip install a2a-handler
 ```
 
 ## Quick Start
 
+Open the interactive terminal UI:
+
 ```bash
-handler tui                                      # launch the interactive TUI
-handler card get --url http://localhost:8000     # inspect an agent card
-handler message send --url URL --text "hello"    # send a CLI message
-handler mcp                                      # expose Handler as MCP tools
-handler docs                                     # open the hosted docs
+handler tui
+```
+
+Inspect an A2A server's agent card:
+
+```bash
+handler card get --url http://localhost:8000
+```
+
+Send a message from the CLI:
+
+```bash
+handler message send --url URL --text "hello"
+```
+
+Open the full documentation:
+
+```bash
+handler docs
 ```
 
 ## Run Without Installing
 
+Run Handler with `uvx`:
+
 ```bash
-uvx --from a2a-handler handler           # or: pipx run a2a-handler
+uvx --from a2a-handler handler
+```
+
+Run Handler with `pipx`:
+
+```bash
+pipx run a2a-handler
 ```
 
 ## Save a server profile
 
 Handler supports named servers in `$XDG_CONFIG_HOME/handler/servers.toml`
 (global) and `.handler/servers.toml` (repo-local).
+
+Define a reusable server profile with auth loaded from the environment:
 
 ```toml
 version = 1
@@ -76,6 +108,8 @@ secrets stay in environment variables.
 
 A [hermetic](https://zero-to-nix.com/concepts/hermeticity/) dev environment
 is available via [Nix](https://zero-to-nix.com/concepts/nix/):
+
+Enter the development shell:
 
 ```bash
 nix develop

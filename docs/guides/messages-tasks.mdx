@@ -5,6 +5,7 @@ description: "Send messages, stream responses, manage tasks, and reuse saved con
 
 # Messages, tasks, and sessions
 
+
 Message responses and errors default to readable text for interactive use.
 Pass `--output json` for full protocol responses, or `--output ndjson` before
 streaming commands when you need structured event output for automation or
@@ -13,9 +14,17 @@ JSON in the default mode.
 
 ## Inspect an agent card first
 
+Fetch the card for a named server:
+
 ```bash
 handler card get --server demo
+```
+
+```bash
 handler card validate --server demo
+```
+
+```bash
 handler card validate --file ./agent-card.json
 ```
 
@@ -23,6 +32,8 @@ Use card validation before deeper debugging when you're not sure whether the
 agent itself is advertising a valid card.
 
 ## Send a message
+
+Send a basic message to a named server:
 
 ```bash
 handler message send --server demo --text "Hello"
@@ -36,6 +47,8 @@ handler message send --url http://localhost:8000 --text "Hello"
 
 ## Stream the response live
 
+Stream task events and response text from a named server:
+
 ```bash
 handler message stream --server demo --text "Summarize your capabilities"
 ```
@@ -44,11 +57,12 @@ In text mode, streaming prints lightweight `event:` summaries for task state
 changes, tool calls, tool results, data/file parts, and response text before the
 final answer content. That makes it clear when the agent is still working even
 if the model's text arrives in one larger chunk. Handler also prints the full
-task ID once when the stream starts so you can resubscribe if the connection is
-interrupted.
+task ID once when the stream starts so you can resubscribe if the server
+connection is interrupted.
 
-The `send` command also accepts `--stream` when you want the same request shape
-but prefer one command form.
+If you already use `message send` in scripts, adding `--stream` switches that
+same command to streaming mode. Otherwise, prefer the more explicit
+`message stream` command in examples and documentation.
 
 Use newline-delimited JSON when you want structured stream events:
 
@@ -82,7 +96,13 @@ Handler persists conversation identifiers locally so you can continue later:
 
 ```bash
 handler message send --server demo --text "Start a task"
+```
+
+```bash
 handler message send --server demo --text "Continue that task" --continue
+```
+
+```bash
 handler session show --server demo
 ```
 
@@ -112,15 +132,26 @@ You can also override saved auth with `--bearer-env` or `--api-key-env`.
 
 ## Work with tasks directly
 
+Fetch the latest task status:
+
 ```bash
 handler task get --server demo --task task-123
+```
+
+```bash
 handler task get --server demo --task task-123 --history-length 10
+```
+
+```bash
 handler task cancel --server demo --task task-123
+```
+
+```bash
 handler task resubscribe --server demo --task task-123
 ```
 
 `resubscribe` is useful when a task uses streaming events and you need to attach
-again after a dropped connection.
+again after a dropped server connection.
 
 ## Configure push notifications for tasks
 
@@ -150,8 +181,17 @@ conversation state.
 
 ```bash
 handler session list
+```
+
+```bash
 handler session show --server demo
+```
+
+```bash
 handler session clear --server demo
+```
+
+```bash
 handler session clear --all
 ```
 

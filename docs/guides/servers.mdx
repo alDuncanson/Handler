@@ -13,8 +13,10 @@ Handler can load named server definitions from two places:
 Handler also includes a built-in global entry named `Handler Agent` at
 `http://localhost:8000`. It appears in the TUI server picker even before you
 create a `servers.toml` file, so new users can connect to Handler's bundled
-embedded agent immediately. If you define your own server with the same name or
-URL, Handler uses your entry instead of adding the built-in one.
+embedded agent immediately. Handler does not add the built-in entry when a
+configured server already uses the `Handler Agent` name or the
+`http://localhost:8000` URL. When the TUI auto-starts the embedded agent and
+port `8000` is already occupied, it tries the next available local port.
 
 Repository-local config is useful when a project should travel with a shared
 agent URL or auth shape, while secrets continue to come from environment
@@ -54,7 +56,13 @@ These commands help you inspect what is available:
 
 ```bash
 handler server list
+```
+
+```bash
 handler server show demo
+```
+
+```bash
 handler server validate
 ```
 

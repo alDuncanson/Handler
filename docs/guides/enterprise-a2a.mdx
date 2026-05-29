@@ -5,14 +5,15 @@ description: "Configure Handler for OAuth-authenticated, gateway-fronted, and te
 
 # Enterprise A2A setup
 
+
 Handler is designed to work with production A2A services, including agents
 behind API gateways, OAuth2 token endpoints, private clusters, and internal
 developer platforms.
 
 ## Recommended production pattern
 
-Use repository-local server profiles for shared connection shape and
-environment variables for secrets:
+Use repository-local server profiles for shared server shape and environment
+variables for secrets:
 
 ```toml
 version = 1
@@ -34,9 +35,17 @@ in each developer or CI environment.
 
 ## Validate before sending traffic
 
+Validate server configuration and auth references first:
+
 ```bash
 handler server validate
+```
+
+```bash
 handler card validate --server apigee-gke-agent
+```
+
+```bash
 handler card get --server apigee-gke-agent
 ```
 
