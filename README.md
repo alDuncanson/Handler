@@ -15,7 +15,7 @@ server. Handler supports reusable server profiles, structured output for
 automation, and production auth patterns including bearer tokens, API keys,
 mTLS, and OAuth2 client credentials.
 
-![Handler TUI connected to the built-in Handler Agent, showing the agent card and a completed assistant response](https://github.com/alDuncanson/Handler/blob/main/assets/handler-tui.png?raw=true)
+![Handler TUI connected to the built-in Handler Agent, showing the agent card and a completed assistant response](https://github.com/alDuncanson/Handler/blob/main/assets/handler-tui.png?raw=true&v=2026-05-29)
 
 ## Install
 
