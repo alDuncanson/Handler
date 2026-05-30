@@ -30,27 +30,6 @@ Handler's hosted documentation MCP server at
 Handler CLI, TUI, MCP bridge, authentication, local servers, and common A2A
 workflows from the current docs instead of only relying on model memory.
 
-You can point it at another compatible documentation MCP endpoint when testing
-docs locally:
-
-```bash
-export HANDLER_DOCS_MCP_URL=http://localhost:3000/mcp
-```
-
-```bash
-handler server run agent
-```
-
-For fully offline runs, disable the docs toolset:
-
-```bash
-export HANDLER_DOCS_MCP_ENABLED=false
-```
-
-```bash
-handler server run agent
-```
-
 ## Choose a model
 
 The built-in agent uses Google ADK with LiteLLM against an Ollama-compatible

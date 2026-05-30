@@ -163,12 +163,35 @@ Options: `--url`, `-s, --server`, `--task`, `--webhook-url`, `-t, --token`,
 
 ## Session commands
 
-| Command | Description |
-| --- | --- |
-| `handler session list` | List all saved conversation sessions. |
-| `handler session show --server my-agent` | Display saved conversation state. |
-| `handler session clear --server my-agent` | Clear saved conversation state for one agent. |
-| `handler session clear --all` | Clear all saved conversation state. |
+### `handler session list`
+
+List all saved conversation sessions.
+
+```bash
+handler session list
+```
+
+### `handler session show`
+
+Display saved conversation state.
+
+```bash
+handler session show --server my-agent
+```
+
+### `handler session clear`
+
+Clear saved conversation state for one agent.
+
+```bash
+handler session clear --server my-agent
+```
+
+Clear all saved conversation state.
+
+```bash
+handler session clear --all
+```
 
 ## Server commands
 
@@ -188,25 +211,109 @@ Options include `--url`, `--bearer-env`, `--api-key-env`, `--api-key-header`,
 `--cert`, `--key`, `--oauth2-token-url`, `--oauth2-client-id-env`,
 `--oauth2-client-secret-env`, `--oauth2-scope`, `--global`, and `--repository`.
 
-### Other server commands
+### `handler server list`
 
-| Command | Description |
-| --- | --- |
-| `handler server list` | List configured repository and global servers. |
-| `handler server show NAME` | Show details for a configured server. |
-| `handler server remove NAME` | Remove a server from the configuration. |
-| `handler server validate` | Validate configured servers and default auth resolution. |
-| `handler server run agent` | Start Handler's local A2A agent server. |
-| `handler server run push` | Start a local webhook server for push notifications. |
+List configured global and repo-scoped servers.
+
+```bash
+handler server list
+```
+
+### `handler server show`
+
+Show details for a configured server.
+
+```bash
+handler server show NAME
+```
+
+### `handler server remove`
+
+Remove a server from the configuration.
+
+```bash
+handler server remove NAME
+```
+
+### `handler server validate`
+
+Validate configured servers and default auth resolution.
+
+```bash
+handler server validate
+```
+
+### `handler server run agent`
+
+Start Handler's local A2A agent server.
+
+```bash
+handler server run agent
+```
+
+### `handler server run push`
+
+Start a local webhook server for push notifications.
+
+```bash
+handler server run push
+```
 
 ## Interface and integration commands
 
-| Command | Description |
-| --- | --- |
-| `handler mcp` | Run a local MCP server exposing A2A capabilities. Supports `stdio`, `sse`, and `streamable-http`. |
-| `handler tui` | Launch the interactive terminal interface. |
-| `handler web` | Serve the TUI as a web application. |
-| `handler docs` | Open the Handler documentation in your browser. |
-| `handler version` | Display the current version. |
-| `handler update` | Update Handler to the latest published version. |
-| `handler upgrade` | Alias for `handler update`. |
+### `handler mcp`
+
+Run a local MCP server exposing A2A protocol operations. Supports `stdio`,
+`sse`, and `streamable-http`.
+
+```bash
+handler mcp
+```
+
+### `handler tui`
+
+Launch the interactive terminal interface.
+
+```bash
+handler tui
+```
+
+### `handler web`
+
+Serve the TUI as a web application.
+
+```bash
+handler web
+```
+
+### `handler docs`
+
+Open the Handler documentation in your browser.
+
+```bash
+handler docs
+```
+
+### `handler version`
+
+Display the current version.
+
+```bash
+handler version
+```
+
+### `handler update`
+
+Update Handler to the latest published version.
+
+```bash
+handler update
+```
+
+### `handler upgrade`
+
+Alias for `handler update`.
+
+```bash
+handler upgrade
+```

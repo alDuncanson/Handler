@@ -1,9 +1,9 @@
 ---
 title: "Quickstart"
-description: "Install Handler, start a local A2A server, send a first message, and save server configuration."
+description: "Install Handler, start a local A2A server, send your first message, and save a server configuration."
 ---
 
-# Send your first A2A message
+# Get started with Handler
 
 ## Install Handler
 
@@ -17,20 +17,6 @@ If you prefer not to install it globally, you can invoke Handler without install
 
 ```bash
 uvx --from a2a-handler handler --help
-```
-
-## Update Handler
-
-Use the primary update command:
-
-```bash
-handler update
-```
-
-Or use the equivalent alias:
-
-```bash
-handler upgrade
 ```
 
 ## 1. Start with the TUI
@@ -83,7 +69,7 @@ Store the server configuration with the current repository instead of your globa
 handler server add demo --url http://localhost:8000 --repository
 ```
 
-That creates or updates `.handler/servers.toml` at the git root.
+That creates or updates `.handler/servers.toml` at the root of the repository.
 
 ## 4. Inspect configured servers
 

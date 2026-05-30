@@ -26,9 +26,9 @@ instead of guessing command names or output shapes from model memory.
 Give the agent a short, operational instruction like this:
 
 ```text
-Use the Handler documentation MCP server to look up current Handler CLI syntax.
-Prefer structured output with `handler --output json` or `handler --output ndjson`
-when another program or agent will consume the result.
+Use Handler to send A2A protocol messages, inspect agent cards, and manage A2A
+tasks. Prefer structured output with `handler --output json` or
+`handler --output ndjson` when another program or agent will consume the result.
 ```
 
 ## Agent-friendly CLI pattern
@@ -72,26 +72,6 @@ generated documentation.
 ## Built-in local agent behavior
 
 The bundled local agent uses the same hosted docs MCP endpoint by default:
-
-```bash
-handler server run agent
-```
-
-Override the endpoint when testing documentation changes:
-
-```bash
-export HANDLER_DOCS_MCP_URL=http://localhost:3000/mcp
-```
-
-```bash
-handler server run agent
-```
-
-Disable the docs MCP toolset for offline runs:
-
-```bash
-export HANDLER_DOCS_MCP_ENABLED=false
-```
 
 ```bash
 handler server run agent

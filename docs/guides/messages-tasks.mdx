@@ -87,7 +87,7 @@ handler \
   message stream --server demo --text "Summarize your capabilities"
 ```
 
-The same knobs are available as `HANDLER_CONNECT_TIMEOUT`,
+The same timeout settings are available as `HANDLER_CONNECT_TIMEOUT`,
 `HANDLER_READ_TIMEOUT`, `HANDLER_WRITE_TIMEOUT`, `HANDLER_POOL_TIMEOUT`, and
 `HANDLER_STREAM_READ_TIMEOUT`, including from a workspace `.env` file. Streaming
 disables the read timeout by default so long-running tasks are not aborted during
