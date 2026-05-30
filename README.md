@@ -14,7 +14,7 @@ MCP server that lets other agents integrate with A2A services directly. Handler
 also supports global and repo-scoped A2A server configuration with bearer,
 API key, mTLS, and OAuth2 client credentials auth.
 
-![Handler TUI connected to the built-in Handler Agent, showing the agent card and a completed assistant response](https://github.com/alDuncanson/Handler/blob/main/assets/tui.png?raw=true)
+![Handler TUI connected to the built-in Handler Agent, showing the agent card and a completed assistant response](assets/tui.png)
 
 ## Install
 
