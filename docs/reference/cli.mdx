@@ -227,6 +227,12 @@ Show details for a configured server.
 handler server show NAME
 ```
 
+```bash
+handler server show NAME --source repository
+```
+
+Options: `--source repository/global`.
+
 ### `handler server remove`
 
 Remove a server from the configuration.
@@ -234,6 +240,12 @@ Remove a server from the configuration.
 ```bash
 handler server remove NAME
 ```
+
+```bash
+handler server remove NAME --repository
+```
+
+Options: `--global`, `--repository`.
 
 ### `handler server validate`
 
