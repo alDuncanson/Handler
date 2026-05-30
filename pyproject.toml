@@ -1,6 +1,6 @@
 [project]
 name = "a2a-handler"
-version = "0.1.22"
+version = "0.1.23"
 description = "An A2A Protocol client TUI and CLI."
 readme = "README.md"
 requires-python = ">=3.11"

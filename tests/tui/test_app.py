@@ -192,7 +192,7 @@ async def test_footer_shows_global_help_and_version() -> None:
         assert "Ctrl+N" not in footer_labels
 
         version = app.query_one("#app-version", Static)
-        assert str(version.content) == "v0.1.22"
+        assert str(version.content) == "v0.1.23"
 
 
 @pytest.mark.asyncio
