@@ -250,6 +250,10 @@ def create_mtls_auth(
     ca_cert_path: str | None = None,
 ) -> AuthCredentials:
     """Create mTLS (mutual TLS) client certificate authentication."""
+    cert_path = str(Path(cert_path).expanduser())
+    key_path = str(Path(key_path).expanduser())
+    ca_cert_path = str(Path(ca_cert_path).expanduser()) if ca_cert_path else None
+
     if not Path(cert_path).is_file():
         raise FileNotFoundError(f"Client certificate not found: {cert_path}")
     if not Path(key_path).is_file():
