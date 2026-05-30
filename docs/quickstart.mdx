@@ -1,79 +1,116 @@
 ---
 title: "Quickstart"
-description: "Get Handler running locally, send your first message, and save a reusable server definition."
+description: "Install Handler, start a local A2A server, send your first message, and save a server configuration."
 ---
 
-# Quickstart
+# Get started with Handler
 
 ## Install Handler
+
+Install Handler from the [PyPI package](https://pypi.org/project/a2a-handler/) as a `uv` tool:
 
 ```bash
 uv tool install a2a-handler
 ```
 
-If you prefer not to install it globally, you can run it directly:
+If you prefer not to install it globally, you can invoke Handler without installing:
 
 ```bash
 uvx --from a2a-handler handler --help
 ```
 
-To update an installed Handler later:
+## 1. Start with the TUI
 
-```bash
-handler update
-# or
-handler upgrade
-```
-
-## Start with the TUI
+Open the interactive terminal UI:
 
 ```bash
 handler tui
 ```
 
 The TUI is the easiest place to browse cards, inspect tasks, and manage auth for
-a connection interactively.
+an A2A server interactively.
 
-## Try the CLI
+## 2. Try the CLI
+
+If you do not already have an A2A server available, start Handler's bundled
+local agent in another terminal:
 
 ```bash
-handler card get http://localhost:8000
-handler message send http://localhost:8000 "hello"
+handler server run agent
 ```
 
-## Save a named server
+Inspect the local A2A server's agent card:
 
-Named servers let you reuse a URL and auth configuration instead of typing them
-on every command.
+```bash
+handler card get --url http://localhost:8000
+```
+
+Send your first message:
+
+```bash
+handler message send --url http://localhost:8000 --text "hello"
+```
+
+## 3. Configure an A2A server
+
+Handler can store A2A server definitions as configuration for repeated
+connections: the server URL, where the configuration lives, and any auth
+settings needed for Handler to connect as an A2A client.
+
+Save a global server configuration:
 
 ```bash
 handler server add demo --url http://localhost:8000
 ```
 
-To store a server in the repository instead of your global config:
+Store the server configuration with the current repository instead of your global config:
 
 ```bash
 handler server add demo --url http://localhost:8000 --repository
 ```
 
-That creates or updates a `.handler/servers.toml` file at the git root.
+That creates or updates `.handler/servers.toml` at the root of the repository.
 
-## Inspect configured servers
+## 4. Inspect configured servers
+
+List every configured server Handler can find:
 
 ```bash
 handler server list
+```
+
+Show the resolved details for one server:
+
+```bash
 handler server show demo
+```
+
+Validate configured servers and their auth references:
+
+```bash
 handler server validate
 ```
 
-## Keep the conversation going
+## 5. Keep the conversation going
 
-Once you have a live task or saved conversation, you can keep using the same
-context from the CLI:
+Once you have a live task or saved conversation, the CLI can continue from the
+same context.
+
+Start or resume a conversation with the configured server:
 
 ```bash
 handler message send --server demo --text "Hello"
+```
+
+Continue from Handler's saved session state:
+
+```bash
 handler message send --server demo --text "Follow up" --continue
+```
+
+Inspect the saved session IDs:
+
+```bash
 handler session show --server demo
 ```
 
@@ -81,8 +118,9 @@ See [Messages, tasks, and sessions](./guides/messages-tasks) for the full flow.
 
 ## Bridge Handler into MCP clients
 
-If you want Claude Desktop, Cursor, or another MCP client to use Handler's A2A
-tools, start the MCP server:
+If you want Amp, Pi, or another agent harness to use Handler's A2A tools, add
+Handler to that tool's MCP server configuration. Most MCP clients launch the
+server for you with this command:
 
 ```bash
 handler mcp
@@ -90,22 +128,26 @@ handler mcp
 
 See [MCP server](./guides/mcp) for transport options and client setup.
 
-## Preview these docs locally
+## Open the docs from your terminal
 
-To open the deployed docs in your browser from the CLI:
+Open the hosted Handler docs in your browser:
 
 ```bash
 handler docs
 ```
 
-To preview local documentation changes, install the Mintlify CLI, then run the
-preview server from the `docs/` directory where `docs.json` lives.
+## Keep learning
 
-```bash
-npm i -g mint
-cd docs
-mint dev
-```
+Ready to go deeper? Choose the path that matches what you want to do next.
 
-Once the Mintlify GitHub app is connected to this repository, pushes to `main`
-deploy documentation changes automatically.
+<Columns cols={2}>
+  <Card title="Read the guides" icon="book-open" href="/guides/tui" cta="Explore workflows" arrow>
+    Learn Handler's TUI, CLI messaging, server configuration, authentication, MCP,
+    and enterprise A2A workflows.
+  </Card>
+
+  <Card title="Open the CLI reference" icon="terminal" href="/reference/cli" cta="View commands" arrow>
+    Look up Handler commands, flags, output modes, and machine-readable schema
+    helpers for automation.
+  </Card>
+</Columns>

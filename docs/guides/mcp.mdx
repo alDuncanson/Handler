@@ -1,27 +1,62 @@
 ---
 title: "MCP server"
-description: "Expose Handler's A2A capabilities through a local MCP server for Claude Desktop, Cursor, and other MCP-compatible clients."
+description: "Expose Handler's A2A capabilities through a local MCP server for Amp, Pi, and other MCP-compatible agent harnesses."
 ---
 
-# MCP server
+# Expose A2A tools through MCP
 
-Handler can expose its A2A features as an MCP server so other tools can call the
-same card, message, task, session, and auth operations.
+Handler can expose A2A protocol operations through an MCP server so other tools
+can call the same card, message, task, session, and auth operations.
 
-## Start the MCP server
+## Configure your agent harness
+
+Most users do not start `handler mcp` manually. Instead, add it to your agent's
+MCP server configuration so the agent harness launches Handler when it needs the
+tools.
+
+## Amp or Pi example
+
+Use the same command shape for Amp, Pi, or any MCP client that supports stdio
+servers:
+
+```json
+{
+  "mcpServers": {
+    "handler": {
+      "command": "handler",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+## Run it manually for debugging
+
+For local debugging, you can start the stdio server yourself:
 
 ```bash
 handler mcp
 ```
 
-The default transport is `stdio`, which is usually what desktop MCP clients
-expect.
+The default transport is `stdio`, which is what most local MCP clients expect.
 
 ## Available transports
 
+Start the MCP server with the default stdio transport:
+
 ```bash
 handler mcp --transport stdio
+```
+
+Start the MCP server with Server-Sent Events transport:
+
+```bash
 handler mcp --transport sse
+```
+
+Start the MCP server with streamable HTTP transport:
+
+```bash
 handler mcp --transport streamable-http
 ```
 
@@ -40,27 +75,12 @@ The server provides tools across five areas:
 
 That makes it useful as a bridge layer between MCP clients and A2A agents.
 
-## Claude Desktop example
-
-Add Handler to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "handler": {
-      "command": "handler",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
 ## Typical workflow
 
 One common pattern is:
 
-1. Save one or more named servers in Handler.
-2. Start `handler mcp`.
+1. Configure one or more A2A servers in Handler.
+2. Add `handler mcp` to your agent harness MCP config.
 3. Connect your MCP client.
 4. Use MCP tools to inspect cards, send messages, and manage tasks against those agents.
 
@@ -69,5 +89,5 @@ the fastest way to stabilize that setup first.
 
 ## When to use this instead of the CLI
 
-Use MCP mode when another tool should drive Handler for you. Use the CLI when
-you want direct shell control or automation in scripts.
+Use the MCP server when another tool should drive Handler for you. Use the CLI
+when you want direct shell control or automation in scripts.

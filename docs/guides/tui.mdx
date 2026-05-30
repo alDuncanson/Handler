@@ -1,52 +1,67 @@
 ---
 title: "TUI and web UI"
-description: "Use Handler's interactive terminal interface to connect to agents, manage auth, inspect cards, and keep conversations moving."
+description: "Use Handler's interactive terminal interface to connect to A2A servers, manage auth, inspect cards, and send messages."
 ---
 
-# TUI and web UI
+# Use the interactive UI
 
 The TUI is the fastest way to explore an A2A agent when you want a live,
 interactive workflow instead of one command at a time.
 
 ## Start the TUI
 
+Open the interactive terminal UI:
+
 ```bash
 handler tui
 ```
 
-You can also pre-connect on startup:
+You can also open servers automatically on startup.
+
+Open a configured server by name:
 
 ```bash
 handler tui --server demo
+```
+
+Open multiple configured servers in tabs:
+
+```bash
 handler tui --server demo --server staging
+```
+
+Open a server by URL without saving it first:
+
+```bash
 handler tui --url http://localhost:8000
+```
+
+Override auth with a bearer token from the environment:
+
+```bash
 handler tui --bearer-env HANDLER_TOKEN
 ```
 
-## What the TUI is good at
+## What you can do with the TUI
 
-- switching between multiple agent connections in tabs
+- switching between multiple A2A servers in tabs
 - inspecting agent cards and supported capabilities
-- sending messages and watching streaming responses
-- editing auth, custom headers, and connection details interactively
+- sending messages and inspecting task responses
+- editing auth, custom headers, and server details interactively
 - keeping recent sessions close at hand while testing agents repeatedly
 - viewing logs without leaving the interface
 
-## Useful keyboard shortcuts
+## Footer shortcuts
 
-The default footer exposes the most important controls:
+The footer shows the shortcuts that are always worth keeping close:
 
 - `Ctrl+P` opens the command palette
-- `Ctrl+N` opens a new server tab
-- `Ctrl+W` closes the active server tab
-- `Ctrl+B` switches to the previous server tab
-- `Ctrl+T` switches to the next server tab
-- `Ctrl+M` maximizes the focused panel
 - `Ctrl+Q` quits the application
+- `?` opens the keybindings panel
 
-## Connecting with saved servers
+## Connecting with configured servers
 
-If you already defined named servers in `servers.toml`, the TUI can open them
+If you already defined servers in `servers.toml`, the TUI can open them
 directly from the picker or from the command line with `--server`.
 
 This is usually the easiest way to work with mTLS or OAuth2 because the server
@@ -63,8 +78,8 @@ The auth panel supports the same major flows as the CLI:
 - mTLS certificate paths
 - OAuth2 client credentials
 
-That makes the TUI useful for debugging an agent before you turn the same setup
-into a reusable named server.
+That makes the TUI useful for debugging an agent before you save the same setup
+as server configuration.
 
 ## Browser-hosted mode
 
@@ -72,6 +87,9 @@ If you want the same interface in a browser tab, serve it as a web app:
 
 ```bash
 handler web
+```
+
+```bash
 handler web --port 9000
 ```
 

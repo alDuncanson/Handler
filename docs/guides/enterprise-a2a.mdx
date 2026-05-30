@@ -1,0 +1,109 @@
+---
+title: "Enterprise A2A setup"
+description: "Configure Handler for OAuth-authenticated, gateway-fronted, and team-shared A2A services."
+---
+
+# Connect to production A2A services
+
+Handler is designed to work with production A2A services, including agents
+behind API gateways, OAuth2 token endpoints, private clusters, and internal
+developer platforms.
+
+## Recommended production pattern
+
+Use repo-scoped server configuration for shared server shape and
+environment variables for secrets:
+
+```toml
+version = 1
+
+[servers.apigee-gke-agent]
+url = "https://agents.example.com/a2a/my-agent"
+
+[servers.apigee-gke-agent.auth]
+type = "oauth2"
+token_url = "https://login.example.com/oauth2/token"
+client_id_env = "HANDLER_APIGEE_CLIENT_ID"
+client_secret_env = "HANDLER_APIGEE_CLIENT_SECRET"
+scopes = ["a2a.invoke"]
+```
+
+Commit `.handler/servers.toml` if the URL and auth shape are safe to share.
+Keep client IDs, client secrets, bearer tokens, API keys, and certificate paths
+in each developer or CI environment.
+
+## Validate before sending traffic
+
+Validate server configuration and auth references first:
+
+```bash
+handler server validate
+```
+
+```bash
+handler card validate --server apigee-gke-agent
+```
+
+```bash
+handler card get --server apigee-gke-agent
+```
+
+This catches invalid TOML, missing environment variables, auth file problems,
+and agent-card issues before you debug task execution.
+
+## Use structured output in automation
+
+Human-readable text is best in a terminal. JSON is better for CI, scripts, and
+other agents:
+
+```bash
+handler --output json message send \
+  --server apigee-gke-agent \
+  --text "Run the readiness check"
+```
+
+For long-running tasks, stream newline-delimited JSON:
+
+```bash
+handler --output ndjson message stream \
+  --server apigee-gke-agent \
+  --text "Execute the deployment analysis"
+```
+
+## Tune network timeouts for gateway-fronted services
+
+Long-running A2A tasks may sit behind proxies, service meshes, or load
+balancers. Handler exposes timeout controls as global flags and environment
+variables:
+
+```bash
+handler \
+  --connect-timeout 120 \
+  --read-timeout 120 \
+  --write-timeout 120 \
+  --pool-timeout 120 \
+  --stream-read-timeout none \
+  message stream --server apigee-gke-agent --text "Run the workflow"
+```
+
+The streaming read timeout defaults to `none` so idle gaps between server-sent
+events do not abort long tasks.
+
+## Production-readiness checklist
+
+- Use configured servers instead of hard-coded URLs in scripts.
+- Store secrets in environment variables, not TOML files.
+- Prefer OAuth2 client credentials, bearer tokens, API keys, or mTLS according
+  to your gateway policy.
+- Validate agent cards and server configuration during onboarding and CI checks.
+- Use `--output json` or `--output ndjson` when another system consumes results.
+- Use `handler task resubscribe` for recoverable streaming interruptions.
+- Run the local webhook receiver before integrating push notifications with a
+  real webhook consumer.
+
+## Current gaps to plan around
+
+Handler is production-ready as a terminal and MCP client, but it intentionally
+does not replace enterprise platform controls. Plan to provide external secret
+management, audit logging, network policy, and centralized distribution through
+your existing infrastructure.

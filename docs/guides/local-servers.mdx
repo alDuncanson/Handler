@@ -3,7 +3,7 @@ title: "Local servers"
 description: "Run Handler's embedded A2A agent and local webhook server for development, demos, and integration testing."
 ---
 
-# Local servers
+# Run local A2A servers
 
 Handler ships with two useful local servers for development work:
 
@@ -11,6 +11,8 @@ Handler ships with two useful local servers for development work:
 - a webhook receiver for task push notifications
 
 ## Run the embedded agent
+
+Start Handler's bundled local A2A agent:
 
 ```bash
 handler server run agent
@@ -28,21 +30,6 @@ Handler's hosted documentation MCP server at
 Handler CLI, TUI, MCP bridge, authentication, local servers, and common A2A
 workflows from the current docs instead of only relying on model memory.
 
-You can point it at another compatible documentation MCP endpoint when testing
-docs locally:
-
-```bash
-export HANDLER_DOCS_MCP_URL=http://localhost:3000/mcp
-handler server run agent
-```
-
-For fully offline runs, disable the docs toolset:
-
-```bash
-export HANDLER_DOCS_MCP_ENABLED=false
-handler server run agent
-```
-
 ## Choose a model
 
 The built-in agent uses Google ADK with LiteLLM against an Ollama-compatible
@@ -58,7 +45,13 @@ Or set environment variables:
 
 ```bash
 export OLLAMA_MODEL=gemma4:e2b
+```
+
+```bash
 export OLLAMA_API_BASE=http://localhost:11434
+```
+
+```bash
 handler server run agent
 ```
 
@@ -67,8 +60,13 @@ If you do not override it, Handler defaults to `gemma4:e2b` and
 
 ## Protect the local agent with an API key
 
+Require API key auth with a generated key:
+
 ```bash
 handler server run agent --auth
+```
+
+```bash
 handler server run agent --auth --api-key my-secret
 ```
 
@@ -81,8 +79,13 @@ still discover the server.
 
 ## Run the push notification receiver
 
+Start the local webhook receiver on the default port:
+
 ```bash
 handler server run push
+```
+
+```bash
 handler server run push --port 9001
 ```
 
