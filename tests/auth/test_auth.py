@@ -1,6 +1,7 @@
 """Tests for authentication module."""
 
 import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -165,6 +166,29 @@ class TestMTLSAuth:
         ):
             creds = create_mtls_auth(cert_file.name, key_file.name, ca_file.name)
             assert creds.ca_cert_path == ca_file.name
+
+    def test_create_mtls_auth_expands_home_directory_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        cert_path = home / "client.pem"
+        key_path = home / "client.key"
+        ca_cert_path = home / "ca.pem"
+        cert_path.write_text("cert")
+        key_path.write_text("key")
+        ca_cert_path.write_text("ca")
+
+        import os
+
+        os.chmod(key_path, 0o600)
+        monkeypatch.setenv("HOME", str(home))
+
+        creds = create_mtls_auth("~/client.pem", "~/client.key", "~/ca.pem")
+
+        assert creds.cert_path == str(cert_path)
+        assert creds.key_path == str(key_path)
+        assert creds.ca_cert_path == str(ca_cert_path)
 
     def test_create_mtls_auth_rejects_insecure_key_permissions(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".pem", delete=False) as cert_file:
