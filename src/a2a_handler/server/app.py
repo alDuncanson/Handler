@@ -1,7 +1,8 @@
 """A2A application setup and middleware."""
 
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import httpx
 from a2a.server.apps import A2AStarletteApplication
@@ -195,9 +196,7 @@ def create_a2a_application(
             Middleware(APIKeyAuthMiddleware, api_key=api_key)  # type: ignore[arg-type]
         )
 
-    application = Starlette(middleware=middleware)
-
-    async def setup_a2a_routes() -> None:
+    async def setup_a2a_routes(application: Starlette) -> None:
         a2a_starlette_app = A2AStarletteApplication(
             agent_card=agent_card,
             http_handler=request_handler,
@@ -209,7 +208,14 @@ def create_a2a_application(
         await http_client.aclose()
         logger.info("HTTP client closed")
 
-    application.add_event_handler("startup", setup_a2a_routes)
-    application.add_event_handler("shutdown", cleanup_http_client)
+    @asynccontextmanager
+    async def lifespan(application: Starlette) -> AsyncIterator[None]:
+        await setup_a2a_routes(application)
+        try:
+            yield
+        finally:
+            await cleanup_http_client()
+
+    application = Starlette(middleware=middleware, lifespan=lifespan)
 
     return application

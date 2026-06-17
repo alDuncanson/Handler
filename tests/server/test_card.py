@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from google.adk.tools.mcp_tool.mcp_toolset import StreamableHTTPConnectionParams
 from starlette.applications import Starlette
 
 from a2a_handler.server import agent as agent_module
@@ -154,7 +155,7 @@ def test_create_a2a_application_with_auth_adds_middleware() -> None:
 
     assert len(app.middleware_stack.__class__.__mro__) > 0  # middleware is wrapped
     # More directly: the app was created with middleware list
-    assert app.middleware is not None
+    assert app.user_middleware
 
 
 # -- create_runner_factory --
@@ -177,7 +178,9 @@ def test_create_handler_docs_toolset_uses_hosted_docs_mcp(monkeypatch) -> None:
 
     toolset = create_handler_docs_toolset()
 
-    assert toolset._connection_params.url == DEFAULT_HANDLER_DOCS_MCP_URL
+    connection_params = toolset._connection_params
+    assert isinstance(connection_params, StreamableHTTPConnectionParams)
+    assert connection_params.url == DEFAULT_HANDLER_DOCS_MCP_URL
     assert toolset.tool_name_prefix == "handler_docs"
 
 
@@ -187,7 +190,9 @@ def test_create_handler_docs_toolset_allows_url_override(monkeypatch) -> None:
 
     toolset = create_handler_docs_toolset()
 
-    assert toolset._connection_params.url == "https://docs.example.com/mcp"
+    connection_params = toolset._connection_params
+    assert isinstance(connection_params, StreamableHTTPConnectionParams)
+    assert connection_params.url == "https://docs.example.com/mcp"
 
 
 def test_create_llm_agent_registers_docs_mcp_toolset(monkeypatch) -> None:
