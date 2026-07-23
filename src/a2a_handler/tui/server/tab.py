@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from a2a.client.errors import A2AClientJSONRPCError
+from a2a.client.errors import A2AClientError
 from a2a.types import AgentCard, Message as A2AMessage, Role, Task, TaskState
 from textual import on, work
 from textual.app import ComposeResult
@@ -41,6 +41,7 @@ from a2a_handler.servers import (
 from a2a_handler.server import DEFAULT_OLLAMA_MODEL, check_ollama_model
 from a2a_handler.service import (
     A2AService,
+    card_protocol_version,
     extract_text_from_message_parts,
     is_terminal,
     response_context_id,
@@ -930,7 +931,7 @@ class ServerTab(Container):
             agent_name=self.state.agent_card.name,
             source_label=self._connection_source_label(self.state.connected_server_def),
             auth_label=self._auth_badge_label(auth_credentials),
-            protocol_version=self.state.agent_card.protocol_version,
+            protocol_version=card_protocol_version(self.state.agent_card),
             agent_version=self.state.agent_card.version,
         )
 
@@ -965,9 +966,9 @@ class ServerTab(Container):
 
     def _is_uncontinuable_task_error(self, error: Exception) -> bool:
         """Return True when the server rejects continuing the current task."""
-        if not isinstance(error, A2AClientJSONRPCError):
+        if not isinstance(error, A2AClientError):
             return False
-        message = str(getattr(error.error, "message", "")).lower()
+        message = str(error).lower()
         if "task" in message and (
             "does not exist" in message or "not found" in message
         ):
@@ -1017,11 +1018,11 @@ class ServerTab(Container):
         if not text:
             return
 
-        if message.role == Role.agent:
+        if message.role == Role.ROLE_AGENT:
             messages_panel.add_agent_message(message)
             return
 
-        if message.role == Role.user:
+        if message.role == Role.ROLE_USER:
             messages_panel.add_message("user", text)
             return
 
@@ -1060,10 +1061,10 @@ class ServerTab(Container):
 
         self._load_task_into_live_view(server_view, task)
         if response_state(task) in {
-            TaskState.completed,
-            TaskState.failed,
-            TaskState.canceled,
-            TaskState.rejected,
+            TaskState.TASK_STATE_COMPLETED,
+            TaskState.TASK_STATE_FAILED,
+            TaskState.TASK_STATE_CANCELED,
+            TaskState.TASK_STATE_REJECTED,
         }:
             if self.state.current_task_id == task.id:
                 self._clear_current_task_id()

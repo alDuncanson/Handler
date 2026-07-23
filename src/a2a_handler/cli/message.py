@@ -2,12 +2,13 @@
 
 import asyncio
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
 from typing import Optional
 
 import click
-from a2a.types import DataPart, FilePart, Message, Part, Role, TextPart
+from a2a.types import Message, Part, Role
 
 from a2a_handler.auth import (
     AuthCredentials,
@@ -28,10 +29,16 @@ from a2a_handler.service import (
     A2AService,
     A2AResponse,
     StreamEvent,
+    part_data,
+    part_file,
+    part_kind,
+    part_text,
     protocol_dump,
     response_context_id,
     response_state,
     response_task_id,
+    state_label,
+    to_json_dict,
 )
 from a2a_handler.session import get_session, update_session
 
@@ -409,7 +416,7 @@ def _format_response_text(response: A2AResponse) -> str:
     lines: list[str] = []
     state = response_state(response)
     if state:
-        lines.append(f"State: {state.value}")
+        lines.append(f"State: {state_label(state)}")
     context_id = response_context_id(response)
     if context_id:
         lines.append(f"Context ID: {context_id}")
@@ -435,7 +442,7 @@ def _format_response_parts(response: A2AResponse) -> str:
 
     if not formatted_parts and response.history:
         for message in response.history:
-            if message.role == Role.agent:
+            if message.role == Role.ROLE_AGENT:
                 formatted = _format_message_parts(message)
                 if formatted:
                     formatted_parts.append(formatted)
@@ -448,10 +455,10 @@ def _format_stream_event_text(event: StreamEvent) -> str:
     if event.message:
         return _format_message_parts(event.message)
 
-    if event.status and event.status.status and event.status.status.message:
+    if event.status and event.status.status.HasField("message"):
         return _format_message_parts(event.status.status.message)
 
-    if event.artifact and event.artifact.artifact:
+    if event.artifact and event.artifact.artifact.parts:
         return _format_parts(event.artifact.artifact.parts)
 
     if event.event_type == "task" and event.task:
@@ -466,7 +473,7 @@ def _format_stream_event_summaries(event: StreamEvent) -> list[str]:
 
     if event.state:
         summaries.append(
-            _format_event_summary("task", event.state.value, event.task_id)
+            _format_event_summary("task", state_label(event.state), event.task_id)
         )
 
     parts = _stream_event_parts(event)
@@ -481,39 +488,40 @@ def _format_stream_event_summaries(event: StreamEvent) -> list[str]:
 
 def _stream_event_parts(event: StreamEvent) -> list[Part]:
     """Return the parts carried by a stream event, if any."""
-    if event.message and event.message.role == Role.agent:
-        return event.message.parts or []
-    if event.status and event.status.status and event.status.status.message:
+    if event.message and event.message.role == Role.ROLE_AGENT:
+        return list(event.message.parts)
+    if event.status and event.status.status.HasField("message"):
         message = event.status.status.message
-        if message.role == Role.agent:
-            return message.parts or []
-    if event.artifact and event.artifact.artifact:
-        return event.artifact.artifact.parts or []
+        if message.role == Role.ROLE_AGENT:
+            return list(message.parts)
+    if event.artifact and event.artifact.artifact.parts:
+        return list(event.artifact.artifact.parts)
     return []
 
 
 def _format_part_event_summaries(part: Part, task_id: str | None) -> list[str]:
     """Summarize a stream part without rendering its full content."""
-    root = part.root
-    if isinstance(root, TextPart):
+    kind = part_kind(part)
+    if kind == "text":
         return [_format_event_summary("message", "text", task_id)]
-    if isinstance(root, DataPart):
-        if _is_tool_call_data(root.data):
+    if kind == "data":
+        data = part_data(part)
+        if _is_tool_call_data(data):
             return [
                 _format_event_summary(
-                    "tool call", str(root.data.get("name", "unknown")), task_id
+                    "tool call", str(data.get("name", "unknown")), task_id
                 )
             ]
-        if _is_tool_response_data(root.data):
+        if _is_tool_response_data(data):
             return [
                 _format_event_summary(
-                    "tool result", str(root.data.get("name", "unknown")), task_id
+                    "tool result", str(data.get("name", "unknown")), task_id
                 )
             ]
         return [_format_event_summary("message", "data", task_id)]
-    if isinstance(root, FilePart):
+    if kind == "file":
         return [_format_event_summary("message", "file", task_id)]
-    return [_format_event_summary("message", getattr(root, "kind", "part"), task_id)]
+    return [_format_event_summary("message", kind, task_id)]
 
 
 def _format_event_summary(kind: str, detail: str, task_id: str | None) -> str:
@@ -542,12 +550,12 @@ def _stream_text_delta(emitted_text: str, event_text: str) -> str:
 
 def _format_message_parts(message: Message) -> str:
     """Format a protocol message's parts, skipping echoed user messages."""
-    if message.role != Role.agent:
+    if message.role != Role.ROLE_AGENT:
         return ""
     return _format_parts(message.parts)
 
 
-def _format_parts(parts: list[Part] | None) -> str:
+def _format_parts(parts: Sequence[Part] | None) -> str:
     """Format A2A message/artifact parts for human-readable CLI output."""
     if not parts:
         return ""
@@ -562,50 +570,46 @@ def _format_parts(parts: list[Part] | None) -> str:
 
 def _format_part(part: Part) -> str:
     """Format a single A2A part for human-readable CLI output."""
-    root = part.root
-    if isinstance(root, TextPart):
-        return root.text
-    if isinstance(root, DataPart):
-        return _format_data_part(root)
-    if isinstance(root, FilePart):
-        return _format_file_part(root)
+    kind = part_kind(part)
+    if kind == "text":
+        return part_text(part)
+    if kind == "data":
+        return _format_data_part(part_data(part))
+    if kind == "file":
+        return _format_file_part(part)
 
-    return "```json\n" + json.dumps(part.model_dump(mode="json"), indent=2) + "\n```"
+    return "```json\n" + json.dumps(to_json_dict(part), indent=2) + "\n```"
 
 
-def _format_data_part(part: DataPart) -> str:
+def _format_data_part(data: Any) -> str:
     """Format structured data parts while hiding internal tool chatter."""
-    data = part.data
     if _is_tool_call_data(data) or _is_tool_response_data(data):
         return ""
     return "```json\n" + json.dumps(data, indent=2, default=str) + "\n```"
 
 
-def _is_tool_call_data(data: dict[str, Any]) -> bool:
+def _is_tool_call_data(data: Any) -> bool:
     """Return whether a data part looks like an internal tool call."""
-    return {"id", "name", "args"}.issubset(data)
+    return isinstance(data, dict) and {"id", "name", "args"}.issubset(data)
 
 
-def _is_tool_response_data(data: dict[str, Any]) -> bool:
+def _is_tool_response_data(data: Any) -> bool:
     """Return whether a data part looks like an internal tool response."""
-    return {"id", "name", "response"}.issubset(data)
+    return isinstance(data, dict) and {"id", "name", "response"}.issubset(data)
 
 
-def _format_file_part(part: FilePart) -> str:
+def _format_file_part(part: Part) -> str:
     """Format file parts without dumping inline bytes into the terminal."""
-    file_part = part.file
-    name = getattr(file_part, "name", None) or "unnamed file"
-    mime_type = getattr(file_part, "mime_type", None)
-    uri = getattr(file_part, "uri", None)
-    inline_bytes = getattr(file_part, "bytes", None)
+    info = part_file(part)
+    name = info.get("name") or "unnamed file"
 
     details = [name]
-    if mime_type:
-        details.append(mime_type)
-    if uri:
-        details.append(uri)
-    elif inline_bytes:
-        details.append(f"inline bytes, {len(inline_bytes)} base64 chars")
+    if info.get("media_type"):
+        details.append(info["media_type"])
+    if info.get("uri"):
+        details.append(info["uri"])
+    elif info.get("num_bytes"):
+        details.append(f"inline bytes, {info['num_bytes']} bytes")
     return "[file: " + ", ".join(details) + "]"
 
 
@@ -617,7 +621,7 @@ def _stream_event_dump(event: StreamEvent) -> dict[str, object]:
     if event.task_id:
         data["taskId"] = event.task_id
     if event.state:
-        data["state"] = event.state.value
+        data["state"] = state_label(event.state)
     if event.text:
         data["text"] = event.text
     if event.message:

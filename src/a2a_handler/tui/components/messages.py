@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 
-from a2a.types import DataPart, FilePart, Task, TextPart
+from a2a.types import Task
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -17,9 +17,11 @@ from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.service import (
     extract_text,
+    part_kind,
     response_context_id,
     response_state,
     response_task_id,
+    state_label,
 )
 from a2a_handler.tui.components.artifacts import ArtifactsPanel
 from a2a_handler.tui.components.auth import AuthPanel
@@ -37,18 +39,6 @@ logger = get_logger(__name__)
 HANDLER_DOCS_URL = "https://handler.alduncanson.com/"
 
 
-def _part_kind(part: Any) -> str:
-    """Return a compact display label for an A2A part."""
-    root = getattr(part, "root", part)
-    if isinstance(root, TextPart):
-        return "text"
-    if isinstance(root, DataPart):
-        return "data"
-    if isinstance(root, FilePart):
-        return "file"
-    return getattr(root, "kind", type(root).__name__)
-
-
 def _artifact_label(artifact: Artifact) -> str:
     """Return a human-readable artifact identifier for timeline summaries."""
     return artifact.name or artifact.artifact_id or "unnamed artifact"
@@ -56,7 +46,7 @@ def _artifact_label(artifact: Artifact) -> str:
 
 def _artifact_summary(artifact: Artifact) -> str:
     """Summarize an artifact without forcing users into the raw protocol view."""
-    kinds = [_part_kind(part) for part in artifact.parts or []]
+    kinds = [part_kind(part) for part in artifact.parts or []]
     part_summary = ", ".join(kinds) if kinds else "no parts"
     return f"{_artifact_label(artifact)} ({part_summary})"
 
@@ -66,7 +56,7 @@ def _artifact_chip_summary(artifact: Artifact) -> str:
     label = artifact.name or artifact.artifact_id or "unnamed artifact"
     if artifact.artifact_id and not artifact.name:
         label = _short_id(artifact.artifact_id)
-    kinds = [_part_kind(part) for part in artifact.parts or []]
+    kinds = [part_kind(part) for part in artifact.parts or []]
     part_summary = ", ".join(kinds) if kinds else "no parts"
     return f"{label} ({part_summary})"
 
@@ -182,7 +172,7 @@ class AgentMessage(Message):
         task_id = response_task_id(response)
         context_id = response_context_id(response)
         if state:
-            fields.append(("state", state.value, "metadata-state"))
+            fields.append(("state", state_label(state), "metadata-state"))
         if task_id:
             fields.append(("task", _short_id(task_id), "metadata-task"))
         if context_id:
@@ -204,7 +194,7 @@ class AgentMessage(Message):
         task_id = response_task_id(response)
         context_id = response_context_id(response)
         if state:
-            fields.append(f"state: {state.value}")
+            fields.append(f"state: {state_label(state)}")
         if task_id:
             fields.append(f"task: {task_id}")
         if context_id:

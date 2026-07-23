@@ -10,16 +10,15 @@ from click.testing import CliRunner
 from a2a.types import (
     Message,
     Part,
-    PushNotificationConfig,
     Role,
     Task,
     TaskState,
     TaskStatus,
-    TextPart,
 )
 
 from a2a_handler.cli.task import task
 from a2a_handler.service import StreamEvent
+from tests.factories import make_push_config
 
 
 @pytest.fixture
@@ -29,7 +28,7 @@ def runner():
 
 
 def _make_task(
-    state: TaskState = TaskState.completed,
+    state: TaskState = TaskState.TASK_STATE_COMPLETED,
     task_id: str = "task-123",
     context_id: str = "ctx-123",
 ) -> Task:
@@ -49,12 +48,12 @@ class TestTaskGet:
         mock_task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             history=[
                 Message(
                     message_id="msg-1",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="Task output text"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="Task output text")],
                     context_id="ctx-123",
                 )
             ],
@@ -89,7 +88,7 @@ class TestTaskGet:
 
     def test_task_get_with_history_length(self, runner):
         """Test task get with history length option."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -122,7 +121,7 @@ class TestTaskGet:
 
     def test_task_get_with_bearer_auth(self, runner):
         """Test task get with bearer token override."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -158,7 +157,7 @@ class TestTaskGet:
 
     def test_task_get_with_api_key_auth(self, runner):
         """Test task get with API key override."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -222,7 +221,7 @@ class TestTaskGet:
 
     def test_task_get_with_json_params(self, runner):
         """Test task get supports raw json params."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -275,7 +274,7 @@ class TestTaskCancel:
 
     def test_task_cancel_success(self, runner):
         """Test successful task cancel command."""
-        mock_task = _make_task(TaskState.canceled)
+        mock_task = _make_task(TaskState.TASK_STATE_CANCELED)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -302,11 +301,11 @@ class TestTaskCancel:
             )
 
             assert result.exit_code == 0
-            assert '"canceled"' in result.output
+            assert '"TASK_STATE_CANCELED"' in result.output
 
     def test_task_cancel_with_bearer(self, runner):
         """Test task cancel with bearer token."""
-        mock_task = _make_task(TaskState.canceled)
+        mock_task = _make_task(TaskState.TASK_STATE_CANCELED)
 
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
@@ -343,7 +342,7 @@ class TestTaskResubscribe:
 
     def test_task_resubscribe_streams_events(self, runner):
         """Test task resubscribe yields stream events."""
-        mock_task = _make_task(TaskState.working)
+        mock_task = _make_task(TaskState.TASK_STATE_WORKING)
 
         async def mock_resubscribe(*args, **kwargs):
             yield StreamEvent(
@@ -383,7 +382,7 @@ class TestTaskResubscribe:
 
     def test_task_resubscribe_with_api_key(self, runner):
         """Test task resubscribe with API key."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         async def mock_resubscribe(*args, **kwargs):
             yield StreamEvent(event_type="status", task=mock_task)
@@ -423,14 +422,10 @@ class TestTaskNotificationSet:
 
     def test_notification_set_success(self, runner):
         """Test successful notification set command."""
-        from a2a.types import TaskPushNotificationConfig
-
-        mock_config = TaskPushNotificationConfig(
+        mock_config = make_push_config(
             task_id="task-123",
-            push_notification_config=PushNotificationConfig(
-                url="http://webhook.example.com",
-                token="secret-token",
-            ),
+            url="http://webhook.example.com",
+            token="secret-token",
         )
 
         with (
@@ -467,14 +462,10 @@ class TestTaskNotificationSet:
 
     def test_notification_set_with_token(self, runner):
         """Test notification set with authentication token."""
-        from a2a.types import TaskPushNotificationConfig
-
-        mock_config = TaskPushNotificationConfig(
+        mock_config = make_push_config(
             task_id="task-123",
-            push_notification_config=PushNotificationConfig(
-                url="http://webhook.example.com",
-                token="webhook-token",
-            ),
+            url="http://webhook.example.com",
+            token="webhook-token",
         )
 
         with (
@@ -536,15 +527,11 @@ class TestTaskNotificationGet:
 
     def test_notification_get_success(self, runner):
         """Test successful notification get command."""
-        from a2a.types import TaskPushNotificationConfig
-
-        mock_config = TaskPushNotificationConfig(
+        mock_config = make_push_config(
             task_id="task-123",
-            push_notification_config=PushNotificationConfig(
-                url="http://webhook.example.com",
-                token="secret-token",
-                id="config-id-123",
-            ),
+            url="http://webhook.example.com",
+            token="secret-token",
+            config_id="config-id-123",
         )
 
         with (
@@ -580,14 +567,10 @@ class TestTaskNotificationGet:
 
     def test_notification_get_with_config_id(self, runner):
         """Test notification get with specific config ID."""
-        from a2a.types import TaskPushNotificationConfig
-
-        mock_config = TaskPushNotificationConfig(
+        mock_config = make_push_config(
             task_id="task-123",
-            push_notification_config=PushNotificationConfig(
-                url="http://webhook.example.com",
-                id="specific-config-id",
-            ),
+            url="http://webhook.example.com",
+            config_id="specific-config-id",
         )
 
         with (
@@ -635,12 +618,12 @@ class TestFormatTask:
         mock_task = Task(
             id="task-123",
             context_id="ctx-abc",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             history=[
                 Message(
                     message_id="msg-1",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="Output text here"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="Output text here")],
                     context_id="ctx-abc",
                 )
             ],
@@ -652,7 +635,7 @@ class TestFormatTask:
         output.json.assert_called_once()
         call_data = output.json.call_args[0][0]
         assert call_data["id"] == "task-123"
-        assert call_data["status"]["state"] == "completed"
+        assert call_data["status"]["state"] == "TASK_STATE_COMPLETED"
 
     def test_format_task_no_text(self):
         """Test formatting a task without text emits JSON."""
@@ -660,7 +643,7 @@ class TestFormatTask:
         from a2a_handler.common import Output
         from unittest.mock import MagicMock
 
-        mock_task = _make_task(TaskState.working)
+        mock_task = _make_task(TaskState.TASK_STATE_WORKING)
 
         output = MagicMock(spec=Output)
         _format_task(mock_task, output)

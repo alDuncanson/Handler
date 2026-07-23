@@ -11,6 +11,7 @@ from textual.containers import Container, Vertical, VerticalScroll
 from textual.widgets import Static
 
 from a2a_handler.common import get_logger
+from a2a_handler.service import to_json_dict
 
 logger = get_logger(__name__)
 
@@ -97,7 +98,7 @@ class AgentCardPanel(Container):
             self._show_placeholder()
         else:
             logger.info("Displaying agent card for: %s", agent_card.name)
-            json_content = json.dumps(agent_card.model_dump(), indent=2, default=str)
+            json_content = json.dumps(to_json_dict(agent_card), indent=2, default=str)
             syntax_theme = self._get_syntax_theme_for_current_app_theme()
             if syntax_theme:
                 raw_view_widget.update(Syntax(json_content, "json", theme=syntax_theme))
@@ -112,7 +113,7 @@ class AgentCardPanel(Container):
 
         logger.debug("Refreshing syntax theme for agent card raw view")
         json_content = json.dumps(
-            self._current_agent_card.model_dump(), indent=2, default=str
+            to_json_dict(self._current_agent_card), indent=2, default=str
         )
         syntax_theme = self._get_syntax_theme_for_current_app_theme()
         raw_widget = self.query_one("#agent-raw", Static)

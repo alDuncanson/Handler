@@ -8,7 +8,7 @@ from a2a.types import AgentCard
 
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
-from a2a_handler.service import A2AService
+from a2a_handler.service import A2AService, to_json_dict
 from a2a_handler.validation import (
     ValidationResult,
     ValidationSource,
@@ -90,7 +90,7 @@ def _format_agent_card(card_data: object, output: Output) -> None:
     """Format and display an agent card as JSON."""
     card_dict: dict[str, Any]
     if isinstance(card_data, AgentCard):
-        card_dict = card_data.model_dump(exclude_none=True)
+        card_dict = to_json_dict(card_data)
     elif isinstance(card_data, dict):
         card_dict = {str(key): value for key, value in card_data.items()}
     else:

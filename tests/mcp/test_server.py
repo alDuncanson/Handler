@@ -4,12 +4,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from a2a.types import (
-    AgentCapabilities,
     AgentCard,
     AgentSkill,
-    PushNotificationConfig,
     Task,
-    TaskPushNotificationConfig,
     TaskState,
     TaskStatus,
 )
@@ -17,6 +14,7 @@ from a2a.types import (
 from a2a_handler.mcp.server import create_mcp_server
 from a2a_handler.session import AgentSession
 from a2a_handler.validation import ValidationResult, ValidationSource
+from tests.factories import make_agent_card, make_push_config
 
 
 def _tool_fn(server, name: str):
@@ -33,14 +31,13 @@ def _mock_http():
 
 
 def _make_agent_card(name: str = "TestAgent") -> AgentCard:
-    return AgentCard(
+    return make_agent_card(
         name=name,
         description="A test agent",
-        url="http://localhost:8000",
         version="1.0",
-        default_input_modes=["text"],
-        default_output_modes=["text"],
-        capabilities=AgentCapabilities(streaming=True, push_notifications=False),
+        url="http://localhost:8000",
+        streaming=True,
+        push_notifications=False,
         skills=[
             AgentSkill(id="s1", name="skill1", description="A skill", tags=["test"])
         ],
@@ -50,7 +47,7 @@ def _make_agent_card(name: str = "TestAgent") -> AgentCard:
 def _make_task(
     task_id: str = "task-1",
     context_id: str = "ctx-1",
-    state: TaskState = TaskState.completed,
+    state: TaskState = TaskState.TASK_STATE_COMPLETED,
 ) -> Task:
     return Task(
         id=task_id,
@@ -156,7 +153,7 @@ async def test_get_agent_card_success() -> None:
         resp = await fn(agent_url="http://localhost:8000")
 
     assert resp["name"] == "TestAgent"
-    assert resp["url"] == "http://localhost:8000"
+    assert resp["supportedInterfaces"][0]["url"] == "http://localhost:8000"
 
 
 @pytest.mark.asyncio
@@ -201,7 +198,7 @@ async def test_send_message_success() -> None:
 
     assert resp["id"] == "task-1"
     assert resp["contextId"] == "ctx-1"
-    assert resp["status"]["state"] == "completed"
+    assert resp["status"]["state"] == "TASK_STATE_COMPLETED"
     mock_update.assert_called_once_with("http://localhost:8000", "ctx-1", "task-1")
 
 
@@ -260,7 +257,7 @@ async def test_send_message_with_bearer_token() -> None:
         )
 
     assert resp["id"] == "task-1"
-    assert resp["status"]["state"] == "completed"
+    assert resp["status"]["state"] == "TASK_STATE_COMPLETED"
     _, kwargs = mock_cls.call_args
     assert kwargs["credentials"] is not None
 
@@ -288,7 +285,7 @@ async def test_get_task_success() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "get_task")
 
-    task = _make_task(state=TaskState.working)
+    task = _make_task(state=TaskState.TASK_STATE_WORKING)
 
     mock_service = AsyncMock()
     mock_service.get_task.return_value = task
@@ -301,7 +298,7 @@ async def test_get_task_success() -> None:
 
     assert resp["id"] == "task-1"
     assert resp["contextId"] == "ctx-1"
-    assert resp["status"]["state"] == "working"
+    assert resp["status"]["state"] == "TASK_STATE_WORKING"
 
 
 @pytest.mark.asyncio
@@ -332,7 +329,7 @@ async def test_cancel_task_success() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "cancel_task")
 
-    task = _make_task(state=TaskState.canceled)
+    task = _make_task(state=TaskState.TASK_STATE_CANCELED)
 
     mock_service = AsyncMock()
     mock_service.cancel_task.return_value = task
@@ -345,7 +342,7 @@ async def test_cancel_task_success() -> None:
 
     assert resp["id"] == "task-1"
     assert resp["contextId"] == "ctx-1"
-    assert resp["status"]["state"] == "canceled"
+    assert resp["status"]["state"] == "TASK_STATE_CANCELED"
 
 
 # ---------------------------------------------------------------------------
@@ -371,13 +368,11 @@ async def test_set_task_notification_success() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "set_task_notification")
 
-    config = TaskPushNotificationConfig(
+    config = make_push_config(
         task_id="task-1",
-        push_notification_config=PushNotificationConfig(
-            url="https://hooks.example.com/notify",
-            token="secret-token-value-here-long",
-            id="cfg-1",
-        ),
+        url="https://hooks.example.com/notify",
+        token="secret-token-value-here-long",
+        config_id="cfg-1",
     )
 
     mock_service = AsyncMock()
@@ -394,10 +389,9 @@ async def test_set_task_notification_success() -> None:
         )
 
     assert resp["taskId"] == "task-1"
-    pnc = resp["pushNotificationConfig"]
-    assert pnc["url"] == "https://hooks.example.com/notify"
-    assert pnc["token"] == "secr...long"
-    assert pnc["id"] == "cfg-1"
+    assert resp["url"] == "https://hooks.example.com/notify"
+    assert resp["token"] == "secr...long"
+    assert resp["id"] == "cfg-1"
 
 
 # ---------------------------------------------------------------------------
@@ -410,13 +404,11 @@ async def test_get_task_notification_success() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "get_task_notification")
 
-    config = TaskPushNotificationConfig(
+    config = make_push_config(
         task_id="task-1",
-        push_notification_config=PushNotificationConfig(
-            url="https://hooks.example.com/notify",
-            token="abcdefghij1234567890xyz",
-            id="cfg-2",
-        ),
+        url="https://hooks.example.com/notify",
+        token="abcdefghij1234567890xyz",
+        config_id="cfg-2",
     )
 
     mock_service = AsyncMock()
@@ -429,10 +421,9 @@ async def test_get_task_notification_success() -> None:
         resp = await fn(agent_url="http://localhost:8000", task_id="task-1")
 
     assert resp["taskId"] == "task-1"
-    pnc = resp["pushNotificationConfig"]
-    assert pnc["url"] == "https://hooks.example.com/notify"
-    assert pnc["token"] == "abcd...0xyz"
-    assert pnc["id"] == "cfg-2"
+    assert resp["url"] == "https://hooks.example.com/notify"
+    assert resp["token"] == "abcd...0xyz"
+    assert resp["id"] == "cfg-2"
 
 
 # ---------------------------------------------------------------------------

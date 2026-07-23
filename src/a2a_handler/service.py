@@ -1,37 +1,41 @@
 """A2A protocol service layer.
 
 Provides a unified interface for A2A operations, shared between the CLI and TUI.
+
+This module is also the single place where the a2a-sdk's protobuf-based
+protocol types are constructed, inspected, and serialized. The rest of Handler
+(CLI, TUI, MCP) goes through the helpers defined here rather than touching
+``a2a.types`` protobuf idioms (``HasField``, ``MessageToDict``, enum ints)
+directly.
 """
 
 import uuid
 from dataclasses import dataclass
-from typing import AsyncIterator, Union
+from typing import Any, AsyncIterator, Iterable, Union
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
-from a2a.client.errors import A2AClientHTTPError
+from a2a.client.errors import AgentCardResolutionError
+from a2a.helpers import get_data_parts, get_text_parts
 from a2a.types import (
     AgentCard,
-    GetTaskPushNotificationConfigParams,
+    CancelTaskRequest,
+    GetTaskPushNotificationConfigRequest,
+    GetTaskRequest,
     Message,
     Part,
-    PushNotificationConfig,
     Role,
+    SendMessageRequest,
+    StreamResponse,
+    SubscribeToTaskRequest,
     Task,
     TaskArtifactUpdateEvent,
-    TaskIdParams,
     TaskPushNotificationConfig,
-    TaskQueryParams,
     TaskState,
     TaskStatusUpdateEvent,
-    TextPart,
-    TransportProtocol,
 )
-
-from a2a.utils.constants import (
-    AGENT_CARD_WELL_KNOWN_PATH,
-    PREV_AGENT_CARD_WELL_KNOWN_PATH,
-)
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
+from google.protobuf import json_format
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -44,12 +48,91 @@ from a2a_handler.common.input_validation import (
 
 logger = get_logger(__name__)
 
+# The v1.0 SDK dropped ``PREV_AGENT_CARD_WELL_KNOWN_PATH``; keep the legacy
+# path locally so Handler can still fall back to it for older servers.
+LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
 TERMINAL_TASK_STATES = {
-    TaskState.completed,
-    TaskState.canceled,
-    TaskState.failed,
-    TaskState.rejected,
+    TaskState.TASK_STATE_COMPLETED,
+    TaskState.TASK_STATE_CANCELED,
+    TaskState.TASK_STATE_FAILED,
+    TaskState.TASK_STATE_REJECTED,
 }
+
+
+def to_json_dict(message: Any) -> dict[str, Any]:
+    """Serialize an A2A protobuf message to its canonical JSON dict.
+
+    Uses protobuf JSON mapping (camelCase keys, enum names, unset fields
+    omitted), which matches the A2A v1.0 wire format.
+    """
+    return json_format.MessageToDict(message)
+
+
+def state_label(state: int | None) -> str:
+    """Return a compact, human-readable label for a ``TaskState`` value."""
+    if not state:
+        return "unknown"
+    return TaskState.Name(state).removeprefix("TASK_STATE_").lower()
+
+
+def role_label(role: int | None) -> str:
+    """Return a compact, human-readable label for a ``Role`` value."""
+    if not role:
+        return "unknown"
+    return Role.Name(role).removeprefix("ROLE_").lower()
+
+
+def card_protocol_version(card: AgentCard) -> str:
+    """Return the protocol version(s) advertised by a card's interfaces.
+
+    In A2A v1.0 the protocol version lives on each supported interface rather
+    than at the top level of the card.
+    """
+    versions = sorted(
+        {
+            interface.protocol_version
+            for interface in card.supported_interfaces
+            if interface.protocol_version
+        }
+    )
+    return ", ".join(versions) if versions else "unknown"
+
+
+def part_kind(part: Part) -> str:
+    """Return a compact display label for an A2A part."""
+    if part.HasField("text"):
+        return "text"
+    if part.HasField("data"):
+        return "data"
+    if part.HasField("url") or part.HasField("raw"):
+        return "file"
+    return "unknown"
+
+
+def part_text(part: Part) -> str:
+    """Return the text of a part, or an empty string if it is not a text part."""
+    return part.text if part.HasField("text") else ""
+
+
+def part_data(part: Part) -> Any:
+    """Return the decoded Python value carried by a data part."""
+    decoded = get_data_parts([part])
+    return decoded[0] if decoded else {}
+
+
+def part_file(part: Part) -> dict[str, Any]:
+    """Return a description of a file part (name, media type, uri, byte count)."""
+    info: dict[str, Any] = {}
+    if part.filename:
+        info["name"] = part.filename
+    if part.media_type:
+        info["media_type"] = part.media_type
+    if part.HasField("url"):
+        info["uri"] = part.url
+    if part.HasField("raw"):
+        info["num_bytes"] = len(part.raw)
+    return info
 
 
 @dataclass
@@ -58,6 +141,9 @@ class StreamEvent:
 
     This is a Handler convenience wrapper around SDK streaming event types.
     The original SDK event is accessible via `status` or `artifact` fields.
+
+    ``task`` carries Handler's running aggregate of the task (rebuilt from
+    status/artifact updates), so consumers always see the latest known state.
     """
 
     event_type: str
@@ -71,49 +157,43 @@ class StreamEvent:
     def context_id(self) -> str | None:
         """Get context_id from the underlying SDK type."""
         if self.task:
-            return self.task.context_id
+            return self.task.context_id or None
         if self.message:
-            return self.message.context_id
+            return self.message.context_id or None
         if self.status:
-            return self.status.context_id
+            return self.status.context_id or None
         if self.artifact:
-            return self.artifact.context_id
+            return self.artifact.context_id or None
         return None
 
     @property
     def task_id(self) -> str | None:
         """Get task_id from the underlying SDK type."""
         if self.task:
-            return self.task.id
+            return self.task.id or None
         if self.message:
-            return self.message.task_id
+            return self.message.task_id or None
         if self.status:
-            return self.status.task_id
+            return self.status.task_id or None
         if self.artifact:
-            return self.artifact.task_id
+            return self.artifact.task_id or None
         return None
 
     @property
-    def state(self) -> TaskState | None:
+    def state(self) -> int | None:
         """Get task state from the underlying SDK type."""
-        if self.task and self.task.status:
-            return self.task.status.state
-        if self.status and self.status.status:
-            return self.status.status.state
+        if self.task:
+            return self.task.status.state or None
+        if self.status:
+            return self.status.status.state or None
         return None
 
 
-def extract_text_from_message_parts(message_parts: list[Part] | None) -> str:
+def extract_text_from_message_parts(message_parts: Iterable[Part] | None) -> str:
     """Extract text content from message parts."""
     if not message_parts:
         return ""
-
-    extracted_texts = []
-    for part in message_parts:
-        if isinstance(part.root, TextPart):
-            extracted_texts.append(part.root.text)
-
-    return "\n".join(text for text in extracted_texts if text)
+    return "\n".join(text for text in get_text_parts(list(message_parts)) if text)
 
 
 def extract_text_from_task(task: Task) -> str:
@@ -128,7 +208,7 @@ def extract_text_from_task(task: Task) -> str:
     # Only check history if no artifacts found (avoids duplication)
     if not extracted_texts and task.history:
         for message in task.history:
-            if message.role == Role.agent and message.parts:
+            if message.role == Role.ROLE_AGENT and message.parts:
                 extracted_texts.append(extract_text_from_message_parts(message.parts))
 
     return "\n".join(text for text in extracted_texts if text)
@@ -139,20 +219,20 @@ A2AResponse = Union[Task, Message]
 
 def response_context_id(response: A2AResponse) -> str | None:
     """Get context_id from a Task or Message."""
-    return response.context_id
+    return response.context_id or None
 
 
 def response_task_id(response: A2AResponse) -> str | None:
     """Get task_id from a Task or Message."""
     if isinstance(response, Task):
-        return response.id
-    return response.task_id
+        return response.id or None
+    return response.task_id or None
 
 
-def response_state(response: A2AResponse) -> TaskState | None:
+def response_state(response: A2AResponse) -> int | None:
     """Get task state from a Task or Message (Messages have no state)."""
-    if isinstance(response, Task) and response.status:
-        return response.status.state
+    if isinstance(response, Task):
+        return response.status.state or None
     return None
 
 
@@ -164,7 +244,7 @@ def is_terminal(response: A2AResponse) -> bool:
 
 def response_needs_auth(response: A2AResponse) -> bool:
     """Check if the response requires authentication."""
-    return response_state(response) == TaskState.auth_required
+    return response_state(response) == TaskState.TASK_STATE_AUTH_REQUIRED
 
 
 def extract_text(response: A2AResponse) -> str:
@@ -176,7 +256,7 @@ def extract_text(response: A2AResponse) -> str:
 
 def protocol_dump(response: A2AResponse) -> dict[str, object]:
     """Serialize an A2A protocol object to a JSON-compatible dict."""
-    return response.model_dump(mode="json", exclude_none=True)
+    return to_json_dict(response)
 
 
 def _truncate_secret(value: str) -> str:
@@ -188,20 +268,95 @@ def _truncate_secret(value: str) -> str:
 
 def push_config_dump(config: TaskPushNotificationConfig) -> dict[str, object]:
     """Serialize push-config data while redacting webhook auth tokens."""
-    data = config.model_dump(mode="json", exclude_none=True)
-    push_notification_config = data.get("pushNotificationConfig")
-    if not isinstance(push_notification_config, dict):
-        return data
-
-    token = push_notification_config.get("token")
+    data = to_json_dict(config)
+    token = data.get("token")
     if not isinstance(token, str) or not token:
         return data
 
-    redacted_config = dict(push_notification_config)
-    redacted_config["token"] = _truncate_secret(token)
     redacted = dict(data)
-    redacted["pushNotificationConfig"] = redacted_config
+    redacted["token"] = _truncate_secret(token)
     return redacted
+
+
+def _apply_status_update(
+    current_task: Task | None, update: TaskStatusUpdateEvent
+) -> Task:
+    """Fold a status update into the running task aggregate."""
+    if current_task is None:
+        current_task = Task(id=update.task_id, context_id=update.context_id)
+    current_task.status.CopyFrom(update.status)
+    return current_task
+
+
+def _apply_artifact_update(
+    current_task: Task | None, update: TaskArtifactUpdateEvent
+) -> Task:
+    """Fold an artifact update into the running task aggregate."""
+    if current_task is None:
+        current_task = Task(id=update.task_id, context_id=update.context_id)
+    artifact = update.artifact
+    for existing in current_task.artifacts:
+        if existing.artifact_id and existing.artifact_id == artifact.artifact_id:
+            if update.append:
+                existing.parts.extend(artifact.parts)
+            else:
+                existing.CopyFrom(artifact)
+            break
+    else:
+        current_task.artifacts.append(artifact)
+    return current_task
+
+
+async def _translate_stream(
+    chunks: AsyncIterator[StreamResponse],
+) -> AsyncIterator[StreamEvent]:
+    """Translate raw SDK ``StreamResponse`` chunks into Handler ``StreamEvent``s.
+
+    Maintains a running task aggregate so every emitted event exposes the
+    latest known task snapshot via ``StreamEvent.task``.
+    """
+    current_task: Task | None = None
+
+    async for chunk in chunks:
+        if chunk.HasField("message"):
+            yield StreamEvent(
+                event_type="message",
+                message=chunk.message,
+                text=extract_text_from_message_parts(chunk.message.parts),
+            )
+        elif chunk.HasField("task"):
+            current_task = chunk.task
+            yield StreamEvent(
+                event_type="task",
+                task=current_task,
+                text=extract_text_from_task(current_task),
+            )
+        elif chunk.HasField("status_update"):
+            update = chunk.status_update
+            current_task = _apply_status_update(current_task, update)
+            status_text = ""
+            if update.status.HasField("message"):
+                status_text = extract_text_from_message_parts(
+                    update.status.message.parts
+                )
+            yield StreamEvent(
+                event_type="status",
+                task=current_task,
+                status=update,
+                text=status_text,
+            )
+        elif chunk.HasField("artifact_update"):
+            update = chunk.artifact_update
+            current_task = _apply_artifact_update(current_task, update)
+            artifact_text = ""
+            if update.artifact.parts:
+                artifact_text = extract_text_from_message_parts(update.artifact.parts)
+            yield StreamEvent(
+                event_type="artifact",
+                task=current_task,
+                artifact=update,
+                text=artifact_text,
+            )
 
 
 class A2AService:
@@ -319,16 +474,16 @@ class A2AService:
             card_resolver = A2ACardResolver(self.http_client, self.agent_url)
             try:
                 self._cached_agent_card = await card_resolver.get_agent_card()
-            except (A2AClientHTTPError, httpx.HTTPStatusError):
+            except (AgentCardResolutionError, httpx.HTTPStatusError):
                 logger.info(
                     "Agent card not found at %s, trying %s",
                     AGENT_CARD_WELL_KNOWN_PATH,
-                    PREV_AGENT_CARD_WELL_KNOWN_PATH,
+                    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
                 )
                 fallback_resolver = A2ACardResolver(
                     self.http_client,
                     self.agent_url,
-                    agent_card_path=PREV_AGENT_CARD_WELL_KNOWN_PATH,
+                    agent_card_path=LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
                 )
                 self._cached_agent_card = await fallback_resolver.get_agent_card()
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
@@ -357,13 +512,11 @@ class A2AService:
         if self._cached_client is None:
             agent_card = await self._load_agent_card()
 
-            push_notification_configs: list[PushNotificationConfig] = []
+            push_notification_config: TaskPushNotificationConfig | None = None
             if self.push_notification_url:
-                push_notification_configs.append(
-                    PushNotificationConfig(
-                        url=self.push_notification_url,
-                        token=self.push_notification_token,
-                    )
+                push_notification_config = TaskPushNotificationConfig(
+                    url=self.push_notification_url,
+                    token=self.push_notification_token or "",
                 )
                 logger.info(
                     "Push notification configured: %s", self.push_notification_url
@@ -371,9 +524,9 @@ class A2AService:
 
             client_config = ClientConfig(
                 httpx_client=self.http_client,
-                supported_transports=[TransportProtocol.jsonrpc],
+                supported_protocol_bindings=[TransportProtocol.JSONRPC.value],
                 streaming=self.enable_streaming,
-                push_notification_configs=push_notification_configs,
+                push_notification_config=push_notification_config,
             )
 
             client_factory = ClientFactory(client_config)
@@ -385,14 +538,14 @@ class A2AService:
     @property
     def supports_streaming(self) -> bool:
         """Check if the agent supports streaming."""
-        if self._cached_agent_card and self._cached_agent_card.capabilities:
+        if self._cached_agent_card:
             return bool(self._cached_agent_card.capabilities.streaming)
         return False
 
     @property
     def supports_push_notifications(self) -> bool:
         """Check if the agent supports push notifications."""
-        if self._cached_agent_card and self._cached_agent_card.capabilities:
+        if self._cached_agent_card:
             return bool(self._cached_agent_card.capabilities.push_notifications)
         return False
 
@@ -413,11 +566,11 @@ class A2AService:
             Properly formatted Message object
         """
         return Message(
-            message_id=str(uuid.uuid4()),
-            role=Role.user,
-            parts=[Part(root=TextPart(text=message_text))],
-            context_id=context_id,
-            task_id=task_id,
+            message_id=uuid.uuid4().hex,
+            role=Role.ROLE_USER,
+            parts=[Part(text=message_text)],
+            context_id=context_id or "",
+            task_id=task_id or "",
         )
 
     async def send(
@@ -438,20 +591,16 @@ class A2AService:
         )
         logger.info("Sending message: %s", truncated_message)
 
+        request = SendMessageRequest(message=user_message)
+
         last_task: Task | None = None
         last_message: Message | None = None
 
-        async for event in client.send_message(user_message):
-            if isinstance(event, Message):
-                last_message = event
-                logger.debug("Received message response")
-            elif isinstance(event, tuple):
-                received_task, _task_update = event
-                last_task = received_task
-                logger.debug(
-                    "Received task update: %s",
-                    received_task.status.state if received_task.status else "unknown",
-                )
+        async for event in _translate_stream(client.send_message(request)):
+            if event.task is not None:
+                last_task = event.task
+            elif event.message is not None:
+                last_message = event.message
 
         response = last_task or last_message
         if response is None:
@@ -488,45 +637,10 @@ class A2AService:
         )
         logger.info("Streaming message: %s", truncated_message)
 
-        async for event in client.send_message(user_message):
-            if isinstance(event, Message):
-                yield StreamEvent(
-                    event_type="message",
-                    message=event,
-                    text=extract_text_from_message_parts(event.parts),
-                )
-            elif isinstance(event, tuple):
-                received_task, task_update = event
-                if isinstance(task_update, TaskStatusUpdateEvent):
-                    status_message_text = ""
-                    if task_update.status and task_update.status.message:
-                        status_message_text = extract_text_from_message_parts(
-                            task_update.status.message.parts
-                        )
-                    yield StreamEvent(
-                        event_type="status",
-                        task=received_task,
-                        status=task_update,
-                        text=status_message_text,
-                    )
-                elif isinstance(task_update, TaskArtifactUpdateEvent):
-                    artifact_text = ""
-                    if task_update.artifact and task_update.artifact.parts:
-                        artifact_text = extract_text_from_message_parts(
-                            task_update.artifact.parts
-                        )
-                    yield StreamEvent(
-                        event_type="artifact",
-                        task=received_task,
-                        artifact=task_update,
-                        text=artifact_text,
-                    )
-                else:
-                    yield StreamEvent(
-                        event_type="task",
-                        task=received_task,
-                        text=extract_text_from_task(received_task),
-                    )
+        request = SendMessageRequest(message=user_message)
+
+        async for event in _translate_stream(client.send_message(request)):
+            yield event
 
     async def get_task(
         self,
@@ -539,10 +653,12 @@ class A2AService:
         """
         client = await self._get_or_create_client()
 
-        query_params = TaskQueryParams(id=task_id, history_length=history_length)
+        request = GetTaskRequest(id=task_id)
+        if history_length is not None:
+            request.history_length = history_length
         logger.info("Getting task: %s", task_id)
 
-        return await client.get_task(query_params)
+        return await client.get_task(request)
 
     async def cancel_task(self, task_id: str) -> Task:
         """Cancel a running task.
@@ -551,10 +667,9 @@ class A2AService:
         """
         client = await self._get_or_create_client()
 
-        task_id_params = TaskIdParams(id=task_id)
         logger.info("Canceling task: %s", task_id)
 
-        return await client.cancel_task(task_id_params)
+        return await client.cancel_task(CancelTaskRequest(id=task_id))
 
     async def resubscribe(self, task_id: str) -> AsyncIterator[StreamEvent]:
         """Resubscribe to a task's event stream.
@@ -567,35 +682,11 @@ class A2AService:
         """
         client = await self._get_or_create_client()
 
-        task_id_params = TaskIdParams(id=task_id)
         logger.info("Resubscribing to task: %s", task_id)
 
-        async for event in client.resubscribe(task_id_params):
-            received_task, task_update = event
-            if isinstance(task_update, TaskStatusUpdateEvent):
-                yield StreamEvent(
-                    event_type="status",
-                    task=received_task,
-                    status=task_update,
-                )
-            elif isinstance(task_update, TaskArtifactUpdateEvent):
-                artifact_text = ""
-                if task_update.artifact and task_update.artifact.parts:
-                    artifact_text = extract_text_from_message_parts(
-                        task_update.artifact.parts
-                    )
-                yield StreamEvent(
-                    event_type="artifact",
-                    task=received_task,
-                    artifact=task_update,
-                    text=artifact_text,
-                )
-            else:
-                yield StreamEvent(
-                    event_type="task",
-                    task=received_task,
-                    text=extract_text_from_task(received_task),
-                )
+        subscription = client.subscribe(SubscribeToTaskRequest(id=task_id))
+        async for event in _translate_stream(subscription):
+            yield event
 
     async def set_push_config(
         self,
@@ -622,14 +713,12 @@ class A2AService:
 
         push_config = TaskPushNotificationConfig(
             task_id=task_id,
-            push_notification_config=PushNotificationConfig(
-                url=webhook_url,
-                token=authentication_token,
-            ),
+            url=webhook_url,
+            token=authentication_token or "",
         )
         logger.info("Setting push config for task %s: %s", task_id, webhook_url)
 
-        return await client.set_task_callback(push_config)
+        return await client.create_task_push_notification_config(push_config)
 
     async def get_push_config(
         self,
@@ -647,10 +736,10 @@ class A2AService:
         """
         client = await self._get_or_create_client()
 
-        params = GetTaskPushNotificationConfigParams(
-            id=task_id,
-            push_notification_config_id=config_id,
+        request = GetTaskPushNotificationConfigRequest(
+            task_id=task_id,
+            id=config_id or "",
         )
         logger.info("Getting push config for task %s", task_id)
 
-        return await client.get_task_callback(params)
+        return await client.get_task_push_notification_config(request)

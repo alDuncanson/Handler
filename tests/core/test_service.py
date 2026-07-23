@@ -5,18 +5,14 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
     Message,
     Part,
-    PushNotificationConfig,
     Role,
     Task,
     TaskPushNotificationConfig,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
 from typing import cast
 
@@ -38,7 +34,14 @@ from a2a_handler.service import (
 )
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
-    PREV_AGENT_CARD_WELL_KNOWN_PATH,
+    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+)
+from tests.factories import (
+    make_agent_card,
+    make_message,
+    make_push_config,
+    make_stream_response,
+    make_task,
 )
 
 
@@ -46,19 +49,15 @@ def _make_task(
     state: TaskState, task_id: str = "task-123", context_id: str = "ctx-123"
 ) -> Task:
     """Helper to create a Task with the given state."""
-    return Task(
-        id=task_id,
-        context_id=context_id,
-        status=TaskStatus(state=state),
-    )
+    return make_task(state, task_id=task_id, context_id=context_id)
 
 
 def _make_message(context_id: str = "ctx-123", task_id: str | None = None) -> Message:
     """Helper to create a Message."""
-    return Message(
+    return make_message(
+        text="Hello",
+        role=Role.ROLE_AGENT,
         message_id="msg-123",
-        role=Role.agent,
-        parts=[Part(root=TextPart(text="Hello"))],
         context_id=context_id,
         task_id=task_id,
     )
@@ -68,35 +67,39 @@ class TestResponseHelpers:
     """Tests for A2AResponse helper functions."""
 
     def test_is_terminal_when_completed(self):
-        assert is_terminal(_make_task(TaskState.completed)) is True
+        assert is_terminal(_make_task(TaskState.TASK_STATE_COMPLETED)) is True
 
     def test_is_terminal_when_canceled(self):
-        assert is_terminal(_make_task(TaskState.canceled)) is True
+        assert is_terminal(_make_task(TaskState.TASK_STATE_CANCELED)) is True
 
     def test_is_terminal_when_failed(self):
-        assert is_terminal(_make_task(TaskState.failed)) is True
+        assert is_terminal(_make_task(TaskState.TASK_STATE_FAILED)) is True
 
     def test_is_terminal_when_rejected(self):
-        assert is_terminal(_make_task(TaskState.rejected)) is True
+        assert is_terminal(_make_task(TaskState.TASK_STATE_REJECTED)) is True
 
     def test_is_terminal_when_working(self):
-        assert is_terminal(_make_task(TaskState.working)) is False
+        assert is_terminal(_make_task(TaskState.TASK_STATE_WORKING)) is False
 
     def test_is_terminal_for_message(self):
         assert is_terminal(_make_message()) is False
 
     def test_needs_auth_when_auth_required(self):
-        assert response_needs_auth(_make_task(TaskState.auth_required)) is True
+        assert (
+            response_needs_auth(_make_task(TaskState.TASK_STATE_AUTH_REQUIRED)) is True
+        )
 
     def test_needs_auth_when_working(self):
-        assert response_needs_auth(_make_task(TaskState.working)) is False
+        assert response_needs_auth(_make_task(TaskState.TASK_STATE_WORKING)) is False
 
     def test_needs_auth_for_message(self):
         assert response_needs_auth(_make_message()) is False
 
     def test_context_id_from_task(self):
         assert (
-            response_context_id(_make_task(TaskState.completed, context_id="ctx-456"))
+            response_context_id(
+                _make_task(TaskState.TASK_STATE_COMPLETED, context_id="ctx-456")
+            )
             == "ctx-456"
         )
 
@@ -105,7 +108,9 @@ class TestResponseHelpers:
 
     def test_task_id_from_task(self):
         assert (
-            response_task_id(_make_task(TaskState.completed, task_id="task-456"))
+            response_task_id(
+                _make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-456")
+            )
             == "task-456"
         )
 
@@ -113,7 +118,10 @@ class TestResponseHelpers:
         assert response_task_id(_make_message(task_id="task-789")) == "task-789"
 
     def test_state_from_task(self):
-        assert response_state(_make_task(TaskState.working)) == TaskState.working
+        assert (
+            response_state(_make_task(TaskState.TASK_STATE_WORKING))
+            == TaskState.TASK_STATE_WORKING
+        )
 
     def test_state_from_message(self):
         assert response_state(_make_message()) is None
@@ -122,12 +130,12 @@ class TestResponseHelpers:
         task = Task(
             id="t",
             context_id="c",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             history=[
                 Message(
                     message_id="m",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="Hello"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="Hello")],
                     context_id="c",
                 )
             ],
@@ -139,20 +147,22 @@ class TestResponseHelpers:
         assert extract_text(msg) == "Hello"
 
     def test_protocol_dump_task(self):
-        task = _make_task(TaskState.completed)
+        task = _make_task(TaskState.TASK_STATE_COMPLETED)
         dumped = protocol_dump(task)
         assert dumped["id"] == "task-123"
         status = dumped["status"]
         assert isinstance(status, dict)
         typed_status = cast(dict[str, object], status)
-        assert typed_status["state"] == "completed"
-        assert "kind" in dumped
+        assert typed_status["state"] == "TASK_STATE_COMPLETED"
+        # v1.0 protobuf cards have no ``kind`` discriminator; the dump uses
+        # camelCase keys instead, so assert the serialized context id key.
+        assert dumped["contextId"] == "ctx-123"
 
     def test_protocol_dump_message(self):
         msg = _make_message()
         dumped = protocol_dump(msg)
         assert dumped["contextId"] == "ctx-123"
-        assert dumped["role"] == "agent"
+        assert dumped["role"] == "ROLE_AGENT"
 
 
 class TestStreamEvent:
@@ -174,7 +184,7 @@ class TestStreamEvent:
 
     def test_create_status_event(self):
         """Test creating a status event with task object."""
-        task = _make_task(TaskState.working, task_id="task-456")
+        task = _make_task(TaskState.TASK_STATE_WORKING, task_id="task-456")
         event = StreamEvent(
             event_type="status",
             task=task,
@@ -182,11 +192,11 @@ class TestStreamEvent:
 
         assert event.event_type == "status"
         assert event.task_id == "task-456"
-        assert event.state == TaskState.working
+        assert event.state == TaskState.TASK_STATE_WORKING
 
     def test_context_id_from_task(self):
         """Test context_id derived from task."""
-        task = _make_task(TaskState.completed, context_id="ctx-abc")
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, context_id="ctx-abc")
         event = StreamEvent(event_type="task", task=task)
         assert event.context_id == "ctx-abc"
 
@@ -206,15 +216,15 @@ class TestExtractTextFromMessageParts:
 
     def test_extract_from_text_part_with_root(self):
         """Test extracting from TextPart wrapped in Part."""
-        parts = [Part(root=TextPart(text="Hello, world!"))]
+        parts = [Part(text="Hello, world!")]
         result = extract_text_from_message_parts(parts)
         assert result == "Hello, world!"
 
     def test_extract_multiple_parts(self):
         """Test extracting from multiple parts joins with newlines."""
         parts = [
-            Part(root=TextPart(text="First line")),
-            Part(root=TextPart(text="Second line")),
+            Part(text="First line"),
+            Part(text="Second line"),
         ]
         result = extract_text_from_message_parts(parts)
         assert result == "First line\nSecond line"
@@ -225,23 +235,23 @@ class TestTerminalStates:
 
     def test_terminal_states_include_completed(self):
         """Test that completed is a terminal state."""
-        assert TaskState.completed in TERMINAL_TASK_STATES
+        assert TaskState.TASK_STATE_COMPLETED in TERMINAL_TASK_STATES
 
     def test_terminal_states_include_canceled(self):
         """Test that canceled is a terminal state."""
-        assert TaskState.canceled in TERMINAL_TASK_STATES
+        assert TaskState.TASK_STATE_CANCELED in TERMINAL_TASK_STATES
 
     def test_terminal_states_include_failed(self):
         """Test that failed is a terminal state."""
-        assert TaskState.failed in TERMINAL_TASK_STATES
+        assert TaskState.TASK_STATE_FAILED in TERMINAL_TASK_STATES
 
     def test_terminal_states_include_rejected(self):
         """Test that rejected is a terminal state."""
-        assert TaskState.rejected in TERMINAL_TASK_STATES
+        assert TaskState.TASK_STATE_REJECTED in TERMINAL_TASK_STATES
 
     def test_working_is_not_terminal(self):
         """Test that working is not a terminal state."""
-        assert TaskState.working not in TERMINAL_TASK_STATES
+        assert TaskState.TASK_STATE_WORKING not in TERMINAL_TASK_STATES
 
 
 class TestStreamEventStatusFields:
@@ -254,8 +264,7 @@ class TestStreamEventStatusFields:
         status_event = TaskStatusUpdateEvent(
             task_id="task-123",
             context_id="ctx-status",
-            final=False,
-            status=TaskStatus(state=TaskState.working),
+            status=TaskStatus(state=TaskState.TASK_STATE_WORKING),
         )
         event = StreamEvent(event_type="status", status=status_event)
         assert event.context_id == "ctx-status"
@@ -267,8 +276,7 @@ class TestStreamEventStatusFields:
         status_event = TaskStatusUpdateEvent(
             task_id="task-from-status",
             context_id="ctx-123",
-            final=False,
-            status=TaskStatus(state=TaskState.working),
+            status=TaskStatus(state=TaskState.TASK_STATE_WORKING),
         )
         event = StreamEvent(event_type="status", status=status_event)
         assert event.task_id == "task-from-status"
@@ -280,11 +288,10 @@ class TestStreamEventStatusFields:
         status_event = TaskStatusUpdateEvent(
             task_id="task-123",
             context_id="ctx-123",
-            final=False,
-            status=TaskStatus(state=TaskState.working),
+            status=TaskStatus(state=TaskState.TASK_STATE_WORKING),
         )
         event = StreamEvent(event_type="status", status=status_event)
-        assert event.state == TaskState.working
+        assert event.state == TaskState.TASK_STATE_WORKING
 
 
 class TestStreamEventArtifact:
@@ -299,7 +306,7 @@ class TestStreamEventArtifact:
             context_id="ctx-artifact",
             artifact=Artifact(
                 artifact_id="art-1",
-                parts=[Part(root=TextPart(text="text"))],
+                parts=[Part(text="text")],
             ),
         )
         event = StreamEvent(event_type="artifact", artifact=artifact_event)
@@ -314,7 +321,7 @@ class TestStreamEventArtifact:
             context_id="ctx-123",
             artifact=Artifact(
                 artifact_id="art-1",
-                parts=[Part(root=TextPart(text="text"))],
+                parts=[Part(text="text")],
             ),
         )
         event = StreamEvent(event_type="artifact", artifact=artifact_event)
@@ -332,11 +339,11 @@ class TestExtractTextFromTask:
         task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             artifacts=[
                 Artifact(
                     artifact_id="art-1",
-                    parts=[Part(root=TextPart(text="Artifact text"))],
+                    parts=[Part(text="Artifact text")],
                 )
             ],
         )
@@ -351,13 +358,13 @@ class TestExtractTextFromTask:
         task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             artifacts=[],
             history=[
                 Message(
                     message_id="msg-1",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="History text"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="History text")],
                     context_id="ctx-123",
                 )
             ],
@@ -374,18 +381,18 @@ class TestExtractTextFromTask:
         task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             artifacts=[
                 Artifact(
                     artifact_id="art-1",
-                    parts=[Part(root=TextPart(text="Artifact text"))],
+                    parts=[Part(text="Artifact text")],
                 )
             ],
             history=[
                 Message(
                     message_id="msg-1",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="History text"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="History text")],
                     context_id="ctx-123",
                 )
             ],
@@ -402,19 +409,19 @@ class TestExtractTextFromTask:
         task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             artifacts=[],
             history=[
                 Message(
                     message_id="msg-1",
-                    role=Role.user,
-                    parts=[Part(root=TextPart(text="User text"))],
+                    role=Role.ROLE_USER,
+                    parts=[Part(text="User text")],
                     context_id="ctx-123",
                 ),
                 Message(
                     message_id="msg-2",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="Agent text"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="Agent text")],
                     context_id="ctx-123",
                 ),
             ],
@@ -431,7 +438,7 @@ class TestExtractTextFromTask:
         task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         )
 
         result = extract_text_from_task(task)
@@ -446,7 +453,7 @@ class _FakeStreamingClient:
         for event in self._events:
             yield event
 
-    async def resubscribe(self, _task_id_params):
+    async def subscribe(self, _task_id_params):
         for event in self._events:
             yield event
 
@@ -455,7 +462,7 @@ class _FakePushConfigClient:
     def __init__(self) -> None:
         self.push_config = None
 
-    async def set_task_callback(self, push_config):
+    async def create_task_push_notification_config(self, push_config):
         self.push_config = push_config
         return push_config
 
@@ -465,17 +472,17 @@ class _FakeGetPushConfigClient:
         self.result = result
         self.params = None
 
-    async def get_task_callback(self, params):
+    async def get_task_push_notification_config(self, params):
         self.params = params
         return self.result
 
 
 @pytest.mark.asyncio
 class TestA2AServiceStreamingCompatibility:
-    async def test_stream_handles_tuple_with_none_update(self):
-        """Test stream() maps tuple events with None update to task events."""
-        task = _make_task(TaskState.completed)
-        fake_client = _FakeStreamingClient(events=[(task, None)])
+    async def test_stream_emits_task_event(self):
+        """Test stream() maps a task StreamResponse to a task event."""
+        task = _make_task(TaskState.TASK_STATE_COMPLETED)
+        fake_client = _FakeStreamingClient(events=[make_stream_response(task=task)])
 
         async with httpx.AsyncClient() as http_client:
             service = A2AService(
@@ -496,21 +503,22 @@ class TestA2AServiceStreamingCompatibility:
 
     async def test_stream_extracts_status_message_text(self):
         """Test stream() does not stringify status message objects."""
-        task = _make_task(TaskState.working)
+        task = _make_task(TaskState.TASK_STATE_WORKING)
         status_update = TaskStatusUpdateEvent(
             task_id=task.id,
             context_id=task.context_id,
-            final=False,
             status=TaskStatus(
-                state=TaskState.working,
+                state=TaskState.TASK_STATE_WORKING,
                 message=Message(
                     message_id="msg-1",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="Working on it"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="Working on it")],
                 ),
             ),
         )
-        fake_client = _FakeStreamingClient(events=[(task, status_update)])
+        fake_client = _FakeStreamingClient(
+            events=[make_stream_response(status_update=status_update)]
+        )
 
         async with httpx.AsyncClient() as http_client:
             service = A2AService(
@@ -528,10 +536,10 @@ class TestA2AServiceStreamingCompatibility:
         assert events[0].event_type == "status"
         assert events[0].text == "Working on it"
 
-    async def test_resubscribe_handles_tuple_with_none_update(self):
-        """Test resubscribe() maps tuple events with None update to task events."""
-        task = _make_task(TaskState.working)
-        fake_client = _FakeStreamingClient(events=[(task, None)])
+    async def test_resubscribe_emits_task_event(self):
+        """Test resubscribe() maps a task StreamResponse to a task event."""
+        task = _make_task(TaskState.TASK_STATE_WORKING)
+        fake_client = _FakeStreamingClient(events=[make_stream_response(task=task)])
 
         async with httpx.AsyncClient() as http_client:
             service = A2AService(
@@ -549,22 +557,22 @@ class TestA2AServiceStreamingCompatibility:
         assert events[0].event_type == "task"
         assert events[0].task_id == task.id
 
-    async def test_send_returns_task_text_for_tuple_with_none_update(self):
-        """Test send() still returns task text when update payload is None."""
+    async def test_send_returns_task_text_from_task_stream_response(self):
+        """Test send() still returns task text from a task StreamResponse."""
         task = Task(
             id="task-123",
             context_id="ctx-123",
-            status=TaskStatus(state=TaskState.completed),
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
             history=[
                 Message(
                     message_id="msg-1",
-                    role=Role.agent,
-                    parts=[Part(root=TextPart(text="Done"))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text="Done")],
                     context_id="ctx-123",
                 )
             ],
         )
-        fake_client = _FakeStreamingClient(events=[(task, None)])
+        fake_client = _FakeStreamingClient(events=[make_stream_response(task=task)])
 
         async with httpx.AsyncClient() as http_client:
             service = A2AService(
@@ -580,7 +588,7 @@ class TestA2AServiceStreamingCompatibility:
 
         assert isinstance(result, Task)
         assert result.id == "task-123"
-        assert result.status.state == TaskState.completed
+        assert result.status.state == TaskState.TASK_STATE_COMPLETED
         assert extract_text(result) == "Done"
 
 
@@ -633,8 +641,8 @@ class TestA2AServicePushConfigValidation:
             )
 
         assert result.task_id == "task-123"
-        assert result.push_notification_config is not None
-        assert result.push_notification_config.url == "https://example.com/webhook"
+        assert result.url == "https://example.com/webhook"
+        assert result.token == "token-123"
         assert fake_client.push_config is not None
 
 
@@ -729,15 +737,13 @@ class TestA2AServiceOAuthAndCards:
             "client-id",
             "client-secret",
         )
-        card = AgentCard(
+        card = make_agent_card(
             name="OAuth Agent",
             description="Test agent",
-            url="http://example.com",
             version="1.0.0",
-            default_input_modes=["text"],
-            default_output_modes=["text"],
-            capabilities=AgentCapabilities(streaming=True, push_notifications=False),
-            skills=[],
+            url="http://example.com",
+            streaming=True,
+            push_notifications=False,
         )
         fetch_count = 0
 
@@ -782,15 +788,13 @@ class TestA2AServiceOAuthAndCards:
         self, monkeypatch
     ) -> None:
         """Older agents served at the legacy card path should still resolve successfully."""
-        card = AgentCard(
+        card = make_agent_card(
             name="Fallback Agent",
             description="Legacy card path",
-            url="http://example.com",
             version="1.0.0",
-            default_input_modes=["text"],
-            default_output_modes=["text"],
-            capabilities=AgentCapabilities(streaming=True, push_notifications=True),
-            skills=[],
+            url="http://example.com",
+            streaming=True,
+            push_notifications=True,
         )
         seen_paths: list[str] = []
 
@@ -824,19 +828,17 @@ class TestA2AServiceOAuthAndCards:
         assert second is card
         assert seen_paths == [
             AGENT_CARD_WELL_KNOWN_PATH,
-            PREV_AGENT_CARD_WELL_KNOWN_PATH,
+            LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
         ]
         assert service.supports_streaming is True
         assert service.supports_push_notifications is True
 
     async def test_get_push_config_passes_task_and_config_id_to_client(self) -> None:
         """Push config lookup should preserve both the task ID and optional config ID."""
-        expected = TaskPushNotificationConfig(
+        expected = make_push_config(
             task_id="task-123",
-            push_notification_config=PushNotificationConfig(
-                url="https://example.com/webhook",
-                token="token-123",
-            ),
+            url="https://example.com/webhook",
+            token="token-123",
         )
         fake_client = _FakeGetPushConfigClient(expected)
 
@@ -858,8 +860,8 @@ class TestA2AServiceOAuthAndCards:
 
         assert result == expected
         assert fake_client.params is not None
-        assert fake_client.params.id == "task-123"
-        assert fake_client.params.push_notification_config_id == "config-456"
+        assert fake_client.params.task_id == "task-123"
+        assert fake_client.params.id == "config-456"
 
     async def test_clear_credentials_removes_auth_header_from_requests(self):
         """Test clearing credentials removes auth header from outgoing requests."""

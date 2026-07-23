@@ -9,12 +9,13 @@ from unittest.mock import patch as mock_patch
 
 import pytest
 from click.testing import CliRunner
-from a2a.types import AgentCard, AgentSkill, AgentCapabilities
+from a2a.types import AgentCard, AgentSkill
 
 from a2a_handler.cli import cli
 from a2a_handler.cli.card import card, _format_agent_card, _format_validation_result
 from a2a_handler.common import Output
 from a2a_handler.validation import ValidationResult, ValidationIssue, ValidationSource
+from tests.factories import make_agent_card
 
 
 @pytest.fixture
@@ -25,12 +26,11 @@ def runner():
 
 def _make_agent_card() -> AgentCard:
     """Create a test agent card."""
-    return AgentCard(
+    return make_agent_card(
         name="Test Agent",
         description="A test agent",
-        url="http://localhost:8000",
         version="1.0.0",
-        capabilities=AgentCapabilities(),
+        url="http://localhost:8000",
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
         skills=[
@@ -172,7 +172,13 @@ class TestCardValidate:
         card_data = {
             "name": "Test Agent",
             "description": "A test agent",
-            "url": "http://localhost:8000",
+            "supportedInterfaces": [
+                {
+                    "url": "http://localhost:8000",
+                    "protocolBinding": "JSONRPC",
+                    "protocolVersion": "1.0",
+                }
+            ],
             "version": "1.0.0",
             "capabilities": {},
             "defaultInputModes": ["text/plain"],
@@ -199,8 +205,12 @@ class TestCardValidate:
             Path(f.name).unlink()
 
     def test_validate_invalid_file(self, runner):
-        """Test validating an invalid card file."""
-        card_data = {"name": "Test Agent"}  # Missing required fields
+        """Test validating an invalid card file.
+
+        A v0.3-shaped card (top-level ``url``) is rejected by strict v1.0
+        validation, which no longer recognizes that field.
+        """
+        card_data = {"name": "Test Agent", "url": "http://localhost:8000"}
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(card_data, f)

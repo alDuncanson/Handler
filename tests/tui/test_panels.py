@@ -7,16 +7,12 @@ from unittest.mock import Mock, call
 import pytest
 from a2a.types import (
     Artifact,
-    DataPart,
-    FilePart,
-    FileWithUri,
     Message,
     Part,
     Role,
     Task,
     TaskState,
     TaskStatus,
-    TextPart,
 )
 from textual.app import App, ComposeResult
 from textual.widgets import Markdown, TabbedContent
@@ -24,6 +20,7 @@ from textual.widgets import Markdown, TabbedContent
 from a2a_handler.auth import AuthType, create_oauth2_auth
 from a2a_handler.tui.components.logs import LogsPanel
 from a2a_handler.tui.components import ArtifactsPanel, TabbedMessagesPanel, TasksPanel
+from tests.factories import make_data_part, make_file_part
 
 
 def _rendered_texts(widget) -> list[str]:
@@ -51,7 +48,7 @@ def _make_artifact(
         artifact_id=artifact_id,
         name=name,
         description=description,
-        parts=[Part(root=TextPart(text=text))],
+        parts=[Part(text=text)],
     )
 
 
@@ -59,7 +56,7 @@ def _make_task(
     task_id: str = "task-123",
     context_id: str = "ctx-123",
     *,
-    state: TaskState = TaskState.completed,
+    state: TaskState = TaskState.TASK_STATE_COMPLETED,
     history_text: str = "Agent response body",
 ) -> Task:
     return Task(
@@ -69,15 +66,15 @@ def _make_task(
         history=[
             Message(
                 message_id="msg-user-1",
-                role=Role.user,
-                parts=[Part(root=TextPart(text="User prompt"))],
+                role=Role.ROLE_USER,
+                parts=[Part(text="User prompt")],
                 context_id=context_id,
                 task_id=task_id,
             ),
             Message(
                 message_id="msg-agent-1",
-                role=Role.agent,
-                parts=[Part(root=TextPart(text=history_text))],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text=history_text)],
                 context_id=context_id,
                 task_id=task_id,
             ),
@@ -87,7 +84,7 @@ def _make_task(
                 artifact_id="artifact-123",
                 name="Spec",
                 description="Structured result",
-                parts=[Part(root=TextPart(text="Artifact preview text"))],
+                parts=[Part(text="Artifact preview text")],
             )
         ],
     )
@@ -152,28 +149,26 @@ async def test_tasks_panel_labels_protocol_history_parts() -> None:
     task = Task(
         id="task-structured",
         context_id="ctx-structured",
-        status=TaskStatus(state=TaskState.working),
+        status=TaskStatus(state=TaskState.TASK_STATE_WORKING),
         history=[
             Message(
                 message_id="msg-user-structured",
-                role=Role.user,
-                parts=[Part(root=TextPart(text="Summarize this file"))],
+                role=Role.ROLE_USER,
+                parts=[Part(text="Summarize this file")],
                 context_id="ctx-structured",
                 task_id="task-structured",
             ),
             Message(
                 message_id="msg-agent-data",
-                role=Role.agent,
+                role=Role.ROLE_AGENT,
                 parts=[
-                    Part(
-                        root=DataPart(
-                            data={
-                                "toolCall": {
-                                    "name": "search_handler",
-                                    "query": "handler mcp",
-                                }
+                    make_data_part(
+                        {
+                            "toolCall": {
+                                "name": "search_handler",
+                                "query": "handler mcp",
                             }
-                        )
+                        }
                     )
                 ],
                 context_id="ctx-structured",
@@ -181,16 +176,12 @@ async def test_tasks_panel_labels_protocol_history_parts() -> None:
             ),
             Message(
                 message_id="msg-agent-file",
-                role=Role.agent,
+                role=Role.ROLE_AGENT,
                 parts=[
-                    Part(
-                        root=FilePart(
-                            file=FileWithUri(
-                                uri="https://example.com/report.md",
-                                name="report.md",
-                                mime_type="text/markdown",
-                            )
-                        )
+                    make_file_part(
+                        url="https://example.com/report.md",
+                        filename="report.md",
+                        media_type="text/markdown",
                     )
                 ],
                 context_id="ctx-structured",
@@ -265,8 +256,8 @@ async def test_messages_panel_clear_replaces_chat_with_system_notice() -> None:
     app = _MessagesPanelHarness()
     response = Message(
         message_id="msg-1",
-        role=Role.agent,
-        parts=[Part(root=TextPart(text="Agent reply"))],
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="Agent reply")],
         context_id="ctx-123",
         task_id="task-123",
     )
@@ -296,19 +287,19 @@ async def test_messages_panel_renders_completed_tasks_and_empty_agent_responses(
     completed_task = Task(
         id="task-completed-1",
         context_id="ctx-resumed-1",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         history=[
             Message(
                 message_id="msg-user-1",
-                role=Role.user,
-                parts=[Part(root=TextPart(text="Resume prior work"))],
+                role=Role.ROLE_USER,
+                parts=[Part(text="Resume prior work")],
                 context_id="ctx-resumed-1",
                 task_id="task-completed-1",
             ),
             Message(
                 message_id="msg-agent-1",
-                role=Role.agent,
-                parts=[Part(root=TextPart(text="Recovered completed task output"))],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text="Recovered completed task output")],
                 context_id="ctx-resumed-1",
                 task_id="task-completed-1",
             ),
@@ -317,7 +308,7 @@ async def test_messages_panel_renders_completed_tasks_and_empty_agent_responses(
     empty_task = Task(
         id="task-completed-2",
         context_id="ctx-resumed-2",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
     )
 
     async with app.run_test() as pilot:
@@ -339,12 +330,10 @@ async def test_messages_panel_renders_markdown_message_bodies() -> None:
     app = _MessagesPanelHarness()
     response = Message(
         message_id="msg-markdown-1",
-        role=Role.agent,
+        role=Role.ROLE_AGENT,
         parts=[
             Part(
-                root=TextPart(
-                    text="## Handler CLI\n\nUse `handler message send`:\n\n```bash\nhandler message send http://agent.test 'hi'\n```"
-                )
+                text="## Handler CLI\n\nUse `handler message send`:\n\n```bash\nhandler message send http://agent.test 'hi'\n```"
             )
         ],
         context_id="ctx-markdown",
@@ -426,13 +415,13 @@ async def test_agent_message_metadata_links_to_task_and_artifact_payloads() -> N
     task = Task(
         id="task-with-artifacts",
         context_id="ctx-with-artifacts",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         artifacts=[
             Artifact(
                 artifact_id="artifact-data",
                 name="Processing Result",
                 description="Structured processing payload",
-                parts=[Part(root=DataPart(data={"status": "processed"}))],
+                parts=[make_data_part({"status": "processed"})],
             )
         ],
     )

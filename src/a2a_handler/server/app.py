@@ -5,15 +5,16 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import httpx
-from a2a.server.apps import A2AStarletteApplication
+from a2a.server.context import ServerCallContext
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import (
     BasePushNotificationSender,
     InMemoryPushNotificationConfigStore,
     InMemoryTaskStore,
 )
-from a2a.types import AgentCard, InvalidParamsError, PushNotificationConfig
-from a2a.utils.errors import ServerError
+from a2a.types import AgentCard, TaskPushNotificationConfig
+from a2a.utils.errors import InvalidParamsError
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.agents.llm_agent import Agent
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
@@ -48,7 +49,8 @@ class ValidatingPushNotificationConfigStore(InMemoryPushNotificationConfigStore)
     async def set_info(
         self,
         task_id: str,
-        notification_config: PushNotificationConfig,
+        notification_config: TaskPushNotificationConfig,
+        context: ServerCallContext,
     ) -> None:
         """Validate webhook settings before storing push configuration."""
         try:
@@ -57,13 +59,11 @@ class ValidatingPushNotificationConfigStore(InMemoryPushNotificationConfigStore)
             if notification_config.token:
                 reject_control_chars(notification_config.token, "webhook_token")
         except InputValidationError as error:
-            raise ServerError(
-                error=InvalidParamsError(
-                    message=f"{error.code}: {error.message}",
-                )
+            raise InvalidParamsError(
+                message=f"{error.code}: {error.message}",
             ) from error
 
-        await super().set_info(task_id, notification_config)
+        await super().set_info(task_id, notification_config, context)
 
 
 def generate_api_key() -> str:
@@ -186,6 +186,7 @@ def create_a2a_application(
     request_handler = DefaultRequestHandler(
         agent_executor=agent_executor,
         task_store=task_store,
+        agent_card=agent_card,
         push_config_store=push_notification_config_store,
         push_sender=push_notification_sender,
     )
@@ -196,13 +197,13 @@ def create_a2a_application(
             Middleware(APIKeyAuthMiddleware, api_key=api_key)  # type: ignore[arg-type]
         )
 
-    async def setup_a2a_routes(application: Starlette) -> None:
-        a2a_starlette_app = A2AStarletteApplication(
-            agent_card=agent_card,
-            http_handler=request_handler,
-        )
-        a2a_starlette_app.add_routes_to_app(application)
-        logger.info("A2A routes configured with push notification support")
+    # Serve the agent card plus a JSON-RPC endpoint. ``enable_v0_3_compat``
+    # lets legacy v0.3 clients call the same endpoint as v1.0 clients.
+    routes = [
+        *create_agent_card_routes(agent_card),
+        *create_jsonrpc_routes(request_handler, rpc_url="/", enable_v0_3_compat=True),
+    ]
+    logger.info("A2A routes configured with push notification support")
 
     async def cleanup_http_client() -> None:
         await http_client.aclose()
@@ -210,12 +211,11 @@ def create_a2a_application(
 
     @asynccontextmanager
     async def lifespan(application: Starlette) -> AsyncIterator[None]:
-        await setup_a2a_routes(application)
         try:
             yield
         finally:
             await cleanup_http_client()
 
-    application = Starlette(middleware=middleware, lifespan=lifespan)
+    application = Starlette(routes=routes, middleware=middleware, lifespan=lifespan)
 
     return application

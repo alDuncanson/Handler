@@ -7,27 +7,34 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from a2a.client.errors import A2AClientHTTPError
-from a2a.types import AgentCard, AgentCapabilities, AgentSkill
-from pydantic import ValidationError
+from a2a.client.errors import AgentCardResolutionError
+from a2a.types import AgentCard, AgentSkill
+from google.protobuf.json_format import ParseDict, ParseError
 
 from a2a_handler.validation import (
     ValidationSource,
     validate_agent_card_from_file,
     validate_agent_card_from_url,
 )
+from tests.factories import make_agent_card
 
 
 def _minimal_valid_agent_card() -> dict:
-    """Return a minimal valid agent card per A2A v0.3.0 spec.
+    """Return a minimal valid agent card per the A2A v1.0 spec.
 
-    Required fields: name, description, url, version, capabilities,
-    defaultInputModes, defaultOutputModes, skills (with id, name, tags).
+    In v1.0 the transport URL and protocol version live on each supported
+    interface rather than as a top-level ``url``/``protocolVersion`` field.
     """
     return {
         "name": "Test Agent",
         "description": "A test agent",
-        "url": "http://localhost:8000",
+        "supportedInterfaces": [
+            {
+                "url": "http://localhost:8000",
+                "protocolBinding": "JSONRPC",
+                "protocolVersion": "1.0",
+            }
+        ],
         "version": "1.0.0",
         "capabilities": {},
         "defaultInputModes": ["text/plain"],
@@ -43,38 +50,37 @@ def _minimal_valid_agent_card() -> dict:
     }
 
 
+def _parse_card(data: dict) -> AgentCard:
+    """Strictly validate a card dict against the v1.0 ``AgentCard`` schema."""
+    return ParseDict(data, AgentCard(), ignore_unknown_fields=False)
+
+
 class TestAgentCardValidation:
     """Tests for agent card validation using the A2A SDK."""
 
     def test_valid_minimal_card(self):
         """Test validation of a minimal valid agent card."""
         data = _minimal_valid_agent_card()
-        card = AgentCard.model_validate(data)
+        card = _parse_card(data)
 
         assert card.name == "Test Agent"
         assert card.description == "A test agent"
         assert len(card.skills) == 1
 
-    def test_missing_required_field(self):
-        """Test validation fails when required field is missing."""
+    def test_unknown_top_level_field_fails_validation(self):
+        """Strict v1.0 validation rejects unknown fields such as a legacy ``url``."""
         data = {"url": "http://localhost:8000"}
 
-        try:
-            AgentCard.model_validate(data)
-            assert False, "Expected validation to fail"
-        except Exception:
-            pass
+        with pytest.raises(ParseError):
+            _parse_card(data)
 
-    def test_skill_without_tags_fails_validation(self):
-        """Test that skills without tags fail validation (tags are required in v0.3.0)."""
+    def test_skill_with_unknown_field_fails_validation(self):
+        """Strict v1.0 validation rejects unknown fields nested in a skill."""
         data = _minimal_valid_agent_card()
-        data["skills"] = [{"id": "test", "name": "Test", "description": "Test desc"}]
+        data["skills"] = [{"id": "test", "name": "Test", "unknownSkillField": "boom"}]
 
-        try:
-            AgentCard.model_validate(data)
-            assert False, "Expected validation to fail"
-        except Exception:
-            pass
+        with pytest.raises(ParseError):
+            _parse_card(data)
 
 
 class TestValidateAgentCardFromFile:
@@ -173,9 +179,13 @@ class TestValidationResult:
             Path(f.name).unlink()
 
     def test_protocol_version_explicit(self):
-        """Test protocol_version returns explicit version when set."""
+        """Test protocol_version reflects an interface's explicit version.
+
+        In v1.0 the protocol version lives on each supported interface rather
+        than as a top-level card field.
+        """
         data = _minimal_valid_agent_card()
-        data["protocolVersion"] = "2.0"
+        data["supportedInterfaces"][0]["protocolVersion"] = "2.0"
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(data, f)
@@ -189,12 +199,11 @@ class TestValidationResult:
 
 def _make_agent_card() -> AgentCard:
     """Create a valid AgentCard instance for testing."""
-    return AgentCard(
+    return make_agent_card(
         name="Test Agent",
         description="A test agent",
-        url="http://localhost:8000",
         version="1.0.0",
-        capabilities=AgentCapabilities(),
+        url="http://localhost:8000",
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
         skills=[AgentSkill(id="test", name="Test", description="Test", tags=["test"])],
@@ -223,13 +232,16 @@ class TestValidateAgentCardFromUrl:
 
     @pytest.mark.asyncio
     async def test_validate_url_validation_error(self):
-        """Test validation error from a URL returns issues."""
+        """Test a card-resolution failure from a URL returns validation issues.
+
+        In v1.0 a malformed card surfaces as ``AgentCardResolutionError`` (with
+        no status code), which maps to a ``validation_error`` issue.
+        """
         with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
             mock_resolver = AsyncMock()
-            try:
-                AgentCard.model_validate({"url": "http://x"})
-            except ValidationError as e:
-                mock_resolver.get_agent_card.side_effect = e
+            mock_resolver.get_agent_card.side_effect = AgentCardResolutionError(
+                "invalid agent card"
+            )
             mock_resolver_cls.return_value = mock_resolver
 
             result = await validate_agent_card_from_url("http://localhost:8000")
@@ -237,6 +249,7 @@ class TestValidateAgentCardFromUrl:
         assert result.valid is False
         assert result.source_type == ValidationSource.URL
         assert len(result.issues) > 0
+        assert result.issues[0].issue_type == "validation_error"
 
     @pytest.mark.asyncio
     async def test_validate_url_http_error(self):
@@ -275,13 +288,13 @@ class TestValidateAgentCardFromUrl:
 
     @pytest.mark.asyncio
     async def test_validate_url_fallback_to_prev_path(self):
-        """Test fallback to previous well-known path on A2AClientHTTPError."""
+        """Test fallback to previous well-known path on AgentCardResolutionError."""
         mock_card = _make_agent_card()
 
         with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
             first_resolver = AsyncMock()
-            first_resolver.get_agent_card.side_effect = A2AClientHTTPError(
-                404, "Not Found"
+            first_resolver.get_agent_card.side_effect = AgentCardResolutionError(
+                "Not Found", status_code=404
             )
             fallback_resolver = AsyncMock()
             fallback_resolver.get_agent_card.return_value = mock_card

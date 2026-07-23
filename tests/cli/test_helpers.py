@@ -8,8 +8,8 @@ import httpx
 import pytest
 from a2a.client.errors import (
     A2AClientError,
-    A2AClientHTTPError,
     A2AClientTimeoutError,
+    AgentCardResolutionError,
 )
 
 from a2a_handler.auth import AuthType
@@ -115,25 +115,31 @@ class TestHandleClientError:
         call_args = output.error.call_args.kwargs["message"]
         assert "timed out" in call_args.lower()
 
-    def test_http_error_connection(self):
-        """Test handling A2AClientHTTPError with connection issue."""
+    def test_agent_card_resolution_error_connection(self):
+        """Test handling AgentCardResolutionError carrying a connection issue.
+
+        v1.0 removed ``A2AClientHTTPError``; HTTP-level failures resolving the
+        agent now surface as ``AgentCardResolutionError`` (with a status code).
+        """
         output = MagicMock(spec=Output)
-        error = A2AClientHTTPError(500, "Connection refused")
+        error = AgentCardResolutionError("Connection refused", status_code=500)
 
         handle_client_error(error, "http://localhost:8000", output)
 
         output.error.assert_called_once()
+        assert output.error.call_args.kwargs["code"] == "agent_card_resolution_error"
         call_args = output.error.call_args.kwargs["message"]
-        assert "Connection failed" in call_args or "Connection refused" in call_args
+        assert "Connection refused" in call_args
 
-    def test_http_error_other(self):
-        """Test handling A2AClientHTTPError with other issue."""
+    def test_agent_card_resolution_error_other(self):
+        """Test handling AgentCardResolutionError with a non-connection issue."""
         output = MagicMock(spec=Output)
-        error = A2AClientHTTPError(400, "Some HTTP error")
+        error = AgentCardResolutionError("Some HTTP error", status_code=400)
 
         handle_client_error(error, "http://localhost:8000", output)
 
         output.error.assert_called_once()
+        assert output.error.call_args.kwargs["code"] == "agent_card_resolution_error"
         call_args = output.error.call_args.kwargs["message"]
         assert "Some HTTP error" in call_args
 

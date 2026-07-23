@@ -97,6 +97,10 @@ async def handle_push_notification(request: Request) -> JSONResponse:
     task_status = request_payload.get("status", {})
     if task_status:
         task_state = task_status.get("state", "unknown")
+        # v1.0 serializes task state as the protobuf enum name
+        # (e.g. "TASK_STATE_COMPLETED"); show a compact label.
+        if isinstance(task_state, str) and task_state.startswith("TASK_STATE_"):
+            task_state = task_state.removeprefix("TASK_STATE_").lower()
         print(f"State: {task_state}")
 
     authentication_token = request_headers.get("x-a2a-notification-token")
