@@ -6,9 +6,10 @@ from typing import Any, Optional
 import click
 from a2a.types import AgentCard
 
+from a2a_handler.auth import AuthType
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError, validate_agent_url
-from a2a_handler.service import A2AService, to_json_dict
+from a2a_handler.service import A2AService, recommend_auth_from_card, to_json_dict
 from a2a_handler.validation import (
     ValidationResult,
     ValidationSource,
@@ -41,11 +42,16 @@ def card() -> None:
 @click.option(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
+@click.option(
+    "--google-audience",
+    help="Use Google Cloud ID-token auth (ADC); audience defaults to the agent URL",
+)
 def card_get(
     agent_url: Optional[str],
     server_name: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
+    google_audience: Optional[str],
 ) -> None:
     """Retrieve an agent's card.
 
@@ -54,6 +60,7 @@ def card_get(
       $ handler card get --server my_agent
       $ handler card get --url http://localhost:8000
       $ handler card get --url http://localhost:8000 --bearer-env MY_TOKEN
+      $ handler card get --url https://agent-xxxx-uc.a.run.app --google-audience https://agent-xxxx-uc.a.run.app
     """
     output = Output()
 
@@ -68,7 +75,9 @@ def card_get(
 
     log.info("Fetching agent card from %s", resolved_url)
 
-    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
+    credentials = resolve_selection_credentials(
+        selection, bearer_env, api_key_env, google_audience
+    )
 
     async def do_get() -> None:
         try:
@@ -78,12 +87,35 @@ def card_get(
                 log.info("Retrieved card for agent: %s", card_data.name)
 
                 _format_agent_card(card_data, output)
+                if credentials is None:
+                    _hint_card_auth(card_data)
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
             raise click.Abort()
 
     asyncio.run(do_get())
+
+
+_AUTH_FLAG_HINTS = {
+    AuthType.API_KEY: "--api-key-env (or a servers.toml api_key entry)",
+    AuthType.BEARER: "--bearer-env",
+    AuthType.OAUTH2: "a servers.toml oauth2 entry",
+    AuthType.MTLS: "--cert/--key (or a servers.toml mtls entry)",
+}
+
+
+def _hint_card_auth(card: AgentCard) -> None:
+    """Print a stderr hint when a card declares auth but none was supplied."""
+    recommendation = recommend_auth_from_card(card)
+    if recommendation is None:
+        return
+    flag = _AUTH_FLAG_HINTS.get(recommendation.auth_type, "the appropriate auth flag")
+    click.echo(
+        f"Note: this agent declares {recommendation.detail}; no credentials were "
+        f"supplied. Configure auth with {flag}.",
+        err=True,
+    )
 
 
 def _format_agent_card(card_data: object, output: Output) -> None:

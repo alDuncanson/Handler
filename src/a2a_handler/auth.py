@@ -7,6 +7,9 @@ authentication schemes.
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import json
 import ssl
 import time
 from dataclasses import dataclass, field
@@ -33,6 +36,7 @@ class AuthType(str, Enum):
     BEARER = "bearer"
     MTLS = "mtls"
     OAUTH2 = "oauth2"
+    GOOGLE = "google"
 
 
 @dataclass
@@ -52,6 +56,11 @@ class AuthCredentials:
     client_id: str | None = None  # For OAuth2: client ID
     client_secret: str | None = None  # For OAuth2: client secret
     scopes: list[str] | None = None  # For OAuth2: optional scopes
+    # For Google Cloud (OIDC ID token / IAP / ADC):
+    audience: str | None = None  # ID token audience (Cloud Run URL or IAP client ID)
+    credential_source: str = "adc"  # adc | service_account | impersonate
+    service_account_file: str | None = None  # service_account source: key file path
+    impersonate_service_account: str | None = None  # impersonate source: target SA
     custom_headers: dict[str, str] | None = None  # Additional headers for any auth type
     _token_expires_at: float | None = field(default=None, repr=False)
 
@@ -64,6 +73,10 @@ class AuthCredentials:
             "key_path": self.key_path,
             "ca_cert_path": self.ca_cert_path,
             "token_url": self.token_url,
+            "audience": self.audience,
+            "credential_source": self.credential_source,
+            "service_account_file": self.service_account_file,
+            "impersonate_service_account": self.impersonate_service_account,
         }
         for secret_field in ("value", "client_id", "client_secret"):
             val = getattr(self, secret_field)
@@ -84,6 +97,8 @@ class AuthCredentials:
         if self.auth_type == AuthType.BEARER and self.value:
             headers["Authorization"] = f"Bearer {self.value}"
         elif self.auth_type == AuthType.OAUTH2 and self.value:
+            headers["Authorization"] = f"Bearer {self.value}"
+        elif self.auth_type == AuthType.GOOGLE and self.value:
             headers["Authorization"] = f"Bearer {self.value}"
         elif self.auth_type == AuthType.API_KEY:
             header = self.header_name or "X-API-Key"
@@ -161,11 +176,102 @@ class AuthCredentials:
 
         return self.value
 
+    async def fetch_google_id_token(self) -> str:
+        """Mint a Google OIDC ID token for ``audience`` and cache it in ``value``.
+
+        Supports three credential sources: Application Default Credentials
+        (``adc``), a service-account key file (``service_account``), and
+        service-account impersonation (``impersonate``). google-auth is
+        synchronous, so the minting runs in a worker thread.
+        """
+        if self.auth_type != AuthType.GOOGLE:
+            raise ValueError(
+                "Google ID token fetch is only valid for Google credentials"
+            )
+        if not self.audience:
+            raise ValueError("audience is required to mint a Google ID token")
+
+        token = await asyncio.to_thread(self._mint_google_id_token)
+        self.value = token
+        self._token_expires_at = self._google_token_expiry(token)
+        return token
+
+    def _mint_google_id_token(self) -> str:
+        """Synchronously mint a Google ID token (runs in a worker thread)."""
+        from google.auth.transport.requests import Request
+
+        request = Request()
+        source = self.credential_source or "adc"
+
+        if source == "service_account":
+            if not self.service_account_file:
+                raise ValueError(
+                    "service_account_file is required for credential_source=service_account"
+                )
+            from google.oauth2 import service_account
+
+            creds = service_account.IDTokenCredentials.from_service_account_file(
+                self.service_account_file, target_audience=self.audience
+            )
+            creds.refresh(request)
+            return creds.token
+
+        if source == "impersonate":
+            if not self.impersonate_service_account:
+                raise ValueError(
+                    "impersonate_service_account is required for credential_source=impersonate"
+                )
+            import google.auth
+            from google.auth import impersonated_credentials
+
+            base_credentials, _ = google.auth.default()
+            target = impersonated_credentials.Credentials(
+                source_credentials=base_credentials,
+                target_principal=self.impersonate_service_account,
+                target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+            id_credentials = impersonated_credentials.IDTokenCredentials(
+                target, target_audience=self.audience, include_email=True
+            )
+            id_credentials.refresh(request)
+            return id_credentials.token
+
+        # Application Default Credentials (workload identity, gcloud ADC, etc.)
+        from google.oauth2 import id_token as google_id_token
+
+        return google_id_token.fetch_id_token(request, self.audience)
+
+    @staticmethod
+    def _google_token_expiry(token: str) -> float | None:
+        """Return a monotonic expiry deadline decoded from an ID token's ``exp``.
+
+        The token is our own bearer credential, so the JWT payload is read
+        without signature verification purely to schedule a refresh.
+        """
+        try:
+            payload_segment = token.split(".")[1]
+            payload_segment += "=" * (-len(payload_segment) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload_segment))
+        except (ValueError, IndexError):
+            return None
+        exp = claims.get("exp")
+        if not isinstance(exp, (int, float)):
+            return None
+        expires_in = exp - time.time()
+        if expires_in <= 0:
+            return None
+        return time.monotonic() + expires_in - _TOKEN_EXPIRY_MARGIN
+
     def to_dict(self) -> dict:
-        """Serialize credentials for storage."""
+        """Serialize credentials for storage.
+
+        Secrets are intentionally not persisted: the OAuth2 ``client_secret``
+        is omitted, and the ephemeral Google ID token in ``value`` is never
+        written out.
+        """
         data: dict = {
             "auth_type": self.auth_type.value,
-            "value": self.value,
+            "value": "" if self.auth_type == AuthType.GOOGLE else self.value,
             "header_name": self.header_name,
         }
         if self.cert_path:
@@ -178,10 +284,16 @@ class AuthCredentials:
             data["token_url"] = self.token_url
         if self.client_id:
             data["client_id"] = self.client_id
-        if self.client_secret:
-            data["client_secret"] = self.client_secret
         if self.scopes:
             data["scopes"] = self.scopes
+        if self.auth_type == AuthType.GOOGLE:
+            data["credential_source"] = self.credential_source
+        if self.audience:
+            data["audience"] = self.audience
+        if self.service_account_file:
+            data["service_account_file"] = self.service_account_file
+        if self.impersonate_service_account:
+            data["impersonate_service_account"] = self.impersonate_service_account
         if self.custom_headers:
             data["custom_headers"] = self.custom_headers
         return data
@@ -204,6 +316,10 @@ class AuthCredentials:
             client_id=data.get("client_id"),
             client_secret=data.get("client_secret"),
             scopes=data.get("scopes"),
+            audience=data.get("audience"),
+            credential_source=data.get("credential_source", "adc"),
+            service_account_file=data.get("service_account_file"),
+            impersonate_service_account=data.get("impersonate_service_account"),
             custom_headers=custom_headers,
         )
 
@@ -285,4 +401,57 @@ def create_oauth2_auth(
         client_id=client_id,
         client_secret=client_secret,
         scopes=scopes,
+    )
+
+
+_GOOGLE_CREDENTIAL_SOURCES = {"adc", "service_account", "impersonate"}
+
+
+def create_google_auth(
+    audience: str | None = None,
+    credential_source: str = "adc",
+    service_account_file: str | None = None,
+    impersonate_service_account: str | None = None,
+) -> AuthCredentials:
+    """Create Google Cloud OIDC ID-token authentication.
+
+    Mints an ID token (via ADC, a service-account key file, or impersonation)
+    and sends it as a bearer token. ``audience`` is the Cloud Run service URL
+    for direct IAM invocation, or the IAP OAuth client ID for IAP-protected
+    agents; when omitted the caller defaults it to the agent URL.
+
+    Args:
+        audience: ID token audience (Cloud Run URL or IAP client ID)
+        credential_source: ``adc`` | ``service_account`` | ``impersonate``
+        service_account_file: key file path (``service_account`` source)
+        impersonate_service_account: target service account (``impersonate`` source)
+    """
+    if credential_source not in _GOOGLE_CREDENTIAL_SOURCES:
+        raise ValueError(
+            f"Invalid credential_source: {credential_source!r} "
+            f"(expected one of {sorted(_GOOGLE_CREDENTIAL_SOURCES)})"
+        )
+
+    if credential_source == "service_account":
+        if not service_account_file:
+            raise ValueError(
+                "service_account_file is required when credential_source is 'service_account'"
+            )
+        service_account_file = str(Path(service_account_file).expanduser())
+        if not Path(service_account_file).is_file():
+            raise FileNotFoundError(
+                f"Service account file not found: {service_account_file}"
+            )
+
+    if credential_source == "impersonate" and not impersonate_service_account:
+        raise ValueError(
+            "impersonate_service_account is required when credential_source is 'impersonate'"
+        )
+
+    return AuthCredentials(
+        auth_type=AuthType.GOOGLE,
+        audience=audience,
+        credential_source=credential_source,
+        service_account_file=service_account_file,
+        impersonate_service_account=impersonate_service_account,
     )

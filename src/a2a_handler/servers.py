@@ -22,6 +22,7 @@ from a2a_handler.auth import (
     AuthType,
     create_api_key_auth,
     create_bearer_auth,
+    create_google_auth,
     create_mtls_auth,
     create_oauth2_auth,
 )
@@ -70,6 +71,11 @@ class ServerAuthConfig:
     client_id_env: str | None = None
     client_secret_env: str | None = None
     scopes: list[str] | None = None
+    # Google Cloud (OIDC ID token / IAP / ADC) fields
+    audience: str | None = None
+    credential_source: str = "adc"
+    service_account_file: str | None = None
+    impersonate_service_account: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +364,18 @@ def resolve_server_credentials(
             None,
         )
 
+    if auth.auth_type == AuthType.GOOGLE:
+        try:
+            credentials = create_google_auth(
+                audience=auth.audience,
+                credential_source=auth.credential_source,
+                service_account_file=auth.service_account_file,
+                impersonate_service_account=auth.impersonate_service_account,
+            )
+            return credentials, None
+        except (FileNotFoundError, ValueError) as error:
+            return None, f"Server '{server_name}': {error}"
+
     value: str | None = None
     if auth.env_var:
         env_value = os.getenv(auth.env_var)
@@ -504,7 +522,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
         auth_type = AuthType(normalized_auth_type)
     except ValueError as error:
         raise ServerConfigError(
-            "auth.type must be one of: bearer, api_key, mtls, oauth2"
+            "auth.type must be one of: bearer, api_key, mtls, oauth2, google"
         ) from error
 
     if auth_type == AuthType.MTLS:
@@ -581,6 +599,52 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
             client_id_env=client_id_env,
             client_secret_env=client_secret_env,
             scopes=scopes,
+        )
+
+    if auth_type == AuthType.GOOGLE:
+        for forbidden in ("env", "value", "header"):
+            if forbidden in auth_table:
+                raise ServerConfigError(
+                    f"auth.{forbidden} is not valid for google auth"
+                )
+        raw_source = auth_table.get("credential_source", "adc")
+        if not isinstance(raw_source, str) or raw_source not in (
+            "adc",
+            "service_account",
+            "impersonate",
+        ):
+            raise ServerConfigError(
+                "auth.credential_source must be one of: adc, service_account, impersonate"
+            )
+        audience = _parse_optional_str(auth_table, "audience")
+        service_account_file = _parse_optional_str(auth_table, "service_account_file")
+        impersonate = _parse_optional_str(auth_table, "impersonate_service_account")
+        for field_name, field_value in (
+            ("audience", audience),
+            ("service_account_file", service_account_file),
+            ("impersonate_service_account", impersonate),
+        ):
+            if field_value is not None:
+                try:
+                    reject_control_chars(field_value, f"auth.{field_name}")
+                except InputValidationError as error:
+                    raise ServerConfigError(error.message) from error
+        if raw_source == "service_account" and not service_account_file:
+            raise ServerConfigError(
+                "google auth with credential_source=service_account requires "
+                "service_account_file"
+            )
+        if raw_source == "impersonate" and not impersonate:
+            raise ServerConfigError(
+                "google auth with credential_source=impersonate requires "
+                "impersonate_service_account"
+            )
+        return ServerAuthConfig(
+            auth_type=auth_type,
+            audience=audience,
+            credential_source=raw_source,
+            service_account_file=service_account_file,
+            impersonate_service_account=impersonate,
         )
 
     env_var = _parse_optional_str(auth_table, "env")

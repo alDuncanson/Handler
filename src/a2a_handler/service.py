@@ -25,6 +25,7 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    SecurityScheme,
     SendMessageRequest,
     StreamResponse,
     SubscribeToTaskRequest,
@@ -97,6 +98,93 @@ def card_protocol_version(card: AgentCard) -> str:
         }
     )
     return ", ".join(versions) if versions else "unknown"
+
+
+@dataclass
+class AuthRecommendation:
+    """A suggested auth configuration derived from an agent card."""
+
+    auth_type: AuthType
+    scheme_name: str
+    header_name: str | None = None
+    token_url: str | None = None
+    detail: str = ""
+
+
+def _scheme_to_recommendation(
+    scheme_name: str, scheme: SecurityScheme
+) -> "AuthRecommendation | None":
+    """Map a single security scheme to a Handler auth recommendation."""
+    which = scheme.WhichOneof("scheme")
+    if which == "api_key_security_scheme":
+        api_key = scheme.api_key_security_scheme
+        if (api_key.location or "").lower() != "header":
+            return None  # query/cookie API keys can't be sent as a header
+        header_name = api_key.name or "X-API-Key"
+        return AuthRecommendation(
+            auth_type=AuthType.API_KEY,
+            scheme_name=scheme_name,
+            header_name=header_name,
+            detail=f"API key in header '{header_name}'",
+        )
+    if which == "http_auth_security_scheme":
+        http = scheme.http_auth_security_scheme
+        if (http.scheme or "").lower() != "bearer":
+            return None
+        return AuthRecommendation(
+            auth_type=AuthType.BEARER,
+            scheme_name=scheme_name,
+            detail="HTTP bearer token",
+        )
+    if which == "oauth2_security_scheme":
+        token_url = None
+        flows = scheme.oauth2_security_scheme.flows
+        if flows.HasField("client_credentials"):
+            token_url = getattr(flows.client_credentials, "token_url", "") or None
+        return AuthRecommendation(
+            auth_type=AuthType.OAUTH2,
+            scheme_name=scheme_name,
+            token_url=token_url,
+            detail="OAuth2",
+        )
+    if which == "open_id_connect_security_scheme":
+        url = scheme.open_id_connect_security_scheme.open_id_connect_url
+        return AuthRecommendation(
+            auth_type=AuthType.OAUTH2,
+            scheme_name=scheme_name,
+            detail=f"OpenID Connect ({url})" if url else "OpenID Connect",
+        )
+    if which == "mtls_security_scheme":
+        return AuthRecommendation(
+            auth_type=AuthType.MTLS,
+            scheme_name=scheme_name,
+            detail="mutual TLS",
+        )
+    return None
+
+
+def recommend_auth_from_card(card: AgentCard) -> AuthRecommendation | None:
+    """Suggest an auth configuration from a card's declared security.
+
+    Reads ``security_requirements``/``security_schemes`` and returns the first
+    required scheme Handler can satisfy (api-key header, HTTP bearer, OAuth2,
+    OpenID Connect, or mTLS). Returns ``None`` when the card declares no usable
+    requirement. (Google Cloud / IAP is not expressible as an A2A scheme, so it
+    remains a manual choice.)
+    """
+    requirements = card.security_requirements
+    schemes = card.security_schemes
+    if not requirements or not schemes:
+        return None
+    for requirement in requirements:
+        for scheme_name in requirement.schemes:
+            scheme = schemes.get(scheme_name)
+            if scheme is None:
+                continue
+            recommendation = _scheme_to_recommendation(scheme_name, scheme)
+            if recommendation is not None:
+                return recommendation
+    return None
 
 
 def part_kind(part: Part) -> str:
@@ -433,29 +521,43 @@ class A2AService:
                 "Applied authentication headers: %s", list(auth_headers.keys())
             )
 
-    async def ensure_oauth2_token(self) -> None:
-        """Fetch or refresh the OAuth2 access token if needed.
+    async def ensure_token(self) -> None:
+        """Fetch or refresh a token-based credential (OAuth2 or Google) if needed.
 
-        Acquires a new token when no token is present or when the cached
-        token has expired (or is about to expire within a safety margin).
+        Acquires a new token when none is present or when the cached token has
+        expired (or is about to expire within a safety margin). For Google
+        credentials without an explicit audience, defaults the audience to the
+        agent URL (the Cloud Run direct-invocation case).
         """
-        if self.credentials is None or self.credentials.auth_type != AuthType.OAUTH2:
+        credentials = self.credentials
+        if credentials is None or credentials.auth_type not in (
+            AuthType.OAUTH2,
+            AuthType.GOOGLE,
+        ):
             return
-        if not self.credentials.is_token_expired():
+        if not credentials.is_token_expired():
             return
-        if self.credentials.value:
-            logger.info("OAuth2 access token expired, refreshing")
-            self.credentials.clear_token()
+        if credentials.value:
+            logger.info("Access token expired, refreshing")
+            credentials.clear_token()
+
+        if credentials.auth_type == AuthType.OAUTH2:
+            logger.info("Fetching OAuth2 access token from %s", credentials.token_url)
+            await credentials.fetch_oauth2_token()
         else:
-            logger.info(
-                "Fetching OAuth2 access token from %s", self.credentials.token_url
-            )
-        await self.credentials.fetch_oauth2_token()
-        auth_headers = self.credentials.to_headers()
+            if not credentials.audience:
+                credentials.audience = self.agent_url
+            logger.info("Minting Google ID token for audience %s", credentials.audience)
+            await credentials.fetch_google_id_token()
+
+        auth_headers = credentials.to_headers()
         self.http_client.headers.update(auth_headers)
         self._applied_auth_headers = set(auth_headers.keys())
         self._cached_client = None
-        logger.info("OAuth2 access token applied")
+        logger.info("%s token applied", credentials.auth_type.value)
+
+    # Backwards-compatible alias (callers/tests may use the old name).
+    ensure_oauth2_token = ensure_token
 
     def clear_credentials(self) -> None:
         """Clear authentication credentials from the service and HTTP client."""

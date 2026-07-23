@@ -259,11 +259,14 @@ class TestOAuth2Auth:
         data = original.to_dict()
         restored = AuthCredentials.from_dict(data)
 
+        # The client secret is intentionally not persisted (secret hygiene).
+        assert "client_secret" not in data
+        assert restored.client_secret is None
+
         assert restored.auth_type == AuthType.OAUTH2
         assert restored.value == "access-token"
         assert restored.token_url == "https://example.com/oauth/token"
         assert restored.client_id == "my-client"
-        assert restored.client_secret == "my-secret"
         assert restored.scopes == ["read", "write"]
 
     def test_oauth2_to_dict_without_scopes(self) -> None:

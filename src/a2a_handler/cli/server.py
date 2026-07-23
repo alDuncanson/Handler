@@ -182,6 +182,11 @@ def _build_server_auth_entry(
     oauth2_client_id_env: str | None,
     oauth2_client_secret_env: str | None,
     oauth2_scopes: tuple[str, ...],
+    google: bool = False,
+    google_audience: str | None = None,
+    google_credential_source: str = "adc",
+    google_sa_file: str | None = None,
+    google_impersonate: str | None = None,
 ) -> tuple[dict[str, object] | None, str | None]:
     """Build the auth table for a new server or return a validation error."""
     has_mtls = cert_path is not None or key_path is not None
@@ -193,6 +198,7 @@ def _build_server_auth_entry(
             oauth2_scopes,
         )
     )
+    has_google = bool(google or google_audience or google_sa_file or google_impersonate)
     configured_methods = sum(
         bool(enabled)
         for enabled in (
@@ -200,6 +206,7 @@ def _build_server_auth_entry(
             api_key_env,
             has_mtls,
             has_oauth2,
+            has_google,
         )
     )
     if configured_methods > 1:
@@ -245,6 +252,28 @@ def _build_server_auth_entry(
         if oauth2_scopes:
             auth["scopes"] = list(oauth2_scopes)
         return auth, None
+
+    if has_google:
+        source = google_credential_source or "adc"
+        if source == "adc":
+            if google_sa_file:
+                source = "service_account"
+            elif google_impersonate:
+                source = "impersonate"
+        google_auth: dict[str, object] = {"type": "google"}
+        if source != "adc":
+            google_auth["credential_source"] = source
+        if google_audience:
+            google_auth["audience"] = google_audience
+        if source == "service_account":
+            if not google_sa_file:
+                return None, "Google service_account source requires --google-sa-file"
+            google_auth["service_account_file"] = google_sa_file
+        if source == "impersonate":
+            if not google_impersonate:
+                return None, "Google impersonate source requires --google-impersonate"
+            google_auth["impersonate_service_account"] = google_impersonate
+        return google_auth, None
 
     return None, None
 
@@ -412,6 +441,30 @@ def server_show(name: str, source: str | None) -> None:
     help="OAuth2 scope to request (repeatable)",
 )
 @click.option(
+    "--google",
+    is_flag=True,
+    help="Use Google Cloud ID-token auth (ADC) for Cloud Run / IAP agents",
+)
+@click.option(
+    "--google-audience",
+    help="ID token audience (Cloud Run URL or IAP client ID; defaults to the agent URL)",
+)
+@click.option(
+    "--google-credential-source",
+    type=click.Choice(["adc", "service_account", "impersonate"]),
+    default="adc",
+    show_default=True,
+    help="How to obtain the Google ID token",
+)
+@click.option(
+    "--google-sa-file",
+    help="Service-account key file (with --google-credential-source service_account)",
+)
+@click.option(
+    "--google-impersonate",
+    help="Target service account to impersonate (--google-credential-source impersonate)",
+)
+@click.option(
     "--global",
     "use_global",
     is_flag=True,
@@ -436,6 +489,11 @@ def server_add(
     oauth2_client_id_env: str | None,
     oauth2_client_secret_env: str | None,
     oauth2_scopes: tuple[str, ...],
+    google: bool,
+    google_audience: str | None,
+    google_credential_source: str,
+    google_sa_file: str | None,
+    google_impersonate: str | None,
     use_global: bool,
     use_repository: bool,
 ) -> None:
@@ -507,6 +565,11 @@ def server_add(
         oauth2_client_id_env=oauth2_client_id_env,
         oauth2_client_secret_env=oauth2_client_secret_env,
         oauth2_scopes=oauth2_scopes,
+        google=google,
+        google_audience=google_audience,
+        google_credential_source=google_credential_source,
+        google_sa_file=google_sa_file,
+        google_impersonate=google_impersonate,
     )
     if auth_error:
         output.error(code="invalid_auth", message=auth_error)

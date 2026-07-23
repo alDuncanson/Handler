@@ -17,6 +17,7 @@ from a2a_handler.auth import (
     AuthType,
     create_api_key_auth,
     create_bearer_auth,
+    create_google_auth,
 )
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError
@@ -255,12 +256,13 @@ def resolve_selection_credentials(
     selection: AgentSelection,
     bearer_env: str | None = None,
     api_key_env: str | None = None,
+    google_audience: str | None = None,
 ) -> AuthCredentials | None:
     """Resolve credentials for a previously selected target.
 
-    CLI flag auth (``--bearer-env``, ``--api-key-env``) overrides server auth.
-    Misconfigured named-server auth fails closed instead of silently falling back
-    to an unauthenticated request.
+    CLI flag auth (``--bearer-env``, ``--api-key-env``, ``--google-audience``)
+    overrides server auth. Misconfigured named-server auth fails closed instead
+    of silently falling back to an unauthenticated request.
     """
     bearer_token = (
         _resolve_env_secret(bearer_env, "bearer auth") if bearer_env else None
@@ -271,6 +273,8 @@ def resolve_selection_credentials(
         return create_bearer_auth(bearer_token)
     if api_key:
         return create_api_key_auth(api_key)
+    if google_audience:
+        return create_google_auth(audience=google_audience)
     if selection.server_def is None:
         return None
 

@@ -531,3 +531,101 @@ def test_resolve_oauth2_warns_when_client_secret_env_missing(
     assert credentials is None
     assert warning is not None
     assert "MISSING_SECRET" in warning
+
+
+def test_load_servers_parses_google_entry(tmp_path: Path) -> None:
+    """A google auth entry is parsed with audience and credential source."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.cloudrun]
+url = "https://agent-xxxx-uc.a.run.app"
+
+[servers.cloudrun.auth]
+type = "google"
+audience = "https://agent-xxxx-uc.a.run.app"
+credential_source = "adc"
+""".strip()
+    )
+
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    assert len(servers) == 1
+    auth = servers[0].auth
+    assert auth is not None
+    assert auth.auth_type == AuthType.GOOGLE
+    assert auth.audience == "https://agent-xxxx-uc.a.run.app"
+    assert auth.credential_source == "adc"
+
+
+def test_load_servers_skips_google_with_forbidden_value(tmp_path: Path) -> None:
+    """A google entry that carries a secret value is rejected as invalid."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.bad]
+url = "https://agent.example.com"
+
+[servers.bad.auth]
+type = "google"
+value = "should-not-be-here"
+""".strip()
+    )
+
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert servers == []
+
+
+def test_resolve_server_credentials_google_adc(tmp_path: Path) -> None:
+    """Google ADC auth resolves without needing env vars."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.cloudrun]
+url = "https://agent-xxxx-uc.a.run.app"
+
+[servers.cloudrun.auth]
+type = "google"
+audience = "https://agent-xxxx-uc.a.run.app"
+""".strip()
+    )
+
+    server_def = load_servers(tmp_path, ServerSource.GLOBAL)[0]
+    credentials, warning = resolve_server_credentials(server_def)
+
+    assert warning is None
+    assert credentials is not None
+    assert credentials.auth_type == AuthType.GOOGLE
+    assert credentials.audience == "https://agent-xxxx-uc.a.run.app"
+
+
+def test_resolve_server_credentials_google_service_account_missing_file(
+    tmp_path: Path,
+) -> None:
+    """Google service_account source fails closed when the key file is missing."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.svc]
+url = "https://agent.example.com"
+
+[servers.svc.auth]
+type = "google"
+credential_source = "service_account"
+service_account_file = "/nonexistent/sa.json"
+""".strip()
+    )
+
+    server_def = load_servers(tmp_path, ServerSource.GLOBAL)[0]
+    credentials, warning = resolve_server_credentials(server_def)
+
+    assert credentials is None
+    assert warning is not None

@@ -90,6 +90,10 @@ def message() -> None:
     multiple=True,
     help="Custom header (repeatable, format: 'Name: Value')",
 )
+@click.option(
+    "--google-audience",
+    help="Use Google Cloud ID-token auth (ADC); audience defaults to the agent URL",
+)
 def message_send(
     agent_url: Optional[str],
     server_name: Optional[str],
@@ -103,6 +107,7 @@ def message_send(
     push_token: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
+    google_audience: Optional[str] = None,
     headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message to an agent and receive a response.
@@ -213,7 +218,9 @@ def message_send(
                 output.error(code="invalid_input", message=str(e))
                 raise click.Abort() from e
 
-    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
+    credentials = resolve_selection_credentials(
+        selection, bearer_env, api_key_env, google_audience
+    )
 
     if custom_headers:
         if credentials is None:
@@ -286,6 +293,10 @@ def message_send(
     multiple=True,
     help="Custom header (repeatable, format: 'Name: Value')",
 )
+@click.option(
+    "--google-audience",
+    help="Use Google Cloud ID-token auth (ADC); audience defaults to the agent URL",
+)
 @click.pass_context
 def message_stream(
     ctx: click.Context,
@@ -299,6 +310,7 @@ def message_stream(
     push_token: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
+    google_audience: Optional[str] = None,
     headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message and stream the response in real-time.
@@ -322,6 +334,7 @@ def message_stream(
         push_token=push_token,
         bearer_env=bearer_env,
         api_key_env=api_key_env,
+        google_audience=google_audience,
         headers=headers,
     )
 

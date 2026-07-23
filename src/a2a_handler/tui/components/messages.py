@@ -370,6 +370,10 @@ class TabbedMessagesPanel(Container):
                 credentials.custom_headers = custom_headers
         return credentials
 
+    def set_auth_recommendation(self, recommendation: object) -> None:
+        """Preselect the auth type an agent card declares in the Auth panel."""
+        self._get_auth_panel().apply_recommendation(recommendation)
+
     def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
         """Preconfigure auth and headers panel fields from resolved credentials."""
         auth_panel = self._get_auth_panel()
@@ -407,6 +411,13 @@ class TabbedMessagesPanel(Container):
                 credentials.client_id,
                 credentials.client_secret,
                 credentials.scopes,
+            )
+        elif credentials.auth_type == AuthType.GOOGLE:
+            auth_panel.set_google(
+                credentials.audience,
+                credentials.credential_source,
+                credentials.service_account_file,
+                credentials.impersonate_service_account,
             )
 
         headers_panel.set_headers(credentials.custom_headers)

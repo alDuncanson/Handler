@@ -44,6 +44,7 @@ from a2a_handler.service import (
     card_protocol_version,
     extract_text_from_message_parts,
     is_terminal,
+    recommend_auth_from_card,
     response_context_id,
     response_task_id,
     response_state,
@@ -570,6 +571,8 @@ class ServerTab(Container):
             return "mTLS"
         if credentials.auth_type == AuthType.OAUTH2:
             return "OAuth 2.0"
+        if credentials.auth_type == AuthType.GOOGLE:
+            return "Google Cloud"
         if credentials.auth_type == AuthType.API_KEY:
             return "API Key"
         if credentials.auth_type == AuthType.BEARER:
@@ -776,6 +779,16 @@ class ServerTab(Container):
             self.state.current_task_id = resumed_task_id
             self.state.connected_server_def = selected_server
             self.state.mode = ServerConnectionMode.CONNECTED
+
+            if credentials is None:
+                recommendation = recommend_auth_from_card(agent_card)
+                if recommendation is not None:
+                    messages_panel.set_auth_recommendation(recommendation)
+                    self.notify(
+                        f"{agent_card.name} declares {recommendation.detail}. "
+                        "Configure it in the Auth tab and reconnect.",
+                        severity="warning",
+                    )
 
             await self._apply_connected_ui(
                 conversation_summary=(

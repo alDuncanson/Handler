@@ -11,6 +11,7 @@ from a2a_handler.auth import (
     AuthType,
     create_api_key_auth,
     create_bearer_auth,
+    create_google_auth,
     create_mtls_auth,
     create_oauth2_auth,
 )
@@ -42,6 +43,7 @@ class AuthPanel(Vertical):
         self.query_one("#bearer-fields", Vertical).add_class("hidden")
         self.query_one("#mtls-fields", Vertical).add_class("hidden")
         self.query_one("#oauth2-fields", Vertical).add_class("hidden")
+        self.query_one("#google-fields", Vertical).add_class("hidden")
 
     def _apply_auth_specific_field_visibility(self) -> None:
         """Show only the field group for the selected auth type."""
@@ -54,6 +56,8 @@ class AuthPanel(Vertical):
             self.query_one("#mtls-fields", Vertical).remove_class("hidden")
         elif self.query_one("#auth-oauth2", RadioButton).value:
             self.query_one("#oauth2-fields", Vertical).remove_class("hidden")
+        elif self.query_one("#auth-google", RadioButton).value:
+            self.query_one("#google-fields", Vertical).remove_class("hidden")
 
     def _set_none_selected(self) -> None:
         """Set no-auth selection and hide auth-specific fields."""
@@ -75,6 +79,10 @@ class AuthPanel(Vertical):
         """Set OAuth2 selection and show OAuth2 fields."""
         self._select_auth_button("auth-oauth2")
 
+    def _set_google_selected(self) -> None:
+        """Set Google Cloud selection and show Google fields."""
+        self._select_auth_button("auth-google")
+
     def compose(self) -> ComposeResult:
         yield Label("Authentication Type")
         with RadioSet(id="auth-type-selector"):
@@ -83,6 +91,7 @@ class AuthPanel(Vertical):
             yield RadioButton("Bearer Token", id="auth-bearer")
             yield RadioButton("mTLS (Client Certificate)", id="auth-mtls")
             yield RadioButton("OAuth2 (Client Credentials)", id="auth-oauth2")
+            yield RadioButton("Google Cloud (ID token / IAP)", id="auth-google")
 
         with Vertical(id="api-key-fields", classes="auth-fields hidden"):
             yield Label("API Key")
@@ -121,6 +130,26 @@ class AuthPanel(Vertical):
             yield Label("Scopes (optional, space-separated)")
             yield Input(placeholder="read write", id="oauth2-scopes-input")
 
+        with Vertical(id="google-fields", classes="auth-fields hidden"):
+            yield Label("Audience (optional; defaults to the agent URL)")
+            yield Input(
+                placeholder="https://agent-xxxx-uc.a.run.app or IAP client ID",
+                id="google-audience-input",
+            )
+            yield Label("Credential Source")
+            yield Input(
+                placeholder="adc | service_account | impersonate",
+                id="google-source-input",
+                value="adc",
+            )
+            yield Label("Service Account Key File (service_account source)")
+            yield Input(placeholder="/path/to/sa.json", id="google-sa-input")
+            yield Label("Impersonate Service Account (impersonate source)")
+            yield Input(
+                placeholder="deployer@project.iam.gserviceaccount.com",
+                id="google-impersonate-input",
+            )
+
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Handle auth type selection changes."""
         self._apply_auth_specific_field_visibility()
@@ -132,6 +161,8 @@ class AuthPanel(Vertical):
             logger.debug("Auth type changed to mTLS")
         elif event.pressed.id == "auth-oauth2":
             logger.debug("Auth type changed to OAuth2")
+        elif event.pressed.id == "auth-google":
+            logger.debug("Auth type changed to Google Cloud")
         else:
             logger.debug("Auth type changed to None")
 
@@ -179,6 +210,27 @@ class AuthPanel(Vertical):
                     token_url, client_id, client_secret, scopes
                 )
 
+        elif self.query_one("#auth-google", RadioButton).value:
+            audience = (
+                self.query_one("#google-audience-input", Input).value.strip() or None
+            )
+            source = (
+                self.query_one("#google-source-input", Input).value.strip() or "adc"
+            )
+            sa_file = self.query_one("#google-sa-input", Input).value.strip() or None
+            impersonate = (
+                self.query_one("#google-impersonate-input", Input).value.strip() or None
+            )
+            try:
+                credentials = create_google_auth(
+                    audience=audience,
+                    credential_source=source,
+                    service_account_file=sa_file,
+                    impersonate_service_account=impersonate,
+                )
+            except (ValueError, FileNotFoundError):
+                logger.warning("Invalid Google Cloud auth configuration")
+
         return credentials
 
     def get_auth_type(self) -> AuthType | None:
@@ -191,6 +243,8 @@ class AuthPanel(Vertical):
             return AuthType.MTLS
         if self.query_one("#auth-oauth2", RadioButton).value:
             return AuthType.OAUTH2
+        if self.query_one("#auth-google", RadioButton).value:
+            return AuthType.GOOGLE
         return None
 
     def set_bearer_token(self, token: str) -> None:
@@ -236,6 +290,46 @@ class AuthPanel(Vertical):
         )
         logger.debug("Preconfigured OAuth2 authentication")
 
+    def set_google(
+        self,
+        audience: str | None = None,
+        credential_source: str = "adc",
+        service_account_file: str | None = None,
+        impersonate_service_account: str | None = None,
+    ) -> None:
+        """Preconfigure Google Cloud ID-token authentication."""
+        self._set_google_selected()
+        self.query_one("#google-audience-input", Input).value = audience or ""
+        self.query_one("#google-source-input", Input).value = credential_source or "adc"
+        self.query_one("#google-sa-input", Input).value = service_account_file or ""
+        self.query_one("#google-impersonate-input", Input).value = (
+            impersonate_service_account or ""
+        )
+        logger.debug("Preconfigured Google Cloud authentication")
+
+    def apply_recommendation(self, recommendation: object) -> None:
+        """Preselect the auth type a card declares, prefilling non-secret hints.
+
+        Leaves secret fields (keys, tokens, client secrets) empty for the user
+        to complete. ``recommendation`` is a ``service.AuthRecommendation``.
+        """
+        auth_type = getattr(recommendation, "auth_type", None)
+        if auth_type == AuthType.API_KEY:
+            self._set_api_key_selected()
+            header_name = getattr(recommendation, "header_name", None)
+            if header_name:
+                self.query_one("#api-key-header-input", Input).value = header_name
+        elif auth_type == AuthType.BEARER:
+            self._set_bearer_selected()
+        elif auth_type == AuthType.OAUTH2:
+            self._set_oauth2_selected()
+            token_url = getattr(recommendation, "token_url", None)
+            if token_url:
+                self.query_one("#oauth2-token-url-input", Input).value = token_url
+        elif auth_type == AuthType.MTLS:
+            self._set_mtls_selected()
+        logger.debug("Applied auth recommendation: %s", auth_type)
+
     def clear(self) -> None:
         """Reset auth fields to no authentication selected."""
         self.query_one("#api-key-input", Input).value = ""
@@ -248,4 +342,8 @@ class AuthPanel(Vertical):
         self.query_one("#oauth2-client-id-input", Input).value = ""
         self.query_one("#oauth2-client-secret-input", Input).value = ""
         self.query_one("#oauth2-scopes-input", Input).value = ""
+        self.query_one("#google-audience-input", Input).value = ""
+        self.query_one("#google-source-input", Input).value = "adc"
+        self.query_one("#google-sa-input", Input).value = ""
+        self.query_one("#google-impersonate-input", Input).value = ""
         self._set_none_selected()

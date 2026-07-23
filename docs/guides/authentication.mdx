@@ -1,16 +1,17 @@
 ---
 title: "Authentication"
-description: "Configure bearer, API key, mTLS, and OAuth2 client credentials authentication for Handler servers."
+description: "Configure bearer, API key, mTLS, OAuth2, and Google Cloud authentication for Handler servers."
 ---
 
 # Configure server authentication
 
-Handler supports four auth types for configured servers:
+Handler supports five auth types for configured servers:
 
 - bearer tokens
 - API keys
 - mTLS client certificates
 - OAuth2 client credentials
+- Google Cloud ID tokens (Cloud Run / IAP)
 
 Add a server from the CLI with the matching auth flags, or define the auth block
 manually in `servers.toml`.
@@ -133,3 +134,66 @@ Handler fetches the access token with the OAuth2 client credentials grant,
 applies it as a bearer token on requests, and refreshes it when it expires.
 
 Use an HTTPS token endpoint so client credentials are protected in transit.
+
+## Google Cloud (Cloud Run / IAP)
+
+For agents deployed on Cloud Run or behind Identity-Aware Proxy (IAP), Handler
+can mint a Google **OIDC ID token** and send it as a bearer token — no
+`gcloud run services proxy` needed. Credentials come from Application Default
+Credentials (ADC) by default, so `gcloud auth application-default login` (or a
+workload-identity environment) is all that's required.
+
+The **audience** is the token's intended recipient: for direct Cloud Run
+invocation it's the service URL (Handler defaults it to the agent URL); for IAP
+it's the IAP OAuth **client ID**.
+
+One-off from the CLI (ADC, audience defaults to the agent URL):
+
+```bash
+handler card get \
+  --url https://agent-xxxx-uc.a.run.app \
+  --google-audience https://agent-xxxx-uc.a.run.app
+```
+
+Saved server:
+
+```bash
+handler server add cloudrun \
+  --url https://agent-xxxx-uc.a.run.app \
+  --google \
+  --google-audience https://agent-xxxx-uc.a.run.app
+```
+
+TOML:
+
+```toml
+[servers.cloudrun]
+url = "https://agent-xxxx-uc.a.run.app"
+
+[servers.cloudrun.auth]
+type = "google"
+# audience defaults to the agent URL; set it explicitly for IAP (the IAP client ID)
+audience = "https://agent-xxxx-uc.a.run.app"
+credential_source = "adc"  # adc | service_account | impersonate
+```
+
+`credential_source` selects how the ID token is obtained:
+
+- `adc` — Application Default Credentials (gcloud ADC or workload identity).
+- `service_account` — a key file, via `service_account_file = "/path/sa.json"`
+  (a file path, not a secret).
+- `impersonate` — impersonate a target service account, via
+  `impersonate_service_account = "deployer@project.iam.gserviceaccount.com"`.
+
+No secret is ever written to `servers.toml`, and the minted ID token is never
+persisted — Handler refreshes it automatically before it expires.
+
+## Auto-detecting an agent's auth
+
+When you connect to an agent whose card declares `securitySchemes`/
+`securityRequirements`, Handler reads them and steers you to the right auth. In
+the TUI it preselects the matching auth type (and prefills non-secret hints like
+the API-key header name) in the **Auth** tab; on the CLI, `handler card get`
+prints a note naming the scheme the agent requires when you haven't supplied
+credentials. (Google Cloud / IAP isn't expressible as an A2A security scheme, so
+it remains a manual choice.)
