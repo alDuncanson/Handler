@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from a2a.types import DataPart, FilePart, TextPart
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -14,9 +13,18 @@ from textual.reactive import reactive
 from textual.widgets import Collapsible, Label, ListItem, ListView, Static
 
 from a2a_handler.common import get_logger
+from a2a_handler.service import (
+    part_data,
+    part_file,
+    part_kind,
+    part_text,
+    role_label,
+    state_label,
+    to_json_dict,
+)
 
 if TYPE_CHECKING:
-    from a2a.types import Message, Part, Task, TaskState
+    from a2a.types import Message, Part, Task
 
 logger = get_logger(__name__)
 
@@ -37,14 +45,12 @@ class TaskEntry:
         return self.task.context_id
 
     @property
-    def state(self) -> TaskState | None:
-        if self.task.status:
-            return self.task.status.state
-        return None
+    def state(self) -> int | None:
+        return self.task.status.state or None
 
     @property
     def state_str(self) -> str:
-        return str(self.state.value) if self.state else "unknown"
+        return state_label(self.state) if self.state else "unknown"
 
 
 def _truncate_preview(value: str, limit: int = 120) -> str:
@@ -55,44 +61,32 @@ def _truncate_preview(value: str, limit: int = 120) -> str:
     return preview
 
 
-def _part_kind(part: Part) -> str:
-    """Return a display label for an A2A message part kind."""
-    root = part.root
-    if isinstance(root, TextPart):
-        return "text"
-    if isinstance(root, DataPart):
-        return "data"
-    if isinstance(root, FilePart):
-        return "file"
-    return getattr(root, "kind", type(root).__name__)
-
-
-def _data_part_preview(part: DataPart) -> str:
+def _data_part_preview(data: Any) -> str:
     """Build a compact preview for structured A2A data parts."""
-    data = part.data
-    for key in (
-        "name",
-        "type",
-        "functionCall",
-        "function_call",
-        "functionResponse",
-        "function_response",
-        "toolCall",
-        "tool_call",
-        "toolResult",
-        "tool_result",
-    ):
-        if key in data:
-            return _truncate_preview(f"{key}: {data[key]}")
+    if isinstance(data, dict):
+        for key in (
+            "name",
+            "type",
+            "functionCall",
+            "function_call",
+            "functionResponse",
+            "function_response",
+            "toolCall",
+            "tool_call",
+            "toolResult",
+            "tool_result",
+        ):
+            if key in data:
+                return _truncate_preview(f"{key}: {data[key]}")
     return _truncate_preview(json.dumps(data, default=str))
 
 
-def _file_part_preview(part: FilePart) -> str:
+def _file_part_preview(part: Part) -> str:
     """Build a compact preview for file parts."""
-    file_part = part.file
-    name = getattr(file_part, "name", None)
-    uri = getattr(file_part, "uri", None)
-    mime_type = getattr(file_part, "mime_type", None)
+    info = part_file(part)
+    name = info.get("name")
+    uri = info.get("uri")
+    mime_type = info.get("media_type")
     if name and mime_type:
         return f"{name} ({mime_type})"
     if name:
@@ -106,21 +100,21 @@ def _file_part_preview(part: FilePart) -> str:
 
 def _part_preview(part: Part) -> str:
     """Return a human-readable preview for any A2A message part."""
-    root = part.root
-    if isinstance(root, TextPart):
-        return _truncate_preview(root.text)
-    if isinstance(root, DataPart):
-        return _data_part_preview(root)
-    if isinstance(root, FilePart):
-        return _file_part_preview(root)
-    return _truncate_preview(json.dumps(part.model_dump(), default=str))
+    kind = part_kind(part)
+    if kind == "text":
+        return _truncate_preview(part_text(part))
+    if kind == "data":
+        return _data_part_preview(part_data(part))
+    if kind == "file":
+        return _file_part_preview(part)
+    return _truncate_preview(json.dumps(to_json_dict(part), default=str))
 
 
 def _message_part_kinds(message: Message) -> str:
     """Summarize the part kinds carried by a protocol message."""
     if not message.parts:
         return "no parts"
-    kinds = [_part_kind(part) for part in message.parts]
+    kinds = [part_kind(part) for part in message.parts]
     return ", ".join(kinds)
 
 
@@ -197,17 +191,18 @@ class TaskDetailPanel(VerticalScroll):
             self._field("Received", entry.received_at.strftime("%Y-%m-%d %H:%M:%S")),
         )
 
-        if task.status:
-            if task.status.timestamp:
-                content.mount(self._field("Last Updated", task.status.timestamp))
-            if task.status.message:
-                msg = task.status.message
-                if hasattr(msg, "parts") and msg.parts:
-                    from a2a_handler.service import extract_text_from_message_parts
+        if task.status.HasField("timestamp"):
+            content.mount(
+                self._field("Last Updated", task.status.timestamp.ToJsonString())
+            )
+        if task.status.HasField("message"):
+            msg = task.status.message
+            if msg.parts:
+                from a2a_handler.service import extract_text_from_message_parts
 
-                    text = extract_text_from_message_parts(msg.parts)
-                    if text:
-                        content.mount(self._field("Status Message", text[:200]))
+                text = extract_text_from_message_parts(msg.parts)
+                if text:
+                    content.mount(self._field("Status Message", text[:200]))
 
         if task.artifacts:
             content.mount(self._section_heading("Artifacts"))
@@ -224,7 +219,7 @@ class TaskDetailPanel(VerticalScroll):
                             preview += "..."
                         content.mount(Static(preview, classes="artifact-preview"))
 
-                raw_json = json.dumps(artifact.model_dump(), indent=2, default=str)
+                raw_json = json.dumps(to_json_dict(artifact), indent=2, default=str)
                 content.mount(
                     Collapsible(
                         Static(raw_json),
@@ -236,13 +231,7 @@ class TaskDetailPanel(VerticalScroll):
         if task.history:
             content.mount(self._section_heading("Task History"))
             for message in task.history:
-                role_value = (
-                    message.role.value
-                    if hasattr(message.role, "value")
-                    else str(message.role)
-                    if hasattr(message, "role")
-                    else "unknown"
-                )
+                role_value = role_label(message.role)
                 role_class = (
                     "history-role-agent"
                     if role_value == "agent"
@@ -261,7 +250,7 @@ class TaskDetailPanel(VerticalScroll):
                     )
                 )
 
-                raw_json = json.dumps(message.model_dump(), indent=2, default=str)
+                raw_json = json.dumps(to_json_dict(message), indent=2, default=str)
                 content.mount(
                     Collapsible(
                         Static(raw_json),

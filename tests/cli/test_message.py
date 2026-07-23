@@ -7,9 +7,6 @@ from unittest.mock import patch as mock_patch
 import pytest
 from click.testing import CliRunner
 from a2a.types import (
-    DataPart,
-    FilePart,
-    FileWithBytes,
     Message,
     Part,
     Role,
@@ -17,7 +14,6 @@ from a2a.types import (
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
 
 from a2a_handler.cli.message import (
@@ -28,6 +24,7 @@ from a2a_handler.cli.message import (
 )
 from a2a_handler.common import Output
 from a2a_handler.service import StreamEvent
+from tests.factories import make_data_part, make_file_part
 
 
 @pytest.fixture
@@ -37,7 +34,7 @@ def runner():
 
 
 def _make_task(
-    state: TaskState = TaskState.completed,
+    state: TaskState = TaskState.TASK_STATE_COMPLETED,
     task_id: str = "task-123",
     context_id: str = "ctx-123",
     text: str | None = None,
@@ -48,8 +45,8 @@ def _make_task(
         history = [
             Message(
                 message_id="msg-1",
-                role=Role.agent,
-                parts=[Part(root=TextPart(text=text))],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text=text)],
                 context_id=context_id,
             )
         ]
@@ -66,7 +63,7 @@ class TestMessageSend:
 
     def test_message_send_success(self, runner):
         """Test successful message send."""
-        mock_task = _make_task(TaskState.completed, text="Response text")
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response text")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -92,7 +89,7 @@ class TestMessageSend:
 
     def test_message_send_with_context_id(self, runner):
         """Test message send with context ID."""
-        mock_task = _make_task(TaskState.completed, text="Response")
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -133,7 +130,7 @@ class TestMessageSend:
             context_id="saved-ctx",
             task_id="saved-task",
         )
-        mock_task = _make_task(TaskState.completed, text="Response")
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -167,7 +164,7 @@ class TestMessageSend:
 
     def test_message_send_with_bearer_auth(self, runner):
         """Test message send with bearer token."""
-        mock_task = _make_task(TaskState.completed, text="Response")
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -203,7 +200,7 @@ class TestMessageSend:
 
     def test_message_send_with_push_url(self, runner):
         """Test message send with push notification URL."""
-        mock_task = _make_task(TaskState.completed, text="Response")
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -262,7 +259,7 @@ class TestMessageSend:
 
     def test_message_send_with_json_payload(self, runner):
         """Test message send accepts raw json payload."""
-        mock_task = _make_task(TaskState.completed, text="Response")
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
 
         with (
             patch("a2a_handler.cli.message.build_http_client") as mock_client,
@@ -330,7 +327,7 @@ class TestMessageStream:
 
     def test_message_stream_invokes_send_with_stream_flag(self, runner):
         """Test message stream command invokes send with stream=True."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         with (
             patch("a2a_handler.cli.message.build_streaming_http_client") as mock_client,
@@ -373,7 +370,9 @@ class TestFormatResponse:
     def test_format_completed_result(self):
         """Test formatting a completed result with text."""
         mock_task = _make_task(
-            TaskState.completed, context_id="ctx-123", text="Response text here"
+            TaskState.TASK_STATE_COMPLETED,
+            context_id="ctx-123",
+            text="Response text here",
         )
         output = MagicMock(spec=Output)
 
@@ -381,21 +380,21 @@ class TestFormatResponse:
 
         call_data = output.json.call_args[0][0]
         assert call_data["contextId"] == "ctx-123"
-        assert call_data["status"]["state"] == "completed"
+        assert call_data["status"]["state"] == "TASK_STATE_COMPLETED"
 
     def test_format_auth_required_result(self):
         """Test formatting an auth_required result."""
-        mock_task = _make_task(TaskState.auth_required)
+        mock_task = _make_task(TaskState.TASK_STATE_AUTH_REQUIRED)
         output = MagicMock(spec=Output)
 
         _format_response(mock_task, output)
 
         call_data = output.json.call_args[0][0]
-        assert call_data["status"]["state"] == "auth-required"
+        assert call_data["status"]["state"] == "TASK_STATE_AUTH_REQUIRED"
 
     def test_format_no_text_result(self):
         """Test formatting a result without text."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
         output = MagicMock(spec=Output)
         output.is_structured = True
 
@@ -407,18 +406,14 @@ class TestFormatResponse:
         """Test text mode formats non-text parts without raw protocol reprs."""
         mock_message = Message(
             message_id="msg-1",
-            role=Role.agent,
+            role=Role.ROLE_AGENT,
             parts=[
-                Part(root=TextPart(text="Here is data:")),
-                Part(root=DataPart(data={"answer": 42})),
-                Part(
-                    root=FilePart(
-                        file=FileWithBytes(
-                            bytes="YWJj",
-                            name="example.txt",
-                            mime_type="text/plain",
-                        )
-                    )
+                Part(text="Here is data:"),
+                make_data_part({"answer": 42}),
+                make_file_part(
+                    raw=b"abc",
+                    filename="example.txt",
+                    media_type="text/plain",
                 ),
             ],
         )
@@ -445,7 +440,7 @@ class TestStreamMessage:
     @pytest.mark.asyncio
     async def test_stream_message_collects_response(self):
         """Test _stream_message emits JSON for last response in JSON mode."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         async def mock_stream(*args, **kwargs):
             yield StreamEvent(
@@ -480,11 +475,11 @@ class TestStreamMessage:
     @pytest.mark.asyncio
     async def test_stream_message_prints_text_chunks(self):
         """Test _stream_message streams text chunks in default text mode."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
         user_message = Message(
             message_id="user-msg",
-            role=Role.user,
-            parts=[Part(root=TextPart(text="Echoed user prompt"))],
+            role=Role.ROLE_USER,
+            parts=[Part(text="Echoed user prompt")],
         )
 
         async def mock_stream(*args, **kwargs):
@@ -530,26 +525,24 @@ class TestStreamMessage:
     async def test_stream_message_prints_event_summaries_before_text(self):
         """Test text streams include task/tool summaries before response text."""
         task_id = "task-1234567890abcdef"
-        mock_task = _make_task(TaskState.working, task_id=task_id)
+        mock_task = _make_task(TaskState.TASK_STATE_WORKING, task_id=task_id)
         tool_call = Message(
             message_id="tool-call-msg",
-            role=Role.agent,
+            role=Role.ROLE_AGENT,
             parts=[
-                Part(
-                    root=DataPart(
-                        data={
-                            "id": "call-1",
-                            "name": "search_a2a_protocol_docs",
-                            "args": {"query": "streaming"},
-                        }
-                    )
+                make_data_part(
+                    {
+                        "id": "call-1",
+                        "name": "search_a2a_protocol_docs",
+                        "args": {"query": "streaming"},
+                    }
                 )
             ],
         )
         answer = Message(
             message_id="answer-msg",
-            role=Role.agent,
-            parts=[Part(root=TextPart(text="A2A supports streaming updates."))],
+            role=Role.ROLE_AGENT,
+            parts=[Part(text="A2A supports streaming updates.")],
         )
 
         async def mock_stream(*args, **kwargs):
@@ -559,8 +552,9 @@ class TestStreamMessage:
                 status=TaskStatusUpdateEvent(
                     task_id=task_id,
                     context_id="ctx-123",
-                    final=False,
-                    status=TaskStatus(state=TaskState.working, message=tool_call),
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_WORKING, message=tool_call
+                    ),
                 ),
             )
             yield StreamEvent(
@@ -569,8 +563,9 @@ class TestStreamMessage:
                 status=TaskStatusUpdateEvent(
                     task_id=task_id,
                     context_id="ctx-123",
-                    final=False,
-                    status=TaskStatus(state=TaskState.working, message=answer),
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_WORKING, message=answer
+                    ),
                 ),
             )
 
@@ -605,7 +600,7 @@ class TestStreamMessage:
     @pytest.mark.asyncio
     async def test_stream_message_auth_required(self):
         """Test _stream_message emits JSON for auth-required response."""
-        mock_task = _make_task(TaskState.auth_required)
+        mock_task = _make_task(TaskState.TASK_STATE_AUTH_REQUIRED)
 
         async def mock_stream(*args, **kwargs):
             yield StreamEvent(
@@ -630,12 +625,12 @@ class TestStreamMessage:
             )
 
         call_data = output.json.call_args[0][0]
-        assert call_data["status"]["state"] == "auth-required"
+        assert call_data["status"]["state"] == "TASK_STATE_AUTH_REQUIRED"
 
     @pytest.mark.asyncio
     async def test_stream_message_emits_ndjson_events(self):
         """Test _stream_message emits each event in NDJSON mode."""
-        mock_task = _make_task(TaskState.completed)
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
 
         async def mock_stream(*args, **kwargs):
             yield StreamEvent(

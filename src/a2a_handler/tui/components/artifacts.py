@@ -131,7 +131,9 @@ class ArtifactDetailPanel(VerticalScroll):
                 content.mount(Static(text, classes="artifact-content"))
 
         content.mount(self._section_heading("Raw JSON"))
-        raw_json = json.dumps(artifact.model_dump(), indent=2, default=str)
+        from a2a_handler.service import to_json_dict
+
+        raw_json = json.dumps(to_json_dict(artifact), indent=2, default=str)
         content.mount(
             Collapsible(
                 Static(raw_json),

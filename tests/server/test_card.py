@@ -2,7 +2,7 @@
 
 from unittest.mock import Mock
 
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from a2a.types import AgentCard, AgentSkill
 from google.adk.tools.mcp_tool.mcp_toolset import StreamableHTTPConnectionParams
 from starlette.applications import Starlette
 
@@ -27,6 +27,7 @@ from a2a_handler.server.app import (
 )
 from a2a_handler.server.card import build_agent_card
 from a2a_handler import __version__
+from tests.factories import make_agent_card
 
 
 def _make_agent(name: str = "TestAgent", description: str = "Test desc") -> Mock:
@@ -37,12 +38,13 @@ def _make_agent(name: str = "TestAgent", description: str = "Test desc") -> Mock
 
 
 def _make_agent_card() -> AgentCard:
-    return AgentCard(
+    return make_agent_card(
         name="Test",
         description="Test agent",
-        url="http://localhost:8000/",
         version="1.0.0",
-        capabilities=AgentCapabilities(streaming=True, push_notifications=True),
+        url="http://localhost:8000/",
+        streaming=True,
+        push_notifications=True,
         skills=[AgentSkill(id="test", name="Test", description="Test", tags=["test"])],
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
@@ -58,7 +60,7 @@ def test_build_agent_card_basic() -> None:
     card = build_agent_card(agent, host="localhost", port=8000)
 
     assert card.name == "TestAgent"
-    assert card.url == "http://localhost:8000/"
+    assert card.supported_interfaces[0].url == "http://localhost:8000/"
     assert card.version == __version__
     assert card.capabilities.streaming is True
     assert card.capabilities.push_notifications is True
@@ -82,16 +84,17 @@ def test_build_agent_card_replaces_0000_with_localhost() -> None:
     """Host 0.0.0.0 is replaced with localhost in the URL."""
     card = build_agent_card(_make_agent(), host="0.0.0.0", port=9000)
 
-    assert "localhost" in card.url
-    assert "0.0.0.0" not in card.url
-    assert card.url == "http://localhost:9000/"
+    url = card.supported_interfaces[0].url
+    assert "localhost" in url
+    assert "0.0.0.0" not in url
+    assert url == "http://localhost:9000/"
 
 
 def test_build_agent_card_custom_host_port() -> None:
     """Custom host and port appear in the card URL."""
     card = build_agent_card(_make_agent(), host="192.168.1.10", port=5555)
 
-    assert card.url == "http://192.168.1.10:5555/"
+    assert card.supported_interfaces[0].url == "http://192.168.1.10:5555/"
 
 
 def test_build_agent_card_with_auth() -> None:
@@ -100,10 +103,10 @@ def test_build_agent_card_with_auth() -> None:
         _make_agent(), host="localhost", port=8000, require_auth=True
     )
 
-    assert card.security_schemes is not None
     assert "apiKey" in card.security_schemes
-    assert card.security is not None
-    assert card.security == [{"apiKey": []}]
+    assert len(card.security_requirements) == 1
+    assert "apiKey" in card.security_requirements[0].schemes
+    assert list(card.security_requirements[0].schemes["apiKey"].list) == []
 
 
 def test_build_agent_card_without_auth() -> None:
@@ -112,8 +115,8 @@ def test_build_agent_card_without_auth() -> None:
         _make_agent(), host="localhost", port=8000, require_auth=False
     )
 
-    assert card.security_schemes is None
-    assert card.security is None
+    assert len(card.security_schemes) == 0
+    assert len(card.security_requirements) == 0
 
 
 # -- generate_api_key --

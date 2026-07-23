@@ -5,10 +5,17 @@ from importlib.metadata import version as package_version
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
+    AgentInterface,
     AgentSkill,
     APIKeySecurityScheme,
-    In,
+    SecurityRequirement,
     SecurityScheme,
+    StringList,
+)
+from a2a.utils.constants import (
+    PROTOCOL_VERSION_0_3,
+    PROTOCOL_VERSION_1_0,
+    TransportProtocol,
 )
 from google.adk.agents.llm_agent import Agent
 
@@ -24,6 +31,9 @@ def build_agent_card(
     require_auth: bool = False,
 ) -> AgentCard:
     """Build an AgentCard with streaming and push notification capabilities.
+
+    The card advertises both A2A v1.0 and v0.3 JSON-RPC interfaces so that
+    both current and legacy clients can connect to the built-in server.
 
     Args:
         agent: The ADK agent
@@ -111,30 +121,44 @@ def build_agent_card(
 
     logger.debug("Building agent card with RPC URL: %s", rpc_endpoint_url)
 
-    security_schemes: dict[str, SecurityScheme] | None = None
-    security: list[dict[str, list[str]]] | None = None
+    # Advertise both protocol versions on the same JSON-RPC endpoint so v0.3
+    # clients keep working alongside v1.0 clients.
+    supported_interfaces = [
+        AgentInterface(
+            url=rpc_endpoint_url,
+            protocol_binding=TransportProtocol.JSONRPC.value,
+            protocol_version=PROTOCOL_VERSION_1_0,
+        ),
+        AgentInterface(
+            url=rpc_endpoint_url,
+            protocol_binding=TransportProtocol.JSONRPC.value,
+            protocol_version=PROTOCOL_VERSION_0_3,
+        ),
+    ]
+
+    card_kwargs: dict = {
+        "name": agent.name,
+        "description": agent.description or "Handler A2A agent",
+        "version": package_version("a2a-handler"),
+        "supported_interfaces": supported_interfaces,
+        "capabilities": agent_capabilities,
+        "skills": skills,
+        "default_input_modes": ["text/plain"],
+        "default_output_modes": ["text/plain"],
+    }
 
     if require_auth:
-        api_key_scheme = SecurityScheme(
-            root=APIKeySecurityScheme(
-                type="apiKey",
-                name="X-API-Key",
-                in_=In.header,
+        card_kwargs["security_schemes"] = {
+            "apiKey": SecurityScheme(
+                api_key_security_scheme=APIKeySecurityScheme(
+                    name="X-API-Key",
+                    location="header",
+                )
             )
-        )
-        security_schemes = {"apiKey": api_key_scheme}
-        security = [{"apiKey": []}]
+        }
+        card_kwargs["security_requirements"] = [
+            SecurityRequirement(schemes={"apiKey": StringList()})
+        ]
         logger.info("API key authentication enabled")
 
-    return AgentCard(
-        name=agent.name,
-        description=agent.description or "Handler A2A agent",
-        url=rpc_endpoint_url,
-        version=package_version("a2a-handler"),
-        capabilities=agent_capabilities,
-        skills=skills,
-        default_input_modes=["text/plain"],
-        default_output_modes=["text/plain"],
-        security_schemes=security_schemes,
-        security=security,
-    )
+    return AgentCard(**card_kwargs)

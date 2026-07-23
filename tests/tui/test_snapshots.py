@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from a2a.types import (
-    AgentCapabilities,
     AgentCard,
     Artifact,
     Message,
@@ -19,7 +18,6 @@ from a2a.types import (
     Task,
     TaskState,
     TaskStatus,
-    TextPart,
 )
 from rich.console import Console
 from textual.app import App as TextualApp
@@ -34,6 +32,7 @@ from a2a_handler.servers import (
 )
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
+from tests.factories import make_agent_card
 
 
 def _rendered_texts(widget) -> list[str]:
@@ -75,16 +74,14 @@ def _make_server(
 
 
 def _make_agent_card() -> AgentCard:
-    return AgentCard(
+    return make_agent_card(
         name="Snapshot Agent",
         description="Stable preview agent",
-        url="https://agent.example.com",
         version="1.2.3",
+        url="https://agent.example.com",
         protocol_version="0.3.0",
-        default_input_modes=["text"],
-        default_output_modes=["text"],
-        capabilities=AgentCapabilities(streaming=True, push_notifications=False),
-        skills=[],
+        streaming=True,
+        push_notifications=False,
     )
 
 
@@ -92,23 +89,19 @@ def _make_task() -> Task:
     return Task(
         id="task-12345678",
         context_id="ctx-12345678",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         history=[
             Message(
                 message_id="msg-user-1",
-                role=Role.user,
-                parts=[
-                    Part(root=TextPart(text="Summarize the latest handler changes."))
-                ],
+                role=Role.ROLE_USER,
+                parts=[Part(text="Summarize the latest handler changes.")],
                 context_id="ctx-12345678",
                 task_id="task-12345678",
             ),
             Message(
                 message_id="msg-agent-1",
-                role=Role.agent,
-                parts=[
-                    Part(root=TextPart(text="Handler added stronger TUI coverage."))
-                ],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text="Handler added stronger TUI coverage.")],
                 context_id="ctx-12345678",
                 task_id="task-12345678",
             ),
@@ -121,9 +114,7 @@ def _make_artifact() -> Artifact:
         artifact_id="artifact-12345678",
         name="Release Notes",
         description="Rendered markdown summary",
-        parts=[
-            Part(root=TextPart(text="Snapshot artifact content for the TUI panel."))
-        ],
+        parts=[Part(text="Snapshot artifact content for the TUI panel.")],
     )
 
 

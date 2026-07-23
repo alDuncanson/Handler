@@ -1,8 +1,9 @@
 """Tests for API key authentication middleware behavior."""
 
 import pytest
-from a2a.types import PushNotificationConfig
-from a2a.utils.errors import ServerError
+from a2a.server.context import ServerCallContext
+from a2a.types import TaskPushNotificationConfig
+from a2a.utils.errors import InvalidParamsError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.responses import JSONResponse
@@ -84,11 +85,13 @@ def test_accepts_request_with_api_key_header() -> None:
 async def test_push_config_store_rejects_invalid_webhook_url() -> None:
     """Push config store returns invalid params for malformed callback URLs."""
     store = ValidatingPushNotificationConfigStore()
+    context = ServerCallContext()
 
-    with pytest.raises(ServerError) as error:
+    with pytest.raises(InvalidParamsError) as error:
         await store.set_info(
             "task-123",
-            PushNotificationConfig(url="not-a-url"),
+            TaskPushNotificationConfig(url="not-a-url"),
+            context,
         )
 
     assert "invalid_webhook_url" in str(error.value)
@@ -98,13 +101,17 @@ async def test_push_config_store_rejects_invalid_webhook_url() -> None:
 async def test_push_config_store_accepts_valid_webhook_url() -> None:
     """Push config store keeps valid callback URLs unchanged."""
     store = ValidatingPushNotificationConfigStore()
+    context = ServerCallContext()
 
     await store.set_info(
         "task-123",
-        PushNotificationConfig(url="https://example.com/webhook", token="token-123"),
+        TaskPushNotificationConfig(
+            url="https://example.com/webhook", token="token-123"
+        ),
+        context,
     )
 
-    configs = await store.get_info("task-123")
+    configs = await store.get_info("task-123", context)
     assert len(configs) == 1
     assert configs[0].url == "https://example.com/webhook"
 

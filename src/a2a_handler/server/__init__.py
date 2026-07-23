@@ -60,13 +60,9 @@ def run_server(
     agent = create_llm_agent(model=effective_model)
     agent_card = build_agent_card(agent, host, port, require_auth=require_auth)
 
-    streaming_enabled = (
-        agent_card.capabilities.streaming if agent_card.capabilities else False
-    )
-    push_notifications_enabled = (
-        agent_card.capabilities.push_notifications if agent_card.capabilities else False
-    )
-    auth_enabled = agent_card.security_schemes is not None
+    streaming_enabled = bool(agent_card.capabilities.streaming)
+    push_notifications_enabled = bool(agent_card.capabilities.push_notifications)
+    auth_enabled = bool(agent_card.security_schemes)
 
     logger.info(
         "Agent card capabilities: streaming=%s, push_notifications=%s, auth=%s",

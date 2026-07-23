@@ -6,17 +6,14 @@ from collections.abc import Generator
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
-from a2a.client.errors import A2AClientJSONRPCError
+from a2a.client.errors import A2AClientError
 from a2a.types import (
-    JSONRPCError,
-    JSONRPCErrorResponse,
     Message,
     Part,
     Role,
     Task,
     TaskState,
     TaskStatus,
-    TextPart,
 )
 from textual.app import App as TextualApp, SystemCommand
 from textual.widgets import Button, HelpPanel, Input, Select, Static, Tab, Tabs
@@ -36,6 +33,7 @@ from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.tabs import ServerTabs
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
+from tests.factories import make_agent_card
 
 
 def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
@@ -60,34 +58,20 @@ def _make_server(
     )
 
 
-def _missing_task_error(task_id: str) -> A2AClientJSONRPCError:
-    return A2AClientJSONRPCError(
-        JSONRPCErrorResponse(
-            error=JSONRPCError(
-                code=-32001,
-                data=None,
-                message=f"Task {task_id} was specified but does not exist",
-            ),
-            id="request-1",
-            jsonrpc="2.0",
-        )
+def _missing_task_error(task_id: str) -> A2AClientError:
+    # v1.0 removed A2AClientJSONRPCError/JSONRPCError; the retry logic keys off
+    # the error message text, so carry the same message on A2AClientError.
+    return A2AClientError(
+        message=f"Task {task_id} was specified but does not exist",
     )
 
 
-def _completed_task_error(task_id: str) -> A2AClientJSONRPCError:
-    return A2AClientJSONRPCError(
-        JSONRPCErrorResponse(
-            error=JSONRPCError(
-                code=-32002,
-                data=None,
-                message=(
-                    f"Messages sent to task {task_id} in a terminal state "
-                    "cannot accept further messages"
-                ),
-            ),
-            id="request-2",
-            jsonrpc="2.0",
-        )
+def _completed_task_error(task_id: str) -> A2AClientError:
+    return A2AClientError(
+        message=(
+            f"Messages sent to task {task_id} in a terminal state "
+            "cannot accept further messages"
+        ),
     )
 
 
@@ -292,11 +276,7 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -378,11 +358,7 @@ async def test_system_commands_include_reconnect_and_forget_saved_session(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -528,11 +504,7 @@ async def test_auto_connected_oauth2_server_populates_auth_panel(
     ) -> AsyncMock:
         connected_credentials[agent_url] = credentials
         service = AsyncMock()
-        mock_card = Mock()
-        mock_card.name = f"Agent for {agent_url}"
-        mock_card.protocol_version = None
-        mock_card.version = None
-        mock_card.model_dump.return_value = {"name": mock_card.name}
+        mock_card = make_agent_card(name=f"Agent for {agent_url}")
         service.get_card.return_value = mock_card
         return service
 
@@ -814,11 +786,7 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
     """Connecting the built-in Handler agent starts it before fetching its card."""
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Handler"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Handler"}
+    mock_card = make_agent_card(name="Handler")
 
     with (
         patch(
@@ -867,11 +835,7 @@ async def test_connecting_default_handler_agent_uses_auto_incremented_port() -> 
     """When port 8000 is occupied, the TUI should connect to the launched port."""
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Handler"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Handler"}
+    mock_card = make_agent_card(name="Handler")
 
     with (
         patch(
@@ -1059,11 +1023,7 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     with (
         patch(
             "a2a_handler.tui.server.tab.load_server_catalog",
@@ -1118,27 +1078,23 @@ async def test_connecting_recent_session_hydrates_task_history_but_not_completed
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     resumed_task = Task(
         id="task-saved-654321",
         context_id="ctx-saved-123456",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         history=[
             Message(
                 message_id="msg-user-1",
-                role=Role.user,
-                parts=[Part(root=TextPart(text="What can you do?"))],
+                role=Role.ROLE_USER,
+                parts=[Part(text="What can you do?")],
                 context_id="ctx-saved-123456",
                 task_id="task-saved-654321",
             ),
             Message(
                 message_id="msg-agent-1",
-                role=Role.agent,
-                parts=[Part(root=TextPart(text="I can help with handler tasks."))],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text="I can help with handler tasks.")],
                 context_id="ctx-saved-123456",
                 task_id="task-saved-654321",
             ),
@@ -1209,9 +1165,7 @@ async def test_connecting_recent_session_clears_missing_saved_task_id(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1269,15 +1223,11 @@ async def test_send_retries_without_stale_task_id(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     response_message = Message(
         message_id="msg-1",
-        role=Role.agent,
-        parts=[Part(root=TextPart(text="Recovered response"))],
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="Recovered response")],
         context_id="ctx-saved-123456",
         task_id=None,
     )
@@ -1359,15 +1309,11 @@ async def test_send_retries_without_completed_task_id(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     response_message = Message(
         message_id="msg-1",
-        role=Role.agent,
-        parts=[Part(root=TextPart(text="Recovered from terminal task"))],
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="Recovered from terminal task")],
         context_id="ctx-saved-123456",
         task_id=None,
     )
@@ -1448,9 +1394,7 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1498,9 +1442,7 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1551,11 +1493,7 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1655,11 +1593,7 @@ async def test_action_save_connections_persists_connected_servers() -> None:
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1707,11 +1641,7 @@ async def test_action_save_connections_reports_write_failures() -> None:
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1759,11 +1689,7 @@ async def test_action_start_fresh_conversation_resets_context_and_task(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
 
     with (
         patch(
@@ -1989,11 +1915,7 @@ async def test_pressing_enter_in_manual_url_connects_active_server() -> None:
     """Submitting the manual URL field should trigger the same connect flow."""
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Manual Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Manual Agent"}
+    mock_card = make_agent_card(name="Manual Agent")
 
     with (
         patch(
@@ -2032,15 +1954,11 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     response_message = Message(
         message_id="msg-1",
-        role=Role.agent,
-        parts=[Part(root=TextPart(text="Hello from the agent"))],
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="Hello from the agent")],
         context_id="ctx-response",
         task_id="task-response",
     )
@@ -2116,15 +2034,11 @@ async def test_send_shows_loading_indicator_while_waiting_for_response() -> None
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     response_message = Message(
         message_id="msg-1",
-        role=Role.agent,
-        parts=[Part(root=TextPart(text="Delayed response"))],
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="Delayed response")],
         context_id="ctx-response",
         task_id=None,
     )
@@ -2197,20 +2111,16 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
     )
     app = HandlerTUI()
     new_http_client = AsyncMock()
-    mock_card = Mock()
-    mock_card.name = "Demo Agent"
-    mock_card.protocol_version = None
-    mock_card.version = None
-    mock_card.model_dump.return_value = {"name": "Demo Agent"}
+    mock_card = make_agent_card(name="Demo Agent")
     first_response = Task(
         id="task-response-1",
         context_id="ctx-response",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         history=[
             Message(
                 message_id="msg-agent-1",
-                role=Role.agent,
-                parts=[Part(root=TextPart(text="First completed reply"))],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text="First completed reply")],
                 context_id="ctx-response",
                 task_id="task-response-1",
             )
@@ -2219,12 +2129,12 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
     second_response = Task(
         id="task-response-2",
         context_id="ctx-response",
-        status=TaskStatus(state=TaskState.completed),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
         history=[
             Message(
                 message_id="msg-agent-2",
-                role=Role.agent,
-                parts=[Part(root=TextPart(text="Second completed reply"))],
+                role=Role.ROLE_AGENT,
+                parts=[Part(text="Second completed reply")],
                 context_id="ctx-response",
                 task_id="task-response-2",
             )

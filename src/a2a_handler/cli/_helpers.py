@@ -8,8 +8,8 @@ import httpx
 import click
 from a2a.client.errors import (
     A2AClientError,
-    A2AClientHTTPError,
     A2AClientTimeoutError,
+    AgentCardResolutionError,
 )
 
 from a2a_handler.auth import (
@@ -162,15 +162,11 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         message = "Request timed out"
         error_code = "request_timeout"
         suggestion = "Retry the request or increase timeout settings"
-    elif isinstance(e, A2AClientHTTPError):
-        log.error("A2A client error: %s", e)
-        if "connection" in str(e).lower():
-            message = f"Connection failed: Is the server running at {agent_url}?"
-            error_code = "connection_failed"
-            suggestion = "Verify the agent URL and that the server is reachable"
-        else:
-            message = str(e)
-            error_code = "a2a_http_error"
+    elif isinstance(e, AgentCardResolutionError):
+        log.error("Agent card resolution failed for %s: %s", agent_url, e)
+        message = f"Could not resolve agent card: {e}"
+        error_code = "agent_card_resolution_error"
+        suggestion = "Verify the agent URL and that the server exposes an agent card"
         details = {"agent_url": agent_url}
     elif isinstance(e, A2AClientError):
         log.error("A2A client error: %s", e)
