@@ -1,0 +1,56 @@
+name: Fresh install
+
+# Called by both ci.yml and release.yml so the two cannot drift. Every other
+# check in this repo resolves through uv.lock, which is exactly what hid the
+# mcp 2.0 breakage in v0.1.25: the lock pinned a working version while the
+# published metadata let end users resolve a broken one. This throws the
+# lockfile away and installs the built wheel the way a user actually does, so
+# an unbounded dependency fails here instead of on someone's machine.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-install:
+    name: Fresh install (no lockfile)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ends of the supported range from requires-python.
+        python-version: [ "3.11", "3.13" ]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        # Deliberately uncached: a stale index would hide a newly published
+        # breaking release, which is the whole thing this job exists to catch.
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Build the distribution
+        run: uv build
+
+      - name: Install the wheel, resolving dependencies from scratch
+        run: |
+          uv venv --python ${{ matrix.python-version }} /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python --refresh dist/*.whl
+
+      - name: Report the resolved dependency versions
+        # Printed unconditionally: when this job fails, the resolution it picked
+        # is the first thing you need to see.
+        run: uv pip list --python /tmp/smoke/bin/python
+
+      - name: Smoke-test the installed entrypoint
+        # Exercises the full import chain, which is where the mcp 2.0 break
+        # surfaced -- the CLI could not start at all.
+        run: |
+          /tmp/smoke/bin/handler --version
+          /tmp/smoke/bin/handler --help > /dev/null

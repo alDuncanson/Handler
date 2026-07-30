@@ -11,8 +11,17 @@ permissions:
   id-token: write
 
 jobs:
+  # Gate the whole release on a lockfile-free install. Everything in the job
+  # below resolves through uv.lock, so on its own it cannot tell whether the
+  # artifact it is about to publish is installable by anyone else -- that is
+  # how v0.1.25 shipped green and broken. Nothing is tagged, released, or
+  # published to PyPI unless this passes.
+  fresh-install:
+    uses: ./.github/workflows/fresh-install.yml
+
   release:
     name: Create Release
+    needs: fresh-install
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
