@@ -75,6 +75,15 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-root = "src"
 
+# This is a public package published to PyPI, so its lockfile must resolve from
+# pypi.org. Pinned explicitly because an ambient UV_INDEX_URL (e.g. a corporate
+# mirror) would otherwise rewrite every source URL in uv.lock on the next
+# `uv lock`, leaking internal infrastructure and breaking CI for contributors.
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
