@@ -18,6 +18,10 @@ jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
+    # Nothing to learn from a nightly run: this job resolves through uv.lock
+    # against unchanged code, so on a timer it can only fail spuriously. The
+    # scheduled trigger exists for fresh-install alone.
+    if: github.event_name != 'schedule'
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
