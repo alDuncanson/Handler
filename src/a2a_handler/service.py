@@ -9,12 +9,18 @@ protocol types are constructed, inspected, and serialized. The rest of Handler
 directly.
 """
 
+import copy
 import uuid
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Iterable, Union
 
 import httpx
-from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
+from a2a.client import Client, ClientConfig, ClientFactory
+
+# ``parse_agent_card`` is not re-exported from ``a2a.client``, but Handler needs
+# the same parse (and v0.3 compatibility shims) the SDK's resolver applies while
+# keeping the served JSON, which the resolver discards.
+from a2a.client.card_resolver import parse_agent_card
 from a2a.client.errors import AgentCardResolutionError
 from a2a.helpers import get_data_parts, get_text_parts
 from a2a.types import (
@@ -36,6 +42,7 @@ from a2a.types import (
 )
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
 from google.protobuf import json_format
+from google.protobuf.json_format import ParseError
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -83,20 +90,141 @@ def role_label(role: int | None) -> str:
     return Role.Name(role).removeprefix("ROLE_").lower()
 
 
-def card_protocol_version(card: AgentCard) -> str:
-    """Return the protocol version(s) advertised by a card's interfaces.
+UNKNOWN_PROTOCOL_VERSION = "unknown"
 
-    In A2A v1.0 the protocol version lives on each supported interface rather
-    than at the top level of the card.
-    """
-    versions = sorted(
-        {
-            interface.protocol_version
-            for interface in card.supported_interfaces
-            if interface.protocol_version
-        }
+
+def _raw_interface_versions(raw_card: dict[str, Any]) -> set[str]:
+    """Collect per-interface protocol versions from a served card's JSON."""
+    interfaces = raw_card.get("supportedInterfaces") or raw_card.get(
+        "supported_interfaces"
     )
-    return ", ".join(versions) if versions else "unknown"
+    if not isinstance(interfaces, list):
+        return set()
+    versions = set()
+    for interface in interfaces:
+        if not isinstance(interface, dict):
+            continue
+        version = interface.get("protocolVersion") or interface.get("protocol_version")
+        if isinstance(version, str) and version:
+            versions.add(version)
+    return versions
+
+
+def card_protocol_version(
+    card: AgentCard | None,
+    raw_card: dict[str, Any] | None = None,
+) -> str:
+    """Return the protocol version(s) a card advertises.
+
+    A2A v1.0 puts the protocol version on each supported interface. v0.3 put a
+    single ``protocolVersion`` at the top level of the card.
+
+    The SDK parser normally migrates a v0.3 top-level ``protocolVersion`` onto
+    ``supportedInterfaces``, but it skips that migration when the card already
+    advertises ``supportedInterfaces`` of its own -- and the v1.0 ``AgentCard``
+    has no top-level field to fall back on, so the version is dropped outright.
+    Cards that advertise both shapes therefore need the served JSON to answer
+    this question, which is why ``raw_card`` is consulted second.
+
+    Returns ``UNKNOWN_PROTOCOL_VERSION`` when no version can be determined.
+    """
+    if card is not None:
+        versions = sorted(
+            {
+                interface.protocol_version
+                for interface in card.supported_interfaces
+                if interface.protocol_version
+            }
+        )
+        if versions:
+            return ", ".join(versions)
+
+    if raw_card:
+        raw_versions = sorted(_raw_interface_versions(raw_card))
+        if raw_versions:
+            return ", ".join(raw_versions)
+        top_level = raw_card.get("protocolVersion")
+        if isinstance(top_level, str) and top_level:
+            return top_level
+
+    return UNKNOWN_PROTOCOL_VERSION
+
+
+@dataclass(frozen=True, slots=True)
+class FetchedAgentCard:
+    """An agent card as both the typed model and the JSON the server sent.
+
+    The typed ``card`` is lossy: the v1.0 ``AgentCard`` has no field for the
+    v0.3 top-level ``protocolVersion``, ``url`` or ``preferredTransport``, so
+    the parser drops them. ``raw`` keeps what the server actually served, for
+    display and for resolving the protocol version.
+    """
+
+    card: AgentCard
+    raw: dict[str, Any]
+
+    @property
+    def protocol_version(self) -> str:
+        """Return the protocol version(s) this card advertises."""
+        return card_protocol_version(self.card, self.raw)
+
+
+async def _fetch_card_from_path(
+    http_client: httpx.AsyncClient,
+    agent_url: str,
+    card_path: str,
+) -> FetchedAgentCard:
+    """Fetch and parse an agent card from one well-known path."""
+    target_url = f"{agent_url.rstrip('/')}/{card_path.lstrip('/')}"
+    response = await http_client.get(target_url)
+    response.raise_for_status()
+
+    try:
+        raw = response.json()
+    except ValueError as error:
+        raise AgentCardResolutionError(
+            f"Failed to parse JSON for agent card from {target_url}: {error}"
+        ) from error
+
+    if not isinstance(raw, dict):
+        raise AgentCardResolutionError(
+            f"Agent card from {target_url} is not a JSON object"
+        )
+
+    try:
+        # ``parse_agent_card`` mutates the dict it is handed (it pops the v0.3
+        # connection fields), so give it a copy and keep ``raw`` as served.
+        card = parse_agent_card(copy.deepcopy(raw))
+    except ParseError as error:
+        raise AgentCardResolutionError(
+            f"Failed to validate agent card structure from {target_url}: {error}"
+        ) from error
+
+    return FetchedAgentCard(card=card, raw=raw)
+
+
+async def fetch_agent_card(
+    http_client: httpx.AsyncClient,
+    agent_url: str,
+) -> FetchedAgentCard:
+    """Fetch an agent card, keeping the served JSON alongside the typed model.
+
+    Tries the standard well-known path first (``agent-card.json``), then falls
+    back to the previous path (``agent.json``) used by older ADK versions.
+    """
+    try:
+        return await _fetch_card_from_path(
+            http_client, agent_url, AGENT_CARD_WELL_KNOWN_PATH
+        )
+    except (AgentCardResolutionError, httpx.HTTPStatusError):
+        logger.info(
+            "Agent card not found at %s, trying %s",
+            AGENT_CARD_WELL_KNOWN_PATH,
+            LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+        )
+        return await _fetch_card_from_path(
+            http_client, agent_url, LEGACY_AGENT_CARD_WELL_KNOWN_PATH
+        )
 
 
 def part_kind(part: Part) -> str:
@@ -398,7 +526,7 @@ class A2AService:
         self.push_notification_token = push_notification_token
         self.credentials = credentials
         self._cached_client: Client | None = None
-        self._cached_agent_card: AgentCard | None = None
+        self._cached_agent_card: FetchedAgentCard | None = None
         self._applied_auth_headers: set[str] = set()
 
         if credentials:
@@ -467,27 +595,28 @@ class A2AService:
         self._cached_client = None
         logger.debug("Cleared authentication headers")
 
-    async def _load_agent_card(self) -> AgentCard:
+    async def _load_agent_card(self) -> FetchedAgentCard:
         """Fetch and cache the agent card without mutating auth state."""
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
-            card_resolver = A2ACardResolver(self.http_client, self.agent_url)
-            try:
-                self._cached_agent_card = await card_resolver.get_agent_card()
-            except (AgentCardResolutionError, httpx.HTTPStatusError):
-                logger.info(
-                    "Agent card not found at %s, trying %s",
-                    AGENT_CARD_WELL_KNOWN_PATH,
-                    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-                )
-                fallback_resolver = A2ACardResolver(
-                    self.http_client,
-                    self.agent_url,
-                    agent_card_path=LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-                )
-                self._cached_agent_card = await fallback_resolver.get_agent_card()
-            logger.info("Connected to agent: %s", self._cached_agent_card.name)
+            self._cached_agent_card = await fetch_agent_card(
+                self.http_client, self.agent_url
+            )
+            logger.info("Connected to agent: %s", self._cached_agent_card.card.name)
         return self._cached_agent_card
+
+    async def get_card_document(self) -> FetchedAgentCard:
+        """Fetch and cache the agent card as served JSON plus the typed model.
+
+        Prefer this over :meth:`get_card` when the caller displays the card or
+        needs its protocol version, since the typed model alone drops the v0.3
+        top-level ``protocolVersion``, ``url`` and ``preferredTransport``.
+
+        Returns:
+            The served card JSON alongside the parsed ``AgentCard``
+        """
+        await self.ensure_oauth2_token()
+        return await self._load_agent_card()
 
     async def get_card(self) -> AgentCard:
         """Fetch and cache the agent card.
@@ -499,8 +628,7 @@ class A2AService:
         Returns:
             The agent's card with metadata and capabilities
         """
-        await self.ensure_oauth2_token()
-        return await self._load_agent_card()
+        return (await self.get_card_document()).card
 
     async def _get_or_create_client(self) -> Client:
         """Get or create the A2A client.
@@ -510,7 +638,7 @@ class A2AService:
         """
         await self.ensure_oauth2_token()
         if self._cached_client is None:
-            agent_card = await self._load_agent_card()
+            agent_card = (await self._load_agent_card()).card
 
             push_notification_config: TaskPushNotificationConfig | None = None
             if self.push_notification_url:
@@ -539,14 +667,14 @@ class A2AService:
     def supports_streaming(self) -> bool:
         """Check if the agent supports streaming."""
         if self._cached_agent_card:
-            return bool(self._cached_agent_card.capabilities.streaming)
+            return bool(self._cached_agent_card.card.capabilities.streaming)
         return False
 
     @property
     def supports_push_notifications(self) -> bool:
         """Check if the agent supports push notifications."""
         if self._cached_agent_card:
-            return bool(self._cached_agent_card.capabilities.push_notifications)
+            return bool(self._cached_agent_card.card.capabilities.push_notifications)
         return False
 
     def _build_user_message(

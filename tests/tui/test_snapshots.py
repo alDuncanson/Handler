@@ -32,7 +32,7 @@ from a2a_handler.servers import (
 )
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
-from tests.factories import make_agent_card
+from tests.factories import make_agent_card, make_fetched_card
 
 
 def _rendered_texts(widget) -> list[str]:
@@ -82,6 +82,15 @@ def _make_agent_card() -> AgentCard:
         protocol_version="0.3.0",
         streaming=True,
         push_notifications=False,
+    )
+
+
+def _mock_card_service(card: AgentCard) -> AsyncMock:
+    """Mock an ``A2AService`` that resolves the given card."""
+    document = make_fetched_card(card)
+    return AsyncMock(
+        get_card=AsyncMock(return_value=document.card),
+        get_card_document=AsyncMock(return_value=document),
     )
 
 
@@ -275,8 +284,8 @@ def test_handler_tui_connected_snapshot(snap_compare, monkeypatch: pytest.Monkey
         local_patch.setattr(
             tab_module,
             "A2AService",
-            lambda http_client, agent_url, credentials=None: AsyncMock(
-                get_card=AsyncMock(return_value=_make_agent_card())
+            lambda http_client, agent_url, credentials=None: _mock_card_service(
+                _make_agent_card()
             ),
         )
         app = HandlerTUI()
@@ -316,8 +325,8 @@ async def test_handler_tui_tasks_tab_shows_task_details(
         local_patch.setattr(
             tab_module,
             "A2AService",
-            lambda http_client, agent_url, credentials=None: AsyncMock(
-                get_card=AsyncMock(return_value=_make_agent_card())
+            lambda http_client, agent_url, credentials=None: _mock_card_service(
+                _make_agent_card()
             ),
         )
         app = HandlerTUI()
@@ -373,8 +382,8 @@ async def test_handler_tui_artifacts_tab_shows_artifact_details(
         local_patch.setattr(
             tab_module,
             "A2AService",
-            lambda http_client, agent_url, credentials=None: AsyncMock(
-                get_card=AsyncMock(return_value=_make_agent_card())
+            lambda http_client, agent_url, credentials=None: _mock_card_service(
+                _make_agent_card()
             ),
         )
         app = HandlerTUI()

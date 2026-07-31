@@ -28,7 +28,6 @@ from a2a_handler.service import (
     push_config_dump,
     response_context_id,
     response_task_id,
-    to_json_dict,
 )
 from a2a_handler.session import (
     clear_session,
@@ -219,9 +218,11 @@ def create_mcp_server() -> FastMCP:
 
         async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            card = await service.get_card()
+            document = await service.get_card_document()
 
-            return to_json_dict(card)
+            # Return the card as served: the parsed model has no field for the
+            # v0.3 top-level protocolVersion/url/preferredTransport.
+            return document.raw
 
     @mcp.tool()
     async def send_message(

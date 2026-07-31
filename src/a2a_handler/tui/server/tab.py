@@ -41,6 +41,7 @@ from a2a_handler.servers import (
 from a2a_handler.server import DEFAULT_OLLAMA_MODEL, check_ollama_model
 from a2a_handler.service import (
     A2AService,
+    FetchedAgentCard,
     card_protocol_version,
     extract_text_from_message_parts,
     is_terminal,
@@ -619,7 +620,7 @@ class ServerTab(Container):
         self,
         agent_url: str,
         credentials: AuthCredentials | None,
-    ) -> AgentCard:
+    ) -> FetchedAgentCard:
         previous_http_client = self.http_client
         previous_service = self._agent_service
         next_http_client = build_http_client(credentials=credentials)
@@ -630,7 +631,7 @@ class ServerTab(Container):
             credentials=credentials,
         )
         try:
-            agent_card = await next_service.get_card()
+            card_document = await next_service.get_card_document()
         except Exception:
             await next_http_client.aclose()
             self.http_client = previous_http_client
@@ -641,7 +642,7 @@ class ServerTab(Container):
             await previous_http_client.aclose()
         self.http_client = next_http_client
         self._agent_service = next_service
-        return agent_card
+        return card_document
 
     async def _apply_connected_ui(
         self,
@@ -654,7 +655,9 @@ class ServerTab(Container):
 
         server_view = self._get_server_view()
         await server_view.reset_session()
-        server_view.agent_card_panel().update_card(agent_card)
+        server_view.agent_card_panel().update_card(
+            agent_card, self.state.agent_card_raw
+        )
 
         if saved_conversation is not None:
             await self._hydrate_resumed_history(server_view, saved_conversation)
@@ -762,7 +765,8 @@ class ServerTab(Container):
                     )
                 connection_bar.set_status(f"Connecting to {agent_url}...")
 
-            agent_card = await self._connect_to_agent(agent_url, credentials)
+            card_document = await self._connect_to_agent(agent_url, credentials)
+            agent_card = card_document.card
             context_id: str | None = None
             resumed_task_id: str | None = None
             if saved_conversation is not None:
@@ -771,6 +775,7 @@ class ServerTab(Container):
                 resumed_task_id = saved_conversation.task_id
 
             self.state.agent_card = agent_card
+            self.state.agent_card_raw = card_document.raw
             self.state.agent_url = agent_url
             self.state.current_context_id = context_id
             self.state.current_task_id = resumed_task_id
@@ -803,6 +808,7 @@ class ServerTab(Container):
             else:
                 self.state.mode = ServerConnectionMode.DISCONNECTED
                 self.state.agent_card = None
+                self.state.agent_card_raw = None
                 self.state.agent_url = None
                 self.state.current_task_id = None
                 self.state.current_context_id = None
@@ -931,7 +937,9 @@ class ServerTab(Container):
             agent_name=self.state.agent_card.name,
             source_label=self._connection_source_label(self.state.connected_server_def),
             auth_label=self._auth_badge_label(auth_credentials),
-            protocol_version=card_protocol_version(self.state.agent_card),
+            protocol_version=card_protocol_version(
+                self.state.agent_card, self.state.agent_card_raw
+            ),
             agent_version=self.state.agent_card.version,
         )
 

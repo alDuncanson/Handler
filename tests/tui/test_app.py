@@ -1,6 +1,7 @@
 """Tests for the server-based TUI shell."""
 
 import asyncio
+import json
 import subprocess
 from collections.abc import Generator
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -15,6 +16,7 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
+from rich.syntax import Syntax
 from textual.app import App as TextualApp, SystemCommand
 from textual.widgets import Button, HelpPanel, Input, Select, Static, Tab, Tabs
 
@@ -33,7 +35,7 @@ from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.tabs import ServerTabs
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
-from tests.factories import make_agent_card
+from tests.factories import make_agent_card, make_served_card, stub_service_card
 
 
 def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
@@ -290,7 +292,7 @@ async def test_system_commands_include_save_close_and_switch_for_multi_server_sh
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -372,7 +374,7 @@ async def test_system_commands_include_reconnect_and_forget_saved_session(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -505,7 +507,7 @@ async def test_auto_connected_oauth2_server_populates_auth_panel(
         connected_credentials[agent_url] = credentials
         service = AsyncMock()
         mock_card = make_agent_card(name=f"Agent for {agent_url}")
-        service.get_card.return_value = mock_card
+        stub_service_card(service, mock_card)
         return service
 
     with (
@@ -806,7 +808,7 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -820,7 +822,7 @@ async def test_connecting_default_handler_agent_auto_starts_local_server() -> No
 
             assert workspace.is_connected
             mock_ensure_running.assert_awaited_once_with(DEFAULT_HANDLER_AGENT_URL)
-            mock_service.get_card.assert_awaited_once()
+            mock_service.get_card_document.assert_awaited_once()
             source_badge = workspace.query_one("#badge-source", Static)
             assert "Embedded Server" in str(source_badge.content)
             messages_panel = workspace.query_one(TabbedMessagesPanel)
@@ -855,7 +857,7 @@ async def test_connecting_default_handler_agent_uses_auto_incremented_port() -> 
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1036,7 +1038,7 @@ async def test_connect_starts_fresh_even_when_saved_session_exists(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1113,7 +1115,7 @@ async def test_connecting_recent_session_hydrates_task_history_but_not_completed
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.get_task.return_value = resumed_task
         mock_service_cls.return_value = mock_service
 
@@ -1179,7 +1181,7 @@ async def test_connecting_recent_session_clears_missing_saved_task_id(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.get_task.side_effect = _missing_task_error("task-saved-654321")
         mock_service_cls.return_value = mock_service
 
@@ -1244,7 +1246,7 @@ async def test_send_retries_without_stale_task_id(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.send.side_effect = [
             _missing_task_error("task-stale-1"),
             response_message,
@@ -1330,7 +1332,7 @@ async def test_send_retries_without_completed_task_id(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.send.side_effect = [
             _completed_task_error("task-completed-1"),
             response_message,
@@ -1408,7 +1410,7 @@ async def test_connect_uses_selected_connection_default_auth() -> None:
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1456,7 +1458,7 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1507,7 +1509,7 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1611,7 +1613,7 @@ async def test_action_save_connections_persists_connected_servers() -> None:
         ) as mock_save,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1659,7 +1661,7 @@ async def test_action_save_connections_reports_write_failures() -> None:
         ),
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1703,7 +1705,7 @@ async def test_action_start_fresh_conversation_resets_context_and_task(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1925,7 +1927,7 @@ async def test_pressing_enter_in_manual_url_connects_active_server() -> None:
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service_cls.return_value = mock_service
 
         async with app.run_test() as pilot:
@@ -1941,7 +1943,7 @@ async def test_pressing_enter_in_manual_url_connects_active_server() -> None:
 
             assert workspace.is_connected
             assert workspace.current_agent_url == "http://localhost:8000"
-            mock_service.get_card.assert_awaited_once()
+            mock_service.get_card_document.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1975,7 +1977,7 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.send.return_value = response_message
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
@@ -2062,7 +2064,7 @@ async def test_send_shows_loading_indicator_while_waiting_for_response() -> None
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.send.side_effect = slow_send
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
@@ -2153,7 +2155,7 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
         patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_card.return_value = mock_card
+        stub_service_card(mock_service, mock_card)
         mock_service.send.side_effect = [first_response, second_response]
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
@@ -2229,3 +2231,174 @@ async def test_close_server_action_removes_active_server_tab() -> None:
         active_server = app.query_one(ServerTabs).get_active_server()
         assert active_server is not None
         assert active_server.server_id == "server-1"
+
+
+# Served card shapes and the protocol badge each must produce. A regression here
+# is otherwise invisible: "unknown" renders as a plausible-looking version, so
+# only asserting the rendered string catches it.
+PROTOCOL_BADGE_CASES = [
+    pytest.param(
+        {
+            "name": "Legacy Agent",
+            "version": "0.1.0",
+            "protocolVersion": "0.3",
+            "preferredTransport": "JSONRPC",
+            "url": "https://agent.example.com/a2a/",
+        },
+        "A2A v0.3",
+        id="v0.3-top-level",
+    ),
+    pytest.param(
+        {
+            "name": "Modern Agent",
+            "version": "0.1.0",
+            "supportedInterfaces": [
+                {
+                    "url": "https://agent.example.com/a2a/",
+                    "protocolBinding": "JSONRPC",
+                    "protocolVersion": "1.0",
+                }
+            ],
+        },
+        "A2A v1.0",
+        id="v1.0-per-interface",
+    ),
+    pytest.param(
+        {
+            "name": "Dual Agent",
+            "version": "0.1.0",
+            "protocolVersion": "0.3",
+            "preferredTransport": "JSONRPC",
+            "url": "https://agent.example.com/a2a/",
+            "supportedInterfaces": [
+                {
+                    "url": "https://agent.example.com/a2a/",
+                    "protocolBinding": "JSONRPC",
+                }
+            ],
+        },
+        "A2A v0.3",
+        id="both-shapes",
+    ),
+    pytest.param(
+        {
+            "name": "Versionless Agent",
+            "version": "0.1.0",
+            "supportedInterfaces": [
+                {
+                    "url": "https://agent.example.com/a2a/",
+                    "protocolBinding": "JSONRPC",
+                }
+            ],
+        },
+        "A2A version unknown",
+        id="no-version-anywhere",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("card_json", "expected_badge"), PROTOCOL_BADGE_CASES)
+async def test_protocol_badge_reports_served_card_version(
+    card_json: dict, expected_badge: str
+) -> None:
+    """The protocol badge should report the version the server actually served."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    document = make_served_card(card_json)
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=AsyncMock(),
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        stub_service_card(mock_service, document.card, document.raw)
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace.is_connected
+            protocol_badge = workspace.query_one("#badge-protocol", Static)
+            assert str(protocol_badge.content) == expected_badge
+            assert not protocol_badge.has_class("hidden")
+
+
+def _rendered_card_json(widget: Static) -> dict:
+    """Parse the JSON shown in the agent card panel.
+
+    The panel wraps its content in a Rich ``Syntax`` when the active theme maps
+    to one, so unwrap that before parsing.
+    """
+    content = widget.content
+    source = content.code if isinstance(content, Syntax) else str(content)
+    return json.loads(source)
+
+
+@pytest.mark.asyncio
+async def test_agent_card_panel_shows_fields_the_parsed_model_drops() -> None:
+    """The card panel should show the served JSON, not the re-serialised model.
+
+    The v1.0 ``AgentCard`` has no field for a v0.3 top-level ``protocolVersion``,
+    ``url`` or ``preferredTransport``, so rendering the parsed model would hide
+    exactly the fields someone debugging a card is looking for.
+    """
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    card_json = {
+        "name": "Legacy Agent",
+        "version": "0.1.0",
+        "protocolVersion": "0.3",
+        "preferredTransport": "JSONRPC",
+        "url": "https://agent.example.com/a2a/",
+    }
+    document = make_served_card(card_json)
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=AsyncMock(),
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        stub_service_card(mock_service, document.card, document.raw)
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            rendered = _rendered_card_json(workspace.query_one("#agent-raw", Static))
+
+    assert rendered == card_json

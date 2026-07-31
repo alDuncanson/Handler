@@ -3,14 +3,14 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from a2a.client.errors import AgentCardResolutionError
 from a2a.types import AgentCard, AgentSkill
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from google.protobuf.json_format import ParseDict, ParseError
 
+from a2a_handler.service import LEGACY_AGENT_CARD_WELL_KNOWN_PATH
 from a2a_handler.validation import (
     ValidationSource,
     validate_agent_card_from_file,
@@ -210,41 +210,76 @@ def _make_agent_card() -> AgentCard:
     )
 
 
+def _card_serving_client(
+    card: dict,
+    *,
+    serve_paths: tuple[str, ...] = (AGENT_CARD_WELL_KNOWN_PATH,),
+) -> tuple[httpx.AsyncClient, list[str]]:
+    """Build a client that serves ``card`` JSON only on ``serve_paths``.
+
+    Returns the client and a list that records every requested path, so tests
+    can assert which well-known paths were tried.
+    """
+    requested: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        if request.url.path in serve_paths:
+            return httpx.Response(200, json=card)
+        return httpx.Response(404, text="Not Found")
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handle)), requested
+
+
 class TestValidateAgentCardFromUrl:
     """Tests for validate_agent_card_from_url function."""
 
     @pytest.mark.asyncio
     async def test_validate_url_success(self):
         """Test successful validation from a URL."""
-        mock_card = _make_agent_card()
+        card = _minimal_valid_agent_card()
+        client, _ = _card_serving_client(card)
 
-        with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
-            mock_resolver = AsyncMock()
-            mock_resolver.get_agent_card.return_value = mock_card
-            mock_resolver_cls.return_value = mock_resolver
-
-            result = await validate_agent_card_from_url("http://localhost:8000")
+        async with client:
+            result = await validate_agent_card_from_url("http://localhost:8000", client)
 
         assert result.valid is True
         assert result.source_type == ValidationSource.URL
-        assert result.agent_card == mock_card
+        assert result.agent_card is not None
+        assert result.agent_card.name == "Test Agent"
         assert result.source == "http://localhost:8000"
 
     @pytest.mark.asyncio
+    async def test_validate_url_retains_served_json(self):
+        """The served JSON is retained so lossy-parsed fields stay inspectable."""
+        card = _minimal_valid_agent_card()
+        card["protocolVersion"] = "0.3"
+        client, _ = _card_serving_client(card)
+
+        async with client:
+            result = await validate_agent_card_from_url("http://localhost:8000", client)
+
+        assert result.raw_data == card
+
+    @pytest.mark.asyncio
     async def test_validate_url_validation_error(self):
-        """Test a card-resolution failure from a URL returns validation issues.
+        """Test a malformed card from a URL returns validation issues.
 
-        In v1.0 a malformed card surfaces as ``AgentCardResolutionError`` (with
-        no status code), which maps to a ``validation_error`` issue.
+        A card whose structure cannot be parsed surfaces as
+        ``AgentCardResolutionError`` with no status code, which maps to a
+        ``validation_error`` issue. The card is served on both well-known paths
+        so the legacy-path fallback also fails to parse rather than 404ing.
         """
-        with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
-            mock_resolver = AsyncMock()
-            mock_resolver.get_agent_card.side_effect = AgentCardResolutionError(
-                "invalid agent card"
-            )
-            mock_resolver_cls.return_value = mock_resolver
+        client, _ = _card_serving_client(
+            {"name": {"not": "a string"}},
+            serve_paths=(
+                AGENT_CARD_WELL_KNOWN_PATH,
+                LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+            ),
+        )
 
-            result = await validate_agent_card_from_url("http://localhost:8000")
+        async with client:
+            result = await validate_agent_card_from_url("http://localhost:8000", client)
 
         assert result.valid is False
         assert result.source_type == ValidationSource.URL
@@ -254,17 +289,11 @@ class TestValidateAgentCardFromUrl:
     @pytest.mark.asyncio
     async def test_validate_url_http_error(self):
         """Test HTTP error from a URL returns http_error issue."""
-        with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
-            mock_resolver = AsyncMock()
-            response = httpx.Response(status_code=404, text="Not Found")
-            mock_resolver.get_agent_card.side_effect = httpx.HTTPStatusError(
-                "Not Found",
-                request=httpx.Request("GET", "http://localhost:8000"),
-                response=response,
-            )
-            mock_resolver_cls.return_value = mock_resolver
+        # Serve nothing, so both the current and legacy paths 404.
+        client, _ = _card_serving_client({}, serve_paths=())
 
-            result = await validate_agent_card_from_url("http://localhost:8000")
+        async with client:
+            result = await validate_agent_card_from_url("http://localhost:8000", client)
 
         assert result.valid is False
         assert len(result.issues) == 1
@@ -273,14 +302,12 @@ class TestValidateAgentCardFromUrl:
     @pytest.mark.asyncio
     async def test_validate_url_connection_error(self):
         """Test connection error from a URL returns connection_error issue."""
-        with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
-            mock_resolver = AsyncMock()
-            mock_resolver.get_agent_card.side_effect = httpx.ConnectError(
-                "Connection refused"
-            )
-            mock_resolver_cls.return_value = mock_resolver
 
-            result = await validate_agent_card_from_url("http://localhost:8000")
+        def refuse(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Connection refused")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(refuse)) as client:
+            result = await validate_agent_card_from_url("http://localhost:8000", client)
 
         assert result.valid is False
         assert len(result.issues) == 1
@@ -288,20 +315,19 @@ class TestValidateAgentCardFromUrl:
 
     @pytest.mark.asyncio
     async def test_validate_url_fallback_to_prev_path(self):
-        """Test fallback to previous well-known path on AgentCardResolutionError."""
-        mock_card = _make_agent_card()
+        """Test fallback to the previous well-known path when the current 404s."""
+        card = _minimal_valid_agent_card()
+        client, requested = _card_serving_client(
+            card, serve_paths=(LEGACY_AGENT_CARD_WELL_KNOWN_PATH,)
+        )
 
-        with patch("a2a_handler.validation.A2ACardResolver") as mock_resolver_cls:
-            first_resolver = AsyncMock()
-            first_resolver.get_agent_card.side_effect = AgentCardResolutionError(
-                "Not Found", status_code=404
-            )
-            fallback_resolver = AsyncMock()
-            fallback_resolver.get_agent_card.return_value = mock_card
-            mock_resolver_cls.side_effect = [first_resolver, fallback_resolver]
-
-            result = await validate_agent_card_from_url("http://localhost:8000")
+        async with client:
+            result = await validate_agent_card_from_url("http://localhost:8000", client)
 
         assert result.valid is True
-        assert result.agent_card == mock_card
-        assert mock_resolver_cls.call_count == 2
+        assert result.agent_card is not None
+        assert result.agent_card.name == "Test Agent"
+        assert requested == [
+            AGENT_CARD_WELL_KNOWN_PATH,
+            LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+        ]

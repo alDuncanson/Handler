@@ -15,7 +15,7 @@ from a2a_handler.cli import cli
 from a2a_handler.cli.card import card, _format_agent_card, _format_validation_result
 from a2a_handler.common import Output
 from a2a_handler.validation import ValidationResult, ValidationIssue, ValidationSource
-from tests.factories import make_agent_card
+from tests.factories import make_agent_card, make_served_card, stub_service_card
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class TestCardGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_card.return_value = mock_card
+            stub_service_card(mock_service, mock_card)
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
@@ -84,7 +84,9 @@ class TestCardGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_card.side_effect = httpx.ConnectError("Connection refused")
+            mock_service.get_card_document.side_effect = httpx.ConnectError(
+                "Connection refused"
+            )
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
@@ -105,7 +107,7 @@ class TestCardGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_card.return_value = mock_card
+            stub_service_card(mock_service, mock_card)
             mock_service_cls.return_value = mock_service
 
             with mock_patch.dict(os.environ, {"TEST_BEARER_TOKEN": "test-token"}):
@@ -138,7 +140,7 @@ class TestCardGet:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_card.return_value = mock_card
+            stub_service_card(mock_service, mock_card)
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(
@@ -155,6 +157,42 @@ class TestCardGet:
 
             assert result.exit_code == 0
             assert '"name": "Test Agent"' in result.output
+
+    def test_card_get_emits_card_exactly_as_served(self, runner):
+        """`card get` must not drop fields the parsed model cannot represent.
+
+        A v0.3 card's top-level ``protocolVersion``, ``url`` and
+        ``preferredTransport`` have no home in the v1.0 ``AgentCard``, so
+        re-serialising the parsed model would misreport the agent to anyone
+        comparing the output against the spec.
+        """
+        card_json = {
+            "name": "Legacy Agent",
+            "description": "A v0.3 agent",
+            "version": "0.1.0",
+            "protocolVersion": "0.3",
+            "preferredTransport": "JSONRPC",
+            "url": "https://agent.example.com/a2a/",
+        }
+        document = make_served_card(card_json)
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            stub_service_card(mock_service, document.card, document.raw)
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
+
+        assert result.exit_code == 0
+        assert json.loads(result.output) == card_json
 
     def test_card_get_rejects_invalid_agent_url(self, runner):
         """Test card get rejects malformed URLs early."""
@@ -245,7 +283,7 @@ class TestCardValidate:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_card.return_value = mock_card
+            stub_service_card(mock_service, mock_card)
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(card, ["validate", "--url", "http://localhost:8000"])
@@ -267,7 +305,7 @@ class TestCardValidate:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.get_card.return_value = mock_card
+            stub_service_card(mock_service, mock_card)
             mock_service_cls.return_value = mock_service
 
             with mock_patch.dict(os.environ, {"TEST_BEARER_TOKEN": "test-token"}):

@@ -22,6 +22,8 @@ from a2a_handler.service import (
     A2AService,
     StreamEvent,
     TERMINAL_TASK_STATES,
+    UNKNOWN_PROTOCOL_VERSION,
+    card_protocol_version,
     extract_text,
     extract_text_from_task,
     extract_text_from_message_parts,
@@ -38,6 +40,8 @@ from a2a_handler.service import (
 )
 from tests.factories import (
     make_agent_card,
+    make_fetched_card,
+    make_served_card,
     make_message,
     make_push_config,
     make_stream_response,
@@ -754,13 +758,6 @@ class TestA2AServiceOAuthAndCards:
             credentials._token_expires_at = None
             return credentials.value
 
-        class _Resolver:
-            def __init__(self, _http_client, _agent_url, agent_card_path=None) -> None:
-                self.agent_card_path = agent_card_path
-
-            async def get_agent_card(self):
-                return card
-
         class _Factory:
             def __init__(self, _config) -> None:
                 pass
@@ -768,8 +765,11 @@ class TestA2AServiceOAuthAndCards:
             def create(self, _card):
                 return object()
 
+        async def _fetch_card(_http_client, _agent_url):
+            return make_fetched_card(card)
+
         credentials.fetch_oauth2_token = _fetch_token  # type: ignore[method-assign]
-        monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
+        monkeypatch.setattr("a2a_handler.service.fetch_agent_card", _fetch_card)
         monkeypatch.setattr("a2a_handler.service.ClientFactory", _Factory)
 
         async with httpx.AsyncClient() as http_client:
@@ -784,39 +784,32 @@ class TestA2AServiceOAuthAndCards:
         assert fetch_count == 1
         assert http_client.headers["Authorization"] == "Bearer oauth-token-1"
 
-    async def test_get_card_falls_back_to_previous_well_known_path(
-        self, monkeypatch
-    ) -> None:
+    async def test_get_card_falls_back_to_previous_well_known_path(self) -> None:
         """Older agents served at the legacy card path should still resolve successfully."""
-        card = make_agent_card(
-            name="Fallback Agent",
-            description="Legacy card path",
-            version="1.0.0",
-            url="http://example.com",
-            streaming=True,
-            push_notifications=True,
-        )
+        card_json = {
+            "name": "Fallback Agent",
+            "description": "Legacy card path",
+            "version": "1.0.0",
+            "supportedInterfaces": [
+                {
+                    "url": "http://example.com",
+                    "protocolBinding": "JSONRPC",
+                    "protocolVersion": "1.0",
+                }
+            ],
+            "capabilities": {"streaming": True, "pushNotifications": True},
+        }
         seen_paths: list[str] = []
 
-        class _Resolver:
-            def __init__(self, _http_client, _agent_url, agent_card_path=None) -> None:
-                self.agent_card_path = agent_card_path or AGENT_CARD_WELL_KNOWN_PATH
-                seen_paths.append(self.agent_card_path)
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen_paths.append(request.url.path)
+            if request.url.path == LEGACY_AGENT_CARD_WELL_KNOWN_PATH:
+                return httpx.Response(200, json=card_json)
+            return httpx.Response(404)
 
-            async def get_agent_card(self):
-                if self.agent_card_path == AGENT_CARD_WELL_KNOWN_PATH:
-                    raise httpx.HTTPStatusError(
-                        "missing",
-                        request=httpx.Request(
-                            "GET", "http://example.com/.well-known/agent-card.json"
-                        ),
-                        response=httpx.Response(404),
-                    )
-                return card
-
-        monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
-
-        async with httpx.AsyncClient() as http_client:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handle)
+        ) as http_client:
             service = A2AService(
                 http_client=http_client, agent_url="http://example.com"
             )
@@ -824,14 +817,43 @@ class TestA2AServiceOAuthAndCards:
             first = await service.get_card()
             second = await service.get_card()
 
-        assert first is card
-        assert second is card
+        assert first.name == "Fallback Agent"
+        # The card is fetched once and cached.
+        assert second is first
         assert seen_paths == [
             AGENT_CARD_WELL_KNOWN_PATH,
             LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
         ]
         assert service.supports_streaming is True
         assert service.supports_push_notifications is True
+
+    async def test_get_card_document_retains_served_json(self) -> None:
+        """The served card JSON survives parsing, including v0.3-only fields."""
+        card_json = {
+            "name": "Legacy Agent",
+            "version": "0.1.0",
+            "protocolVersion": "0.3",
+            "preferredTransport": "JSONRPC",
+            "url": "http://example.com/a2a/",
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path == AGENT_CARD_WELL_KNOWN_PATH:
+                return httpx.Response(200, json=card_json)
+            return httpx.Response(404)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handle)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            document = await service.get_card_document()
+
+        # The parsed model cannot represent these three fields, so the raw JSON
+        # is the only place they survive.
+        assert document.raw == card_json
+        assert document.card.name == "Legacy Agent"
 
     async def test_get_push_config_passes_task_and_config_id_to_client(self) -> None:
         """Push config lookup should preserve both the task ID and optional config ID."""
@@ -883,3 +905,114 @@ class TestA2AServiceOAuthAndCards:
             response = await http_client.get("/ping")
 
         assert response.status_code == 200
+
+
+# Card shapes an A2A server can serve, and the protocol version each implies.
+# ``V0_3`` and ``V1_0`` are the two spec shapes; the rest are transitional cards
+# seen in the wild, where the SDK's v0.3 -> v1.0 migration does not fire.
+CARD_SHAPE_V0_3 = {
+    "name": "Legacy Agent",
+    "version": "0.1.0",
+    "protocolVersion": "0.3",
+    "preferredTransport": "JSONRPC",
+    "url": "https://agent.example.com/a2a/",
+}
+CARD_SHAPE_V1_0 = {
+    "name": "Modern Agent",
+    "version": "0.1.0",
+    "supportedInterfaces": [
+        {
+            "url": "https://agent.example.com/a2a/",
+            "protocolBinding": "JSONRPC",
+            "protocolVersion": "1.0",
+        }
+    ],
+}
+# Advertises both shapes. Because ``supportedInterfaces`` is already present the
+# SDK skips migrating the top-level ``protocolVersion`` onto it, and the typed
+# card has nowhere to keep it -- so only the served JSON still knows the version.
+CARD_SHAPE_DUAL = {
+    "name": "Dual Agent",
+    "version": "0.1.0",
+    "protocolVersion": "0.3",
+    "preferredTransport": "JSONRPC",
+    "url": "https://agent.example.com/a2a/",
+    "supportedInterfaces": [
+        {"url": "https://agent.example.com/a2a/", "protocolBinding": "JSONRPC"}
+    ],
+}
+# A top-level version with no ``url`` gives the SDK nothing to migrate onto.
+CARD_SHAPE_NO_URL = {
+    "name": "Urlless Agent",
+    "version": "0.1.0",
+    "protocolVersion": "0.3",
+}
+# Advertises an interface but no version anywhere.
+CARD_SHAPE_VERSIONLESS = {
+    "name": "Versionless Agent",
+    "version": "0.1.0",
+    "supportedInterfaces": [
+        {"url": "https://agent.example.com/a2a/", "protocolBinding": "JSONRPC"}
+    ],
+}
+
+
+class TestCardProtocolVersion:
+    """Tests for resolving a card's advertised A2A protocol version."""
+
+    @pytest.mark.parametrize(
+        ("card_json", "expected"),
+        [
+            pytest.param(CARD_SHAPE_V0_3, "0.3", id="v0.3-top-level"),
+            pytest.param(CARD_SHAPE_V1_0, "1.0", id="v1.0-per-interface"),
+            pytest.param(CARD_SHAPE_DUAL, "0.3", id="both-shapes"),
+            pytest.param(CARD_SHAPE_NO_URL, "0.3", id="top-level-without-url"),
+            pytest.param(
+                CARD_SHAPE_VERSIONLESS,
+                UNKNOWN_PROTOCOL_VERSION,
+                id="no-version-anywhere",
+            ),
+        ],
+    )
+    def test_resolves_version_for_served_card_shape(self, card_json, expected) -> None:
+        document = make_served_card(card_json)
+
+        assert document.protocol_version == expected
+        assert card_protocol_version(document.card, document.raw) == expected
+
+    def test_typed_card_alone_cannot_resolve_a_dual_shaped_card(self) -> None:
+        """Without the served JSON a dual-shaped card's version is unknowable.
+
+        This is the reason the raw card is threaded through: the parser drops
+        the top-level ``protocolVersion`` and the typed model has no field for
+        it, so the typed card alone reports "unknown".
+        """
+        document = make_served_card(CARD_SHAPE_DUAL)
+
+        assert card_protocol_version(document.card) == UNKNOWN_PROTOCOL_VERSION
+        assert card_protocol_version(document.card, document.raw) == "0.3"
+
+    def test_reports_every_advertised_interface_version(self) -> None:
+        document = make_served_card(
+            {
+                "name": "Multi Agent",
+                "version": "0.1.0",
+                "supportedInterfaces": [
+                    {
+                        "url": "https://agent.example.com/a2a/",
+                        "protocolBinding": "JSONRPC",
+                        "protocolVersion": "1.0",
+                    },
+                    {
+                        "url": "https://agent.example.com/a2a/",
+                        "protocolBinding": "JSONRPC",
+                        "protocolVersion": "0.3",
+                    },
+                ],
+            }
+        )
+
+        assert document.protocol_version == "0.3, 1.0"
+
+    def test_missing_card_and_raw_is_unknown(self) -> None:
+        assert card_protocol_version(None, None) == UNKNOWN_PROTOCOL_VERSION

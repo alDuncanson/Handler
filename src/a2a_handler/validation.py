@@ -10,14 +10,12 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from a2a.client import A2ACardResolver
 from a2a.client.errors import AgentCardResolutionError
 from a2a.types import AgentCard
-from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from google.protobuf.json_format import ParseDict, ParseError
 
 from a2a_handler.common import get_logger
-from a2a_handler.service import LEGACY_AGENT_CARD_WELL_KNOWN_PATH
+from a2a_handler.service import card_protocol_version, fetch_agent_card
 
 logger = get_logger(__name__)
 
@@ -62,38 +60,10 @@ class ValidationResult:
     def protocol_version(self) -> str:
         """Get the protocol version if available.
 
-        In A2A v1.0 the protocol version lives on each supported interface
-        rather than at the top level of the card. Fall back to the legacy
-        top-level ``protocolVersion`` for v0.3-shaped raw data.
+        Delegates to :func:`card_protocol_version` so the CLI, MCP and TUI all
+        answer this question the same way.
         """
-        if self.agent_card and self.agent_card.supported_interfaces:
-            versions = sorted(
-                {
-                    interface.protocol_version
-                    for interface in self.agent_card.supported_interfaces
-                    if interface.protocol_version
-                }
-            )
-            if versions:
-                return ", ".join(versions)
-        if self.raw_data:
-            interfaces = self.raw_data.get("supportedInterfaces") or self.raw_data.get(
-                "supported_interfaces"
-            )
-            if isinstance(interfaces, list):
-                versions = sorted(
-                    {
-                        interface.get("protocolVersion")
-                        or interface.get("protocol_version")
-                        for interface in interfaces
-                        if isinstance(interface, dict)
-                    }
-                    - {None}
-                )
-                if versions:
-                    return ", ".join(versions)
-            return self.raw_data.get("protocolVersion", "Unknown")
-        return "Unknown"
+        return card_protocol_version(self.agent_card, self.raw_data)
 
 
 async def validate_agent_card_from_url(
@@ -116,28 +86,15 @@ async def validate_agent_card_from_url(
         http_client = httpx.AsyncClient(timeout=30)
 
     try:
-        resolver = A2ACardResolver(http_client, agent_url)
-        try:
-            agent_card = await resolver.get_agent_card()
-        except (AgentCardResolutionError, httpx.HTTPStatusError):
-            logger.info(
-                "Agent card not found at %s, trying %s",
-                AGENT_CARD_WELL_KNOWN_PATH,
-                LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-            )
-            fallback_resolver = A2ACardResolver(
-                http_client,
-                agent_url,
-                agent_card_path=LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-            )
-            agent_card = await fallback_resolver.get_agent_card()
+        document = await fetch_agent_card(http_client, agent_url)
 
-        logger.info("Agent card validation successful for %s", agent_card.name)
+        logger.info("Agent card validation successful for %s", document.card.name)
         return ValidationResult(
             valid=True,
             source=agent_url,
             source_type=ValidationSource.URL,
-            agent_card=agent_card,
+            agent_card=document.card,
+            raw_data=document.raw,
         )
 
     except AgentCardResolutionError as e:

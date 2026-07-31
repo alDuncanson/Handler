@@ -74,10 +74,13 @@ def card_get(
         try:
             async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, resolved_url, credentials=credentials)
-                card_data = await service.get_card()
-                log.info("Retrieved card for agent: %s", card_data.name)
+                document = await service.get_card_document()
+                log.info("Retrieved card for agent: %s", document.card.name)
 
-                _format_agent_card(card_data, output)
+                # Emit the card as served. Re-serializing the parsed model would
+                # drop any field the v1.0 AgentCard cannot represent, which would
+                # misreport the agent to anyone checking it against the spec.
+                _format_agent_card(document.raw, output)
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -156,12 +159,13 @@ def card_validate(
     async def do_validate() -> None:
         async with build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, resolved_url, credentials=credentials)
-            agent_card = await service.get_card()
+            document = await service.get_card_document()
             result = ValidationResult(
                 valid=True,
                 source=resolved_url,
                 source_type=ValidationSource.URL,
-                agent_card=agent_card,
+                agent_card=document.card,
+                raw_data=document.raw,
             )
 
         _format_validation_result(result, output)

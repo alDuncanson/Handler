@@ -14,7 +14,7 @@ from a2a.types import (
 from a2a_handler.mcp.server import create_mcp_server
 from a2a_handler.session import AgentSession
 from a2a_handler.validation import ValidationResult, ValidationSource
-from tests.factories import make_agent_card, make_push_config
+from tests.factories import make_agent_card, make_push_config, stub_service_card
 
 
 def _tool_fn(server, name: str):
@@ -144,7 +144,7 @@ async def test_get_agent_card_success() -> None:
 
     card = _make_agent_card()
     mock_service = AsyncMock()
-    mock_service.get_card.return_value = card
+    stub_service_card(mock_service, card)
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),

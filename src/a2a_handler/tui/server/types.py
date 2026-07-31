@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import httpx
 from a2a.types import AgentCard
@@ -43,6 +44,9 @@ class ServerState:
 
     mode: ServerConnectionMode = ServerConnectionMode.DISCONNECTED
     agent_card: AgentCard | None = None
+    # The card JSON as served. Kept because the typed ``agent_card`` drops the
+    # v0.3 top-level ``protocolVersion``, ``url`` and ``preferredTransport``.
+    agent_card_raw: dict[str, Any] | None = None
     agent_url: str | None = None
     current_context_id: str | None = None
     current_task_id: str | None = None

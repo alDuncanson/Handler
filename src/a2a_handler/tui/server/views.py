@@ -13,6 +13,7 @@ from a2a_handler.servers import (
     ServerSource,
     is_default_handler_agent_server,
 )
+from a2a_handler.service import UNKNOWN_PROTOCOL_VERSION
 from a2a_handler.tui.components import AgentCardPanel, InputPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.types import MANUAL_SERVER_ID
 
@@ -27,6 +28,21 @@ PICKER_GROUP_LABELS = {
     ServerSource.RECENT: "Recent",
 }
 MANUAL_SERVER_LABEL = "URL..."
+PROTOCOL_UNKNOWN_LABEL = "A2A version unknown"
+
+
+def protocol_badge_text(protocol_version: str | None) -> str:
+    """Render the protocol badge label for a resolved protocol version.
+
+    Returns an empty string (a hidden badge) when there is no version to show,
+    and a readable label rather than an ``A2A vunknown`` mash-up when the card
+    does not advertise one.
+    """
+    if not protocol_version:
+        return ""
+    if protocol_version == UNKNOWN_PROTOCOL_VERSION:
+        return PROTOCOL_UNKNOWN_LABEL
+    return f"A2A v{protocol_version}"
 
 
 def _picker_option_label(server_def: ServerDefinition) -> str:
@@ -195,10 +211,7 @@ class ConnectionBar(Container):
         self._set_badge("badge-agent", agent_name)
         self._set_badge("badge-source", source_label)
         self._set_badge("badge-auth", auth_label)
-        self._set_badge(
-            "badge-protocol",
-            f"A2A v{protocol_version}" if protocol_version else "",
-        )
+        self._set_badge("badge-protocol", protocol_badge_text(protocol_version))
         self._set_badge(
             "badge-version",
             f"v{agent_version}" if agent_version else "",

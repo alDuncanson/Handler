@@ -15,10 +15,12 @@ tests do not have to repeat them:
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 from a2a import helpers
+from a2a.client.card_resolver import parse_agent_card
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -37,6 +39,8 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 
+from a2a_handler.service import FetchedAgentCard, to_json_dict
+
 __all__ = [
     "make_text_part",
     "make_data_part",
@@ -49,6 +53,9 @@ __all__ = [
     "make_push_config",
     "make_agent_card",
     "make_stream_response",
+    "make_fetched_card",
+    "make_served_card",
+    "stub_service_card",
 ]
 
 
@@ -244,3 +251,46 @@ def make_stream_response(
     if artifact_update is not None:
         return StreamResponse(artifact_update=artifact_update)
     raise ValueError("make_stream_response requires exactly one payload")
+
+
+def make_served_card(raw: dict[str, Any]) -> FetchedAgentCard:
+    """Build a ``FetchedAgentCard`` from served JSON the way a real fetch does.
+
+    Runs the served JSON through the SDK parser (including its v0.3 -> v1.0
+    compatibility shims) so tests see the same lossy typed card production
+    code sees, paired with the untouched JSON.
+    """
+    return FetchedAgentCard(card=parse_agent_card(copy.deepcopy(raw)), raw=raw)
+
+
+def make_fetched_card(
+    card: AgentCard,
+    raw: dict[str, Any] | None = None,
+) -> FetchedAgentCard:
+    """Pair a typed card with the JSON a server would have served it as.
+
+    When ``raw`` is omitted the typed card is round-tripped, which is the
+    lossless case. Pass ``raw`` explicitly to model a card carrying fields the
+    v1.0 ``AgentCard`` cannot represent (a v0.3 top-level ``protocolVersion``,
+    ``url`` or ``preferredTransport``).
+    """
+    return FetchedAgentCard(
+        card=card, raw=raw if raw is not None else to_json_dict(card)
+    )
+
+
+def stub_service_card(
+    mock_service: Any,
+    card: AgentCard,
+    raw: dict[str, Any] | None = None,
+) -> FetchedAgentCard:
+    """Point both card accessors of a mocked ``A2AService`` at one card.
+
+    Production code reads the card through either ``get_card`` (typed only) or
+    ``get_card_document`` (typed plus served JSON); stubbing both keeps a mock
+    self-consistent regardless of which one the code under test calls.
+    """
+    document = make_fetched_card(card, raw)
+    mock_service.get_card.return_value = document.card
+    mock_service.get_card_document.return_value = document
+    return document

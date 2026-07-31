@@ -49,6 +49,7 @@ class AgentCardPanel(Container):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._current_agent_card: AgentCard | None = None
+        self._current_raw_card: dict[str, Any] | None = None
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -85,9 +86,32 @@ class AgentCardPanel(Container):
         current_theme = self.app.theme or ""
         return TEXTUAL_TO_SYNTAX_THEME_MAP.get(current_theme)
 
-    def update_card(self, agent_card: AgentCard | None) -> None:
-        """Update the displayed agent card."""
+    def _card_json(self) -> str:
+        """Render the card to display, preferring the JSON the server served.
+
+        Falling back to the typed model would silently hide any field the v1.0
+        ``AgentCard`` has no home for (the v0.3 top-level ``protocolVersion``,
+        ``url`` and ``preferredTransport``), which is exactly the detail someone
+        debugging a card came here to see.
+        """
+        if self._current_raw_card is not None:
+            return json.dumps(self._current_raw_card, indent=2, default=str)
+        return json.dumps(to_json_dict(self._current_agent_card), indent=2, default=str)
+
+    def update_card(
+        self,
+        agent_card: AgentCard | None,
+        raw_card: dict[str, Any] | None = None,
+    ) -> None:
+        """Update the displayed agent card.
+
+        Args:
+            agent_card: The parsed card, or None to clear the panel
+            raw_card: The card JSON as served, displayed in preference to the
+                parsed model because parsing is lossy
+        """
         self._current_agent_card = agent_card
+        self._current_raw_card = raw_card if agent_card is not None else None
         self.refresh_bindings()
 
         raw_view_widget = self.query_one("#agent-raw", Static)
@@ -98,7 +122,7 @@ class AgentCardPanel(Container):
             self._show_placeholder()
         else:
             logger.info("Displaying agent card for: %s", agent_card.name)
-            json_content = json.dumps(to_json_dict(agent_card), indent=2, default=str)
+            json_content = self._card_json()
             syntax_theme = self._get_syntax_theme_for_current_app_theme()
             if syntax_theme:
                 raw_view_widget.update(Syntax(json_content, "json", theme=syntax_theme))
@@ -112,9 +136,7 @@ class AgentCardPanel(Container):
             return
 
         logger.debug("Refreshing syntax theme for agent card raw view")
-        json_content = json.dumps(
-            to_json_dict(self._current_agent_card), indent=2, default=str
-        )
+        json_content = self._card_json()
         syntax_theme = self._get_syntax_theme_for_current_app_theme()
         raw_widget = self.query_one("#agent-raw", Static)
         if syntax_theme:
