@@ -2233,9 +2233,10 @@ async def test_close_server_action_removes_active_server_tab() -> None:
         assert active_server.server_id == "server-1"
 
 
-# Served card shapes and the protocol badge each must produce. A regression here
-# is otherwise invisible: "unknown" renders as a plausible-looking version, so
-# only asserting the rendered string catches it.
+# Served card shapes and the protocol badge each must produce. The badge reports
+# the version the connection actually speaks, so it can differ from what the card
+# declares. A regression here is otherwise invisible: "unknown" renders as a
+# plausible-looking version, so only asserting the rendered string catches it.
 PROTOCOL_BADGE_CASES = [
     pytest.param(
         {
@@ -2277,8 +2278,10 @@ PROTOCOL_BADGE_CASES = [
                 }
             ],
         },
-        "A2A v0.3",
-        id="both-shapes",
+        # Declares 0.3, but its v1.0-shaped interface is driven over the v1.0
+        # transport, so the badge must not claim 0.3.
+        "A2A v1.0",
+        id="both-shapes-reports-negotiated",
     ),
     pytest.param(
         {
@@ -2291,18 +2294,45 @@ PROTOCOL_BADGE_CASES = [
                 }
             ],
         },
+        # An interface declaring no version is driven as current, not as legacy.
+        "A2A v1.0",
+        id="unversioned-interface-is-current",
+    ),
+    pytest.param(
+        {
+            "name": "Both Versions Agent",
+            "version": "0.1.0",
+            "supportedInterfaces": [
+                {
+                    "url": "https://agent.example.com/a2a/",
+                    "protocolBinding": "JSONRPC",
+                    "protocolVersion": "0.3",
+                },
+                {
+                    "url": "https://agent.example.com/a2a/",
+                    "protocolBinding": "JSONRPC",
+                    "protocolVersion": "1.0",
+                },
+            ],
+        },
+        # Newest wins even when the older interface is listed first.
+        "A2A v1.0",
+        id="prefers-newest-of-both",
+    ),
+    pytest.param(
+        {"name": "Interfaceless Agent", "version": "0.1.0"},
         "A2A version unknown",
-        id="no-version-anywhere",
+        id="no-interface-and-no-version",
     ),
 ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("card_json", "expected_badge"), PROTOCOL_BADGE_CASES)
-async def test_protocol_badge_reports_served_card_version(
+async def test_protocol_badge_reports_negotiated_version(
     card_json: dict, expected_badge: str
 ) -> None:
-    """The protocol badge should report the version the server actually served."""
+    """The protocol badge should report the version the connection speaks."""
     repo_connection = _make_server(
         source=ServerSource.REPOSITORY,
         name="demo",

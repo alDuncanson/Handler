@@ -40,7 +40,11 @@ from a2a.types import (
     TaskState,
     TaskStatusUpdateEvent,
 )
-from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
+from a2a.utils.constants import (
+    AGENT_CARD_WELL_KNOWN_PATH,
+    PROTOCOL_VERSION_CURRENT,
+    TransportProtocol,
+)
 from google.protobuf import json_format
 from google.protobuf.json_format import ParseError
 
@@ -58,6 +62,11 @@ logger = get_logger(__name__)
 # The v1.0 SDK dropped ``PREV_AGENT_CARD_WELL_KNOWN_PATH``; keep the legacy
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
+# The transports Handler can speak. Used both when building the SDK client and
+# when reporting which interface that client will select, so the two cannot
+# disagree about what was negotiated.
+SUPPORTED_PROTOCOL_BINDINGS = [TransportProtocol.JSONRPC.value]
 
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
@@ -150,6 +159,38 @@ def card_protocol_version(
     return UNKNOWN_PROTOCOL_VERSION
 
 
+def card_negotiated_protocol_version(
+    card: AgentCard | None,
+    raw_card: dict[str, Any] | None = None,
+) -> str:
+    """Return the protocol version a connection to this card actually uses.
+
+    This is deliberately not the same question as :func:`card_protocol_version`.
+    That one reports what a card *declares*; this one reports what Handler will
+    *speak*, which is what a live connection's status should show.
+
+    The two differ for cards that advertise both protocol shapes: a v0.3
+    top-level ``protocolVersion`` alongside a v1.0-shaped ``supportedInterfaces``
+    is driven over the v1.0 transport, because the SDK prefers the newest
+    interface and treats one that declares no version as current rather than as
+    legacy. Reporting the declared "0.3" there would contradict the transport.
+
+    Falls back to the declared version when the card offers no interface Handler
+    can use, since there is then no negotiated version to report.
+    """
+    if card is not None and card.supported_interfaces:
+        # Ask the SDK which interface it would pick rather than reimplementing
+        # its precedence, so this cannot drift from the transport it builds.
+        interface = ClientFactory._find_best_interface(
+            list(card.supported_interfaces),
+            protocol_bindings=SUPPORTED_PROTOCOL_BINDINGS,
+        )
+        if interface is not None:
+            return interface.protocol_version or PROTOCOL_VERSION_CURRENT
+
+    return card_protocol_version(card, raw_card)
+
+
 @dataclass(frozen=True, slots=True)
 class FetchedAgentCard:
     """An agent card as both the typed model and the JSON the server sent.
@@ -167,6 +208,11 @@ class FetchedAgentCard:
     def protocol_version(self) -> str:
         """Return the protocol version(s) this card advertises."""
         return card_protocol_version(self.card, self.raw)
+
+    @property
+    def negotiated_protocol_version(self) -> str:
+        """Return the protocol version a connection to this card will speak."""
+        return card_negotiated_protocol_version(self.card, self.raw)
 
 
 async def _fetch_card_from_path(
@@ -652,7 +698,7 @@ class A2AService:
 
             client_config = ClientConfig(
                 httpx_client=self.http_client,
-                supported_protocol_bindings=[TransportProtocol.JSONRPC.value],
+                supported_protocol_bindings=SUPPORTED_PROTOCOL_BINDINGS,
                 streaming=self.enable_streaming,
                 push_notification_config=push_notification_config,
             )

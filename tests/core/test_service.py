@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from a2a.client import ClientConfig, ClientFactory
+from a2a.compat.v0_3.versions import is_legacy_version
 from a2a.types import (
     Message,
     Part,
@@ -14,13 +16,14 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from typing import cast
+from typing import Any, cast
 
 from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
     StreamEvent,
+    SUPPORTED_PROTOCOL_BINDINGS,
     TERMINAL_TASK_STATES,
     UNKNOWN_PROTOCOL_VERSION,
     card_protocol_version,
@@ -1016,3 +1019,88 @@ class TestCardProtocolVersion:
 
     def test_missing_card_and_raw_is_unknown(self) -> None:
         assert card_protocol_version(None, None) == UNKNOWN_PROTOCOL_VERSION
+
+
+class TestNegotiatedProtocolVersion:
+    """Tests for the version a connection actually speaks, vs what a card declares."""
+
+    @pytest.mark.parametrize(
+        ("card_json", "declared", "negotiated"),
+        [
+            pytest.param(CARD_SHAPE_V0_3, "0.3", "0.3", id="v0.3-agrees"),
+            pytest.param(CARD_SHAPE_V1_0, "1.0", "1.0", id="v1.0-agrees"),
+            # The interesting cases: declared and negotiated legitimately differ.
+            pytest.param(CARD_SHAPE_DUAL, "0.3", "1.0", id="both-shapes-differ"),
+            pytest.param(
+                CARD_SHAPE_VERSIONLESS,
+                UNKNOWN_PROTOCOL_VERSION,
+                "1.0",
+                id="unversioned-interface-is-current",
+            ),
+            # No usable interface, so there is nothing negotiated to report and
+            # it falls back to whatever the card declared.
+            pytest.param(CARD_SHAPE_NO_URL, "0.3", "0.3", id="no-interface-falls-back"),
+        ],
+    )
+    def test_declared_and_negotiated_versions(
+        self, card_json, declared, negotiated
+    ) -> None:
+        document = make_served_card(card_json)
+
+        assert document.protocol_version == declared
+        assert document.negotiated_protocol_version == negotiated
+
+    def test_prefers_newest_interface_regardless_of_order(self) -> None:
+        def card_with(*versions: str) -> dict:
+            return {
+                "name": "Multi Agent",
+                "version": "0.1.0",
+                "supportedInterfaces": [
+                    {
+                        "url": "https://agent.example.com/a2a/",
+                        "protocolBinding": "JSONRPC",
+                        "protocolVersion": version,
+                    }
+                    for version in versions
+                ],
+            }
+
+        assert make_served_card(
+            card_with("1.0", "0.3")
+        ).negotiated_protocol_version == ("1.0")
+        assert make_served_card(
+            card_with("0.3", "1.0")
+        ).negotiated_protocol_version == ("1.0")
+
+    @pytest.mark.parametrize(
+        "card_json",
+        [
+            pytest.param(CARD_SHAPE_V0_3, id="v0.3"),
+            pytest.param(CARD_SHAPE_V1_0, id="v1.0"),
+            pytest.param(CARD_SHAPE_DUAL, id="both-shapes"),
+            pytest.param(CARD_SHAPE_VERSIONLESS, id="unversioned-interface"),
+        ],
+    )
+    def test_reported_version_matches_the_transport_the_sdk_builds(
+        self, card_json
+    ) -> None:
+        """Guard against the reported version drifting from the real transport.
+
+        The badge's whole purpose is to describe the live connection, so pin it
+        to the transport the SDK actually constructs: a legacy version must mean
+        the v0.3 compat transport and anything else the current one.
+        """
+        document = make_served_card(card_json)
+
+        config = ClientConfig(
+            httpx_client=httpx.AsyncClient(),
+            supported_protocol_bindings=SUPPORTED_PROTOCOL_BINDINGS,
+        )
+        client = ClientFactory(config).create(document.card)
+        # The chosen transport is internal to the SDK's client; reaching for it
+        # is the point here, since it is the thing the badge must agree with.
+        transport = cast(Any, client)._transport
+
+        reported = document.negotiated_protocol_version
+        uses_legacy_transport = type(transport).__name__.startswith("Compat")
+        assert is_legacy_version(reported) == uses_legacy_transport

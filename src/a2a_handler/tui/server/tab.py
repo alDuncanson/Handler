@@ -42,7 +42,7 @@ from a2a_handler.server import DEFAULT_OLLAMA_MODEL, check_ollama_model
 from a2a_handler.service import (
     A2AService,
     FetchedAgentCard,
-    card_protocol_version,
+    card_negotiated_protocol_version,
     extract_text_from_message_parts,
     is_terminal,
     response_context_id,
@@ -937,7 +937,9 @@ class ServerTab(Container):
             agent_name=self.state.agent_card.name,
             source_label=self._connection_source_label(self.state.connected_server_def),
             auth_label=self._auth_badge_label(auth_credentials),
-            protocol_version=card_protocol_version(
+            # The badge describes a live connection, so report the version being
+            # spoken rather than everything the card advertises.
+            protocol_version=card_negotiated_protocol_version(
                 self.state.agent_card, self.state.agent_card_raw
             ),
             agent_version=self.state.agent_card.version,
