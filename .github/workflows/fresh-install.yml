@@ -8,6 +8,17 @@ name: Fresh install
 # an unbounded dependency fails here instead of on someone's machine.
 on:
   workflow_call:
+    inputs:
+      python-versions:
+        description: >
+          JSON array of Python versions to test. Defaults to every version
+          declared in the classifiers, which is what a release should be held
+          to. Callers on a timer should pass a single version instead: this
+          job detects dependency-resolution drift, which is a property of
+          published metadata rather than of Python semantics, so extra
+          versions cost notifications without adding signal.
+        type: string
+        default: '["3.11", "3.12", "3.13", "3.14"]'
 
 permissions:
   contents: read
@@ -19,8 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Ends of the supported range from requires-python.
-        python-version: [ "3.11", "3.13" ]
+        python-version: ${{ fromJson(inputs.python-versions) }}
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4

@@ -16,6 +16,11 @@ jobs:
   # artifact it is about to publish is installable by anyone else -- that is
   # how v0.1.25 shipped green and broken. Nothing is tagged, released, or
   # published to PyPI unless this passes.
+  #
+  # Inherits the default matrix: every Python version in the classifiers.
+  # Exhaustive here rather than sampled as the nightly run is, because a bad
+  # release cannot be taken back -- PyPI refuses to let a version number be
+  # reused, so the only remedy is shipping another version on top of it.
   fresh-install:
     uses: ./.github/workflows/fresh-install.yml
 

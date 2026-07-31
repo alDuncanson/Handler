@@ -51,5 +51,14 @@ jobs:
 
   # The only job whose result can change without a commit, which is why the
   # schedule trigger above exists. Shared with release.yml.
+  #
+  # One version on purpose. What this catches is a dependency publishing a
+  # release our constraints fail to exclude, which breaks every interpreter
+  # identically -- a matrix here would multiply the nightly notifications
+  # without adding a signal. The floor is the more sensitive single choice,
+  # since it also catches a dependency dropping our minimum. The full range
+  # runs at release time, where being exhaustive is worth the cost.
   fresh-install:
     uses: ./.github/workflows/fresh-install.yml
+    with:
+      python-versions: '["3.11"]'
