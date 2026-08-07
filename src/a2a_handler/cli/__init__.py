@@ -6,7 +6,7 @@ Provides commands for interacting with A2A agents:
 - task notification set: Configure push notifications
 - card get/validate: Agent card operations
 - server list/show/add/remove/validate: Manage configured servers
-- server run agent/push: Run local servers
+- server run push: Run the local push notification webhook server
 - session list/show/clear: Manage saved conversation sessions
 
 Authentication is configured per-server via `handler server add` or

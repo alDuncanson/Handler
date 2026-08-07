@@ -1,81 +1,12 @@
 ---
 title: "Local servers"
-description: "Run Handler's embedded A2A agent and local webhook server for development, demos, and integration testing."
+description: "Run Handler's local webhook server for development, demos, and integration testing."
 ---
 
 # Run local A2A servers
 
-Handler ships with two useful local servers for development work:
-
-- a documentation-aware embedded A2A agent for local testing and Handler help
-- a webhook receiver for task push notifications
-
-## Run the embedded agent
-
-Start Handler's bundled local A2A agent:
-
-```bash
-handler server run agent
-```
-
-By default it binds to `0.0.0.0:8000`.
-
-In the TUI, Handler includes this local agent as the built-in `Handler Agent`
-server. Selecting it and pressing **CONNECT** auto-starts the embedded agent if
-nothing is already listening at `http://localhost:8000`.
-
-The embedded agent is Handler-aware: it uses Google ADK tools to connect to
-Handler's hosted documentation MCP server at
-`https://handler.alduncanson.com/mcp`. That lets it answer questions about the
-Handler CLI, TUI, MCP bridge, authentication, local servers, and common A2A
-workflows from the current docs instead of only relying on model memory.
-
-## Choose a model
-
-The built-in agent uses Google ADK with LiteLLM against an Ollama-compatible
-endpoint.
-
-You can override the model directly:
-
-```bash
-handler server run agent --model gemma4:e4b
-```
-
-Or set environment variables:
-
-```bash
-export OLLAMA_MODEL=gemma4:e2b
-```
-
-```bash
-export OLLAMA_API_BASE=http://localhost:11434
-```
-
-```bash
-handler server run agent
-```
-
-If you do not override it, Handler defaults to `gemma4:e2b` and
-`http://localhost:11434`.
-
-## Protect the local agent with an API key
-
-Require API key auth with a generated key:
-
-```bash
-handler server run agent --auth
-```
-
-```bash
-handler server run agent --auth --api-key my-secret
-```
-
-When auth is enabled, Handler protects the A2A request endpoints with an API
-key. If you do not provide one explicitly, Handler generates a random key for
-you.
-
-The agent card and health endpoints stay readable without auth so clients can
-still discover the server.
+Handler ships with a local webhook receiver for task push notifications, which
+is useful for development work and integration testing.
 
 ## Run the push notification receiver
 

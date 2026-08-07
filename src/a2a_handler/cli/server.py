@@ -7,7 +7,7 @@ import stat
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import Optional, cast
+from typing import cast
 
 import click
 
@@ -16,7 +16,6 @@ from a2a_handler.common.input_validation import (
     InputValidationError,
     validate_header_name,
 )
-from a2a_handler.server import run_server
 from a2a_handler.servers import (
     SERVERS_FILENAME,
     SERVER_SCHEMA_VERSION,
@@ -611,47 +610,6 @@ def server_validate() -> None:
 def server_run() -> None:
     """Run local servers."""
     pass
-
-
-@server_run.command("agent")
-@click.option("--host", default="0.0.0.0", help="Host to bind to", show_default=True)
-@click.option("--port", default=8000, help="Port to bind to", show_default=True)
-@click.option("--auth/--no-auth", default=False, help="Require API key authentication")
-@click.option(
-    "--api-key",
-    default=None,
-    help="Specific API key to use (auto-generated if not set)",
-)
-@click.option(
-    "--model",
-    "-m",
-    default=None,
-    help="Model to use (e.g., 'gemma4:e2b', 'qwen3', 'gemini-2.0-flash')",
-)
-def server_agent(
-    host: str,
-    port: int,
-    auth: bool,
-    api_key: Optional[str],
-    model: Optional[str],
-) -> None:
-    """Start a local A2A agent server.
-
-    \b
-    Examples:
-      $ handler server run agent
-      $ handler server run agent --port 9000
-      $ handler server run agent --auth --api-key my-secret
-      $ handler server run agent --model gemma4:e4b
-    """
-    log.info("Starting A2A server on %s:%d", host, port)
-    run_server(
-        host=host,
-        port=port,
-        require_auth=auth,
-        api_key=api_key,
-        model=model,
-    )
 
 
 @server_run.command("push")

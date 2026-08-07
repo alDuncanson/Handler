@@ -30,9 +30,9 @@ just test     # Run tests
 ### Running Handler Locally
 
 ```bash
-uv run handler --help       # Run any CLI command
-uv run handler tui          # Launch the TUI
-uv run handler server agent # Start the embedded agent (requires Ollama)
+uv run handler --help          # Run any CLI command
+uv run handler tui             # Launch the TUI
+uv run handler server run push # Start the push notification webhook server
 ```
 
 ### Working on the docs

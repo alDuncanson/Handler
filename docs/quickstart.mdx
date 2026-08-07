@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "Install Handler, start a local A2A server, send your first message, and save a server configuration."
+description: "Install Handler, connect to an A2A server, send your first message, and save a server configuration."
 ---
 
 # Get started with Handler
@@ -32,14 +32,10 @@ an A2A server interactively.
 
 ## 2. Try the CLI
 
-If you do not already have an A2A server available, start Handler's bundled
-local agent in another terminal:
+Point Handler at any A2A server you can reach. The examples below use
+`http://localhost:8000` — substitute your own agent's URL.
 
-```bash
-handler server run agent
-```
-
-Inspect the local A2A server's agent card:
+Inspect the A2A server's agent card:
 
 ```bash
 handler card get --url http://localhost:8000
