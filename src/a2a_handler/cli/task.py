@@ -28,8 +28,10 @@ from ._helpers import (
     build_streaming_http_client,
     handle_client_error,
     handle_validation_error,
+    require_task_id,
     resolve_agent_selection,
     resolve_selection_credentials,
+    resolve_task_id,
 )
 
 log = get_logger(__name__)
@@ -42,9 +44,10 @@ def task() -> None:
 
 
 @task.command("get")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--task", "task_id", required=True, help="Task ID to retrieve")
+@click.option("--task", "task_id", help="Task ID to retrieve (alias for TASK_ID)")
 @click.option(
     "--history-length", "-n", type=int, help="Number of history messages to include"
 )
@@ -60,9 +63,10 @@ def task() -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_get(
+    task_id_arg: Optional[str],
     agent_url: Optional[str],
     server_name: Optional[str],
-    task_id: str,
+    task_id: Optional[str],
     history_length: Optional[int],
     json_params: Optional[str],
     bearer_env: Optional[str],
@@ -72,12 +76,14 @@ def task_get(
 
     \b
     Examples:
+      $ handler task get task-123 --server my_agent
       $ handler task get --server my_agent --task task-123
       $ handler task get --url http://localhost:8000 --task task-123
-      $ handler task get --server my_agent --task task-123 --history-length 10
+      $ handler task get task-123 --server my_agent --history-length 10
     """
     output = Output()
     payload: dict[str, Any] = {}
+    task_id = resolve_task_id(task_id_arg, task_id)
 
     selection = resolve_agent_selection(agent_url, server_name)
     resolved_url = selection.agent_url
@@ -99,6 +105,7 @@ def task_get(
         if history_length is None and isinstance(payload_history_length, int):
             history_length = payload_history_length
 
+        task_id = require_task_id(task_id)
         validate_resource_id(task_id, "task_id")
     except InputValidationError as error:
         handle_validation_error(error, output)
@@ -122,9 +129,10 @@ def task_get(
 
 
 @task.command("cancel")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--task", "task_id", required=True, help="Task ID to cancel")
+@click.option("--task", "task_id", help="Task ID to cancel (alias for TASK_ID)")
 @click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )
@@ -132,9 +140,10 @@ def task_get(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_cancel(
+    task_id_arg: Optional[str],
     agent_url: Optional[str],
     server_name: Optional[str],
-    task_id: str,
+    task_id: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
 ) -> None:
@@ -142,10 +151,12 @@ def task_cancel(
 
     \b
     Examples:
+      $ handler task cancel task-123 --server my_agent
       $ handler task cancel --server my_agent --task task-123
       $ handler task cancel --url http://localhost:8000 --task task-123
     """
     output = Output()
+    task_id = require_task_id(resolve_task_id(task_id_arg, task_id))
 
     selection = resolve_agent_selection(agent_url, server_name)
     resolved_url = selection.agent_url
@@ -177,9 +188,10 @@ def task_cancel(
 
 
 @task.command("resubscribe")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--task", "task_id", required=True, help="Task ID to resubscribe to")
+@click.option("--task", "task_id", help="Task ID to resubscribe to (alias for TASK_ID)")
 @click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )
@@ -187,9 +199,10 @@ def task_cancel(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_resubscribe(
+    task_id_arg: Optional[str],
     agent_url: Optional[str],
     server_name: Optional[str],
-    task_id: str,
+    task_id: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
 ) -> None:
@@ -197,10 +210,12 @@ def task_resubscribe(
 
     \b
     Examples:
+      $ handler task resubscribe task-123 --server my_agent
       $ handler task resubscribe --server my_agent --task task-123
       $ handler task resubscribe --url http://localhost:8000 --task task-123
     """
     output = Output()
+    task_id = require_task_id(resolve_task_id(task_id_arg, task_id))
 
     selection = resolve_agent_selection(agent_url, server_name)
     resolved_url = selection.agent_url
@@ -255,9 +270,10 @@ def task_notification() -> None:
 
 
 @task_notification.command("set")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--task", "task_id", required=True, help="Task ID")
+@click.option("--task", "task_id", help="Task ID (alias for TASK_ID)")
 @click.option(
     "--webhook-url", required=True, help="Webhook URL to receive notifications"
 )
@@ -269,9 +285,10 @@ def task_notification() -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def notification_set(
+    task_id_arg: Optional[str],
     agent_url: Optional[str],
     server_name: Optional[str],
-    task_id: str,
+    task_id: Optional[str],
     webhook_url: str,
     token: Optional[str],
     bearer_env: Optional[str],
@@ -281,10 +298,12 @@ def notification_set(
 
     \b
     Examples:
+      $ handler task notification set task-123 --server my_agent --webhook-url http://webhook.example.com
       $ handler task notification set --server my_agent --task task-123 --webhook-url http://webhook.example.com
       $ handler task notification set --url http://localhost:8000 --task task-123 --webhook-url http://webhook.example.com --token SECRET
     """
     output = Output()
+    task_id = require_task_id(resolve_task_id(task_id_arg, task_id))
 
     selection = resolve_agent_selection(agent_url, server_name)
     resolved_url = selection.agent_url
@@ -319,9 +338,10 @@ def notification_set(
 
 
 @task_notification.command("get")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--task", "task_id", required=True, help="Task ID")
+@click.option("--task", "task_id", help="Task ID (alias for TASK_ID)")
 @click.option("--config-id", "-c", help="Specific push notification config ID")
 @click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
@@ -330,9 +350,10 @@ def notification_set(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def notification_get(
+    task_id_arg: Optional[str],
     agent_url: Optional[str],
     server_name: Optional[str],
-    task_id: str,
+    task_id: Optional[str],
     config_id: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
@@ -341,10 +362,12 @@ def notification_get(
 
     \b
     Examples:
+      $ handler task notification get task-123 --server my_agent
       $ handler task notification get --server my_agent --task task-123
       $ handler task notification get --url http://localhost:8000 --task task-123
     """
     output = Output()
+    task_id = require_task_id(resolve_task_id(task_id_arg, task_id))
 
     selection = resolve_agent_selection(agent_url, server_name)
     resolved_url = selection.agent_url

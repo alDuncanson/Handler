@@ -292,6 +292,29 @@ def resolve_agent_target(
     return selection.agent_url, credentials
 
 
+def resolve_task_id(positional: str | None, option: str | None) -> str | None:
+    """Resolve a task ID given either positionally or via --task.
+
+    Returns None when neither is supplied, because `--params` may still carry a
+    task_id; callers check for a missing ID after merging that payload.
+    """
+    if positional is not None and option is not None and positional != option:
+        raise click.UsageError(
+            "Conflicting task IDs: "
+            f"{positional!r} was given positionally and {option!r} with --task."
+        )
+    return positional if positional is not None else option
+
+
+def require_task_id(task_id: str | None) -> str:
+    """Return the resolved task ID, or fail with usage guidance when absent."""
+    if not task_id:
+        raise click.UsageError(
+            "Missing task ID. Pass it positionally (e.g. `task-123`) or with --task."
+        )
+    return task_id
+
+
 def handle_validation_error(error: InputValidationError, output: Output) -> None:
     """Render input validation errors in the standard envelope."""
     output.error(

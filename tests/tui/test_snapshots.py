@@ -35,6 +35,9 @@ from a2a_handler.tui.components import TabbedMessagesPanel
 from tests.factories import make_agent_card
 
 
+SNAPSHOT_VERSION = "0.0.0"
+
+
 def _rendered_texts(widget) -> list[str]:
     return [str(child.render()) for child in widget.query("Label, Static")]
 
@@ -200,6 +203,10 @@ def _patch_snapshot_environment(
     monkeypatch.setenv("FORCE_COLOR", "1")
     monkeypatch.setenv("CLICOLOR", "1")
     monkeypatch.setenv("CLICOLOR_FORCE", "1")
+
+    # Freeze the footer version so a release bump does not invalidate every
+    # snapshot. Version rendering itself is asserted in test_app.py.
+    monkeypatch.setattr(app_module, "HANDLER_VERSION", SNAPSHOT_VERSION)
 
     monkeypatch.setattr(app_module, "get_theme", lambda: "gruvbox")
     monkeypatch.setattr(app_module, "save_theme", lambda theme: None)
