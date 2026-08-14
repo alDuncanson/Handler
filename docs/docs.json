@@ -52,7 +52,8 @@
               "guides/mcp",
               "guides/agent-docs-mcp",
               "guides/enterprise-a2a",
-              "guides/local-servers"
+              "guides/local-servers",
+              "guides/youagent"
             ]
           }
         ]

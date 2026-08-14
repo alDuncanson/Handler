@@ -1,0 +1,85 @@
+---
+title: "Test against youagent"
+description: "Point Handler at a youagent instance for a quick, real-world A2A interoperability check."
+---
+
+# Test Handler against a youagent agent
+
+Handler needs an A2A server to talk to. If you do not have one handy, you can
+run a [youagent](https://github.com/brainsparker/youagent) instance locally in
+about two minutes. youagent is an MIT-licensed, CLI-first agent framework
+whose agents expose a standard A2A server: card discovery at
+`/.well-known/agent.json`, a health endpoint, and JSON-RPC 2.0 `message/send`,
+`tasks/get`, and `tasks/cancel`.
+
+This gives you a real, independently implemented A2A server for
+interoperability checks, demos, and client development, with no API keys
+required.
+
+## Start a youagent A2A server
+
+youagent requires Node 20+.
+
+```bash
+git clone https://github.com/brainsparker/youagent
+cd youagent
+npm install
+npm run build
+npx tsx examples/a2a-server.ts
+```
+
+The example agent listens on `http://localhost:3141` and logs its card URL on
+startup. No search or network credentials are needed to serve the A2A
+endpoints.
+
+## Inspect the agent card
+
+```bash
+handler card get --url http://localhost:3141
+```
+
+You should see a standard A2A agent card. youagent cards may also carry an
+optional `youagent` extension block with identity, interests, and search
+cadence. Handler renders the standard card fields either way, which is the
+point of the exercise: unknown extensions should not break a compliant client.
+
+## Send a message
+
+```bash
+handler message send --url http://localhost:3141 --text "hello"
+```
+
+The youagent server answers over JSON-RPC 2.0, so Handler's full message and
+task flow works against it like any other compliant A2A server.
+
+## Add it as a configured server
+
+If you test against youagent regularly, add it to your server config:
+
+```bash
+handler server add youagent --url http://localhost:3141
+```
+
+Or repo-scoped, if an interop test setup should travel with your repository:
+
+```bash
+handler server add youagent --url http://localhost:3141 --repository
+```
+
+## Health check
+
+youagent also exposes a liveness endpoint you can use in scripts before
+driving Handler at it:
+
+```bash
+curl http://localhost:3141/health
+```
+
+## Notes on social extensions
+
+youagent defines social extensions (`youagent/follow`, `youagent/unfollow`,
+`youagent/posts-request`) that travel as A2A `DataPart`s inside
+`message/send`. They are ordinary protocol traffic, so Handler can send them
+like any other message payload. A plain text message does not trigger them,
+and a youagent server responds to standard A2A requests without any extension
+awareness on the client side.
