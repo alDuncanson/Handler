@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 
-from a2a.types import Task
+from a2a.types import Task, TaskState
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -200,6 +200,20 @@ class StreamingMessage(Container):
             logger.debug("Streaming message not mounted yet; deferring update")
 
 
+def _empty_body(state: int | None) -> str:
+    """Describe a reply that carries no text, without claiming the agent was silent.
+
+    A task stopped before the agent said anything is a different thing from a
+    task that finished with nothing to show, and the user watched one of them
+    happen.
+    """
+    if state == TaskState.TASK_STATE_CANCELED:
+        return "(stopped before the agent replied)"
+    if state == TaskState.TASK_STATE_FAILED:
+        return "(the task failed without a message)"
+    return "(no text in response)"
+
+
 class AgentMessage(Message):
     """An agent message with A2A protocol metadata."""
 
@@ -213,7 +227,11 @@ class AgentMessage(Message):
         # A canceled or interrupted task often carries no text of its own. The
         # fallback is what the agent last said while streaming, which beats
         # telling the user there was no response to something they watched.
-        content = extract_text(response) or fallback_text or "(no text in response)"
+        content = (
+            extract_text(response)
+            or fallback_text
+            or _empty_body(response_state(response))
+        )
         self.task_id = response_task_id(response)
         self.context_id = response_context_id(response)
         self.artifacts = (

@@ -2268,3 +2268,80 @@ async def test_cancel_button_stops_the_turn_and_asks_the_agent() -> None:
             assert not workspace.query("#streaming-message")
             texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("canceled" in text.lower() for text in texts)
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_any_text_says_so_plainly() -> None:
+    """A turn stopped before the agent spoke must not claim there was no response."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    # A task exists (so there is something to cancel) but the agent has not
+    # said anything yet -- the window the screenshot caught.
+    silent = StreamEvent(
+        event_type="status",
+        task=make_task(
+            state=TaskState.TASK_STATE_WORKING,
+            task_id="task-silent",
+            context_id="ctx-silent",
+        ),
+    )
+    canceled = StreamEvent(
+        event_type="status",
+        task=make_task(
+            state=TaskState.TASK_STATE_CANCELED,
+            task_id="task-silent",
+            context_id="ctx-silent",
+        ),
+    )
+
+    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+        async def events():
+            yield silent
+            started.set()
+            await release.wait()
+            yield canceled
+
+        return events()
+
+    catalog_patch, client_patch, service_patch = _connected_workspace_patches(
+        repo_connection, make_agent_card(name="Demo Agent"), AsyncMock()
+    )
+    with catalog_patch, client_patch, service_patch as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = make_agent_card(name="Demo Agent")
+        mock_service.stream = stream
+        mock_service.cancel_task.side_effect = lambda _tid: release.set()
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            workspace.query_one("#message-input", Input).value = "go"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await asyncio.wait_for(started.wait(), timeout=2)
+            await pilot.pause()
+
+            await workspace.cancel_active_turn()
+            for _ in range(40):
+                await pilot.pause()
+                if not workspace.query_one("#message-input", Input).disabled:
+                    break
+            await pilot.pause()
+
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert not any("no text in response" in t for t in texts), texts
+            assert any("stopped before the agent replied" in t for t in texts), texts

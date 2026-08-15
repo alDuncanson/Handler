@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import Generator
 from typing import Any
@@ -54,6 +55,10 @@ from a2a_handler.tui.server.types import (
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
 logger = get_logger(__name__)
+
+# How long to let an agent acknowledge a cancel before stopping locally.
+CANCEL_GRACE_SECONDS = 2.0
+CANCEL_POLL_SECONDS = 0.05
 
 
 class ServerTab(Container):
@@ -641,7 +646,14 @@ class ServerTab(Container):
         await self.cancel_active_turn()
 
     async def cancel_active_turn(self) -> None:
-        """Stop the in-flight turn, asking the agent to cancel its task."""
+        """Stop the in-flight turn, asking the agent to cancel its task.
+
+        The agent is asked first, then given a moment to acknowledge. An
+        acknowledged cancel arrives as a ``canceled`` status and settles the
+        turn normally, which keeps the task and everything the agent said. Only
+        an agent that ignores the request gets the worker pulled out from under
+        it, so the composer always comes back either way.
+        """
         turn = self._active_turn
         if turn is None:
             return
@@ -657,9 +669,26 @@ class ServerTab(Container):
                 "the server."
             )
 
+        if await self._turn_settles_within(CANCEL_GRACE_SECONDS):
+            return
+
+        logger.info(
+            "Agent did not acknowledge cancel within %ss; stopping locally",
+            CANCEL_GRACE_SECONDS,
+        )
         worker = self._send_worker
         if worker is not None:
             worker.cancel()
+
+    async def _turn_settles_within(self, seconds: float) -> bool:
+        """Wait briefly for the in-flight turn to finish on its own."""
+        deadline = seconds
+        while deadline > 0:
+            if self._active_turn is None:
+                return True
+            await asyncio.sleep(CANCEL_POLL_SECONDS)
+            deadline -= CANCEL_POLL_SECONDS
+        return self._active_turn is None
 
     @work(exclusive=True)
     async def _send_message(self) -> None:
@@ -787,6 +816,10 @@ class ServerTab(Container):
         response = result.response
         if response is not None:
             messages_panel.add_agent_message(response, result.narration)
+        elif result.narration:
+            # A turn stopped before the agent sent a final task still produced
+            # work the user watched. Keep it rather than drop the exchange.
+            messages_panel.add_message("agent", result.narration)
             if isinstance(response, Task):
                 messages_panel.update_task(response)
                 for artifact in response.artifacts or []:
