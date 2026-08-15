@@ -5,7 +5,6 @@
 - **Python 3.11+**
 - **[uv](https://github.com/astral-sh/uv)** for dependency management
 - **[just](https://github.com/casey/just)** for running commands
-- **[Ollama](https://ollama.com/)** (optional, for running the server agent)
 
 ## Setup
 
