@@ -24,7 +24,6 @@ from a2a_handler.tui.commands import (
 )
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
 from a2a_handler.tui.server.save import save_connections_to_workspace
-from a2a_handler.tui.server.tab import shutdown_default_handler_agent
 from a2a_handler.tui.server.tabs import ServerTabs
 from a2a_handler.tui.server.workspace import (
     remove_workspace_server,
@@ -409,7 +408,6 @@ class HandlerTUI(App[Any]):
     async def on_unmount(self) -> None:
         if self._tui_log_handler is not None:
             self._tui_log_handler.set_callback(None)
-        shutdown_default_handler_agent()
         logger.info("Shutting down TUI application")
 
 

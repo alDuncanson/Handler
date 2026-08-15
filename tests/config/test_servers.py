@@ -4,14 +4,10 @@ from pathlib import Path
 
 from a2a_handler.auth import AuthType
 from a2a_handler.servers import (
-    DEFAULT_HANDLER_AGENT_NAME,
-    DEFAULT_HANDLER_AGENT_URL,
     ServerAuthConfig,
     ServerDefinition,
     ServerSource,
-    default_handler_agent_server,
     find_git_root,
-    is_default_handler_agent_server,
     load_server_catalog,
     load_servers,
     resolve_server_credentials,
@@ -347,58 +343,16 @@ url = "http://local-only:9000"
     ]
 
 
-def test_load_server_catalog_includes_default_handler_agent(
+def test_load_server_catalog_is_empty_without_configured_servers(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """The normal catalog includes Handler's built-in local agent entry."""
+    """The catalog contains only user-configured servers, with nothing injected."""
     monkeypatch.setattr("a2a_handler.servers.DEFAULT_SERVER_DIRECTORY", tmp_path)
 
     catalog = load_server_catalog()
 
-    assert catalog.global_servers[-1] == default_handler_agent_server()
-    assert is_default_handler_agent_server(catalog.global_servers[-1])
-
-
-def test_load_server_catalog_does_not_duplicate_default_handler_agent_by_name(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """A user-defined Handler Agent entry takes precedence by name."""
-    monkeypatch.setattr("a2a_handler.servers.DEFAULT_SERVER_DIRECTORY", tmp_path)
-    (tmp_path / "servers.toml").write_text(
-        f"""
-version = 1
-
-[servers."{DEFAULT_HANDLER_AGENT_NAME}"]
-url = "http://localhost:9000"
-""".strip()
-    )
-
-    catalog = load_server_catalog()
-
-    assert [server_def.name for server_def in catalog.global_servers] == [
-        DEFAULT_HANDLER_AGENT_NAME
-    ]
-    assert not is_default_handler_agent_server(catalog.global_servers[0])
-
-
-def test_load_server_catalog_does_not_duplicate_default_handler_agent_by_url(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """A user-defined local Handler URL suppresses the built-in entry."""
-    monkeypatch.setattr("a2a_handler.servers.DEFAULT_SERVER_DIRECTORY", tmp_path)
-    (tmp_path / "servers.toml").write_text(
-        f"""
-version = 1
-
-[servers.local]
-url = "{DEFAULT_HANDLER_AGENT_URL}"
-""".strip()
-    )
-
-    catalog = load_server_catalog()
-
-    assert [server_def.name for server_def in catalog.global_servers] == ["local"]
-    assert not is_default_handler_agent_server(catalog.global_servers[0])
+    assert catalog.global_servers == ()
+    assert catalog.repository_servers == ()
 
 
 def test_load_servers_parses_oauth2_entry(tmp_path: Path) -> None:

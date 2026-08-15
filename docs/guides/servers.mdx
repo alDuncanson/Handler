@@ -10,14 +10,6 @@ Handler can load configured A2A server definitions from two places:
 - global config at `$XDG_CONFIG_HOME/handler/servers.toml`
 - repo-scoped config at `.handler/servers.toml`
 
-Handler also includes a built-in global entry named `Handler Agent` at
-`http://localhost:8000`. It appears in the TUI server picker even before you
-create a `servers.toml` file, so new users can connect to Handler's bundled
-embedded agent immediately. Handler does not add the built-in entry when a
-configured server already uses the `Handler Agent` name or the
-`http://localhost:8000` URL. When the TUI auto-starts the embedded agent and
-port `8000` is already occupied, it tries the next available local port.
-
 Repo-scoped config is useful when a project should travel with a shared
 agent URL or auth shape, while secrets continue to come from environment
 variables on each developer machine.
