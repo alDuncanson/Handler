@@ -356,3 +356,44 @@ class TestStandaloneMessage:
         assert turn.result is not None
         assert turn.result.response is message
         assert turn.result.failed is False
+
+
+class TestStatusMessageFallback:
+    """A task whose only text is on its status message."""
+
+    async def test_paused_task_text_comes_from_the_status_message(self):
+        """An agent asking a question often carries it only on the status."""
+        from a2a.types import TaskStatus
+
+        from a2a_handler.service import extract_text_from_task
+
+        task = make_task(state=TaskState.TASK_STATE_INPUT_REQUIRED)
+        task.ClearField("artifacts")
+        task.ClearField("history")
+        task.status.CopyFrom(
+            TaskStatus(
+                state=TaskState.TASK_STATE_INPUT_REQUIRED,
+                message=make_message(text="Which region?"),
+            )
+        )
+
+        assert extract_text_from_task(task) == "Which region?"
+
+    async def test_artifacts_still_win_over_the_status_message(self):
+        """The fallback must not displace the task's real output."""
+        from a2a.types import TaskStatus
+
+        from a2a_handler.service import extract_text_from_task
+
+        task = make_task(
+            state=TaskState.TASK_STATE_COMPLETED,
+            artifacts=[make_artifact(text="the real answer")],
+        )
+        task.status.CopyFrom(
+            TaskStatus(
+                state=TaskState.TASK_STATE_COMPLETED,
+                message=make_message(text="incidental narration"),
+            )
+        )
+
+        assert extract_text_from_task(task) == "the real answer"

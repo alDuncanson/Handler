@@ -234,7 +234,13 @@ def extract_text_from_message_parts(message_parts: Iterable[Part] | None) -> str
 
 
 def extract_text_from_task(task: Task) -> str:
-    """Extract text from task artifacts, falling back to history if no artifacts."""
+    """Extract an agent's text from a task.
+
+    Prefers artifacts, then agent messages in history, then the status message.
+    The last of those matters for a task that pauses rather than finishes: an
+    agent asking a question often carries it only on the status, and without
+    this fallback the user is shown a paused task with nothing to read.
+    """
     extracted_texts = []
 
     if task.artifacts:
@@ -247,6 +253,11 @@ def extract_text_from_task(task: Task) -> str:
         for message in task.history:
             if message.role == Role.ROLE_AGENT and message.parts:
                 extracted_texts.append(extract_text_from_message_parts(message.parts))
+
+    if not any(extracted_texts) and task.status.HasField("message"):
+        extracted_texts.append(
+            extract_text_from_message_parts(task.status.message.parts)
+        )
 
     return "\n".join(text for text in extracted_texts if text)
 
