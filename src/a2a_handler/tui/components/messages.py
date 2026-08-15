@@ -207,9 +207,13 @@ class AgentMessage(Message):
         self,
         response: A2AResponse,
         timestamp: datetime | None = None,
+        fallback_text: str = "",
         **kwargs: Any,
     ) -> None:
-        content = extract_text(response) or "(no text in response)"
+        # A canceled or interrupted task often carries no text of its own. The
+        # fallback is what the agent last said while streaming, which beats
+        # telling the user there was no response to something they watched.
+        content = extract_text(response) or fallback_text or "(no text in response)"
         self.task_id = response_task_id(response)
         self.context_id = response_context_id(response)
         self.artifacts = (
@@ -374,14 +378,14 @@ class TabbedMessagesPanel(Container):
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
-    def add_agent_message(self, response: A2AResponse) -> None:
+    def add_agent_message(self, response: A2AResponse, fallback_text: str = "") -> None:
         logger.debug(
             "Adding agent message - task_id=%s, state=%s",
             response_task_id(response),
             response_state(response),
         )
         chat_container = self._get_chat_container()
-        message_widget = AgentMessage(response)
+        message_widget = AgentMessage(response, fallback_text=fallback_text)
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 

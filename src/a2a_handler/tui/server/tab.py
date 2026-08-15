@@ -786,7 +786,7 @@ class ServerTab(Container):
 
         response = result.response
         if response is not None:
-            messages_panel.add_agent_message(response)
+            messages_panel.add_agent_message(response, result.narration)
             if isinstance(response, Task):
                 messages_panel.update_task(response)
                 for artifact in response.artifacts or []:

@@ -90,6 +90,11 @@ class TurnResult:
     awaiting_auth: bool = False
     canceled: bool = False
     error: Exception | None = None
+    #: The last thing the agent said while the turn was running. A turn that
+    #: is canceled or interrupted often leaves no text on the task itself, so
+    #: this is what the user has to go on -- without it a stopped task reads
+    #: as "no text in response" right after they watched it narrate.
+    narration: str = ""
 
     @property
     def failed(self) -> bool:
@@ -114,6 +119,7 @@ class AgentTurn:
     result: TurnResult | None = None
     _task_id_seen: str | None = field(default=None, init=False)
     _cancel_requested: bool = field(default=False, init=False)
+    _last_narration: str = field(default="", init=False)
 
     @property
     def active_task_id(self) -> str | None:
@@ -150,6 +156,7 @@ class AgentTurn:
                 context_id=self.context_id,
                 continue_task_id=self._task_id_seen,
                 canceled=True,
+                narration=self._last_narration,
             )
             raise
         except Exception as error:  # noqa: BLE001 - reported as a result, not raised
@@ -201,6 +208,9 @@ class AgentTurn:
                 self._task_id_seen = event.task_id
             if event.context_id:
                 self.context_id = event.context_id
+
+            if event.text:
+                self._last_narration = event.text
 
             for turn_event in self._translate(event):
                 yield turn_event
@@ -276,6 +286,7 @@ class AgentTurn:
                 context_id=self.context_id,
                 continue_task_id=self._task_id_seen,
                 canceled=self._cancel_requested,
+                narration=self._last_narration,
             )
 
         state = response_state(response) or fallback_state
@@ -289,6 +300,7 @@ class AgentTurn:
             awaiting_input=state_needs_input(state),
             awaiting_auth=state_needs_auth(state),
             canceled=self._cancel_requested,
+            narration=self._last_narration,
         )
 
     def _continue_from(self, state: int | None) -> str | None:

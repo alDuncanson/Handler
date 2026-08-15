@@ -397,3 +397,66 @@ class TestStatusMessageFallback:
         )
 
         assert extract_text_from_task(task) == "the real answer"
+
+
+class TestNarration:
+    """What the agent last said, kept for turns that end with no text."""
+
+    async def test_narration_survives_a_cancel(self):
+        """A canceled task carries no text; the user should still see progress."""
+        service = _service_streaming(
+            [
+                _status_event(TaskState.TASK_STATE_WORKING, "Working... step 4 of 40"),
+                _status_event(TaskState.TASK_STATE_CANCELED),
+            ]
+        )
+        turn = AgentTurn(service=service, text="slow")
+
+        await _drain(turn)
+
+        assert turn.result is not None
+        assert turn.result.narration == "Working... step 4 of 40"
+
+    async def test_narration_tracks_the_latest_text(self):
+        service = _service_streaming(
+            [
+                _status_event(TaskState.TASK_STATE_WORKING, "first"),
+                _status_event(TaskState.TASK_STATE_WORKING, "second"),
+                _status_event(TaskState.TASK_STATE_COMPLETED, "third"),
+            ]
+        )
+        turn = AgentTurn(service=service, text="hi")
+
+        await _drain(turn)
+
+        assert turn.result is not None
+        assert turn.result.narration == "third"
+
+    async def test_narration_survives_worker_cancellation(self):
+        """Cancelling the consumer keeps whatever the agent had already said."""
+        started = asyncio.Event()
+
+        def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+            async def gen() -> AsyncIterator[StreamEvent]:
+                yield _status_event(TaskState.TASK_STATE_WORKING, "halfway there")
+                started.set()
+                await asyncio.sleep(30)
+
+            return gen()
+
+        service = AsyncMock()
+        service.stream = stream
+        turn = AgentTurn(service=service, text="slow")
+
+        async def consume() -> None:
+            async for _ in turn.events():
+                pass
+
+        task = asyncio.create_task(consume())
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert turn.result is not None
+        assert turn.result.narration == "halfway there"
