@@ -19,6 +19,7 @@ from textual.widgets import Button, HelpPanel, Input, Select, Static, Tab, Tabs
 
 from a2a_handler import __version__
 from a2a_handler.auth import AuthType, create_bearer_auth
+from a2a_handler.service import StreamEvent, extract_text
 from a2a_handler.servers import (
     ServerAuthConfig,
     ServerCatalog,
@@ -29,9 +30,10 @@ from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
 from a2a_handler.tui.components import AgentCardPanel, TabbedMessagesPanel
+from a2a_handler.tui.components.messages import StreamingMessage
 from a2a_handler.tui.server.tabs import ServerTabs
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
-from tests.factories import make_agent_card
+from tests.factories import make_agent_card, make_artifact, make_task
 
 
 def _chat_texts(messages_panel: TabbedMessagesPanel) -> list[str]:
@@ -54,6 +56,60 @@ def _make_server(
         auth=auth,
         origin_label=source.value.capitalize(),
     )
+
+
+_Reply = Message | Task | StreamEvent
+_TurnPayload = _Reply | BaseException
+
+
+def _reply_events(response: _Reply) -> list[StreamEvent]:
+    """Build the stream a server sends for a single, immediate reply.
+
+    Accepts a ready-made ``StreamEvent`` unchanged, so tests can describe a
+    specific state without restating the whole event.
+    """
+    if isinstance(response, StreamEvent):
+        return [response]
+    if isinstance(response, Task):
+        return [
+            StreamEvent(
+                event_type="status",
+                task=response,
+                text=extract_text(response),
+            )
+        ]
+    return [
+        StreamEvent(
+            event_type="message",
+            message=response,
+            text=extract_text(response),
+        )
+    ]
+
+
+def _stub_stream(mock_service: AsyncMock, turns: list[_TurnPayload]) -> list[object]:
+    """Replay one payload per ``stream`` call, recording the call arguments.
+
+    Each entry in ``turns`` is either an exception to raise or a response to
+    deliver as a stream. Returns the list that accumulates the calls, so tests
+    can assert on them the way they used to assert on ``send``.
+    """
+    calls: list[object] = []
+
+    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001
+        calls.append(call(text, context_id=context_id, task_id=task_id))
+        payload = turns[min(len(calls) - 1, len(turns) - 1)]
+
+        async def events():
+            if isinstance(payload, BaseException):
+                raise payload
+            for event in _reply_events(payload):
+                yield event
+
+        return events()
+
+    mock_service.stream = stream
+    return calls
 
 
 def _missing_task_error(task_id: str) -> A2AClientError:
@@ -993,10 +1049,10 @@ async def test_send_retries_without_stale_task_id(
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
-        mock_service.send.side_effect = [
-            _missing_task_error("task-stale-1"),
-            response_message,
-        ]
+        stream_calls = _stub_stream(
+            mock_service,
+            [_missing_task_error("task-stale-1"), response_message],
+        )
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
         mock_service_cls.return_value = mock_service
@@ -1018,7 +1074,7 @@ async def test_send_retries_without_stale_task_id(
             workspace.handle_send_button()
             await pilot.pause()
 
-            assert mock_service.send.await_args_list == [
+            assert stream_calls == [
                 call(
                     "Hello again",
                     context_id="ctx-saved-123456",
@@ -1040,7 +1096,8 @@ async def test_send_retries_without_stale_task_id(
             messages_panel = workspace.query_one(TabbedMessagesPanel)
             texts = _chat_texts(messages_panel)
             assert any(
-                "retrying with the saved context only" in text.lower() for text in texts
+                "continuing with the saved conversation only" in text.lower()
+                for text in texts
             )
             assert any("Recovered response" in text for text in texts)
 
@@ -1079,10 +1136,10 @@ async def test_send_retries_without_completed_task_id(
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
-        mock_service.send.side_effect = [
-            _completed_task_error("task-completed-1"),
-            response_message,
-        ]
+        stream_calls = _stub_stream(
+            mock_service,
+            [_completed_task_error("task-completed-1"), response_message],
+        )
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
         mock_service_cls.return_value = mock_service
@@ -1104,7 +1161,7 @@ async def test_send_retries_without_completed_task_id(
             workspace.handle_send_button()
             await pilot.pause()
 
-            assert mock_service.send.await_args_list == [
+            assert stream_calls == [
                 call(
                     "Hello again",
                     context_id="ctx-saved-123456",
@@ -1126,7 +1183,8 @@ async def test_send_retries_without_completed_task_id(
             messages_panel = workspace.query_one(TabbedMessagesPanel)
             texts = _chat_texts(messages_panel)
             assert any(
-                "retrying with the saved context only" in text.lower() for text in texts
+                "continuing with the saved conversation only" in text.lower()
+                for text in texts
             )
             assert any("Recovered from terminal task" in text for text in texts)
 
@@ -1724,7 +1782,7 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
-        mock_service.send.return_value = response_message
+        stream_calls = _stub_stream(mock_service, [response_message])
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
         mock_service_cls.return_value = mock_service
@@ -1758,11 +1816,9 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
             await pilot.click("#send-btn")
             await pilot.pause()
 
-            mock_service.send.assert_awaited_once_with(
-                "Hello agent",
-                context_id=initial_context_id,
-                task_id=None,
-            )
+            assert stream_calls == [
+                call("Hello agent", context_id=initial_context_id, task_id=None)
+            ]
             assert workspace.query_one("#message-input", Input).value == ""
             assert workspace.state.current_context_id == "ctx-response"
             assert workspace.state.current_task_id == "task-response"
@@ -1793,10 +1849,14 @@ async def test_send_shows_loading_indicator_while_waiting_for_response() -> None
     send_started = asyncio.Event()
     release_response = asyncio.Event()
 
-    async def slow_send(*args, **kwargs):
-        send_started.set()
-        await release_response.wait()
-        return response_message
+    def slow_stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+        async def events():
+            send_started.set()
+            await release_response.wait()
+            for event in _reply_events(response_message):
+                yield event
+
+        return events()
 
     with (
         patch(
@@ -1811,7 +1871,7 @@ async def test_send_shows_loading_indicator_while_waiting_for_response() -> None
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
-        mock_service.send.side_effect = slow_send
+        mock_service.stream = slow_stream
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
         mock_service_cls.return_value = mock_service
@@ -1902,7 +1962,7 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
     ):
         mock_service = AsyncMock()
         mock_service.get_card.return_value = mock_card
-        mock_service.send.side_effect = [first_response, second_response]
+        stream_calls = _stub_stream(mock_service, [first_response, second_response])
         mock_service.set_credentials = Mock()
         mock_service.clear_credentials = Mock()
         mock_service_cls.return_value = mock_service
@@ -1935,7 +1995,7 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
             workspace.handle_send_button()
             await pilot.pause()
 
-            assert mock_service.send.await_args_list == [
+            assert stream_calls == [
                 call(
                     "Hello once",
                     context_id=initial_context_id,
@@ -1950,7 +2010,8 @@ async def test_terminal_task_response_is_not_reused_for_follow_up_messages(
 
             texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert not any(
-                "retrying with the saved context only" in text.lower() for text in texts
+                "continuing with the saved conversation only" in text.lower()
+                for text in texts
             )
 
 
@@ -1977,3 +2038,233 @@ async def test_close_server_action_removes_active_server_tab() -> None:
         active_server = app.query_one(ServerTabs).get_active_server()
         assert active_server is not None
         assert active_server.server_id == "server-1"
+
+
+def _connected_workspace_patches(repo_connection, mock_card, new_http_client):
+    """Patch set that puts a workspace one click away from being connected."""
+    return (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_streaming_updates_render_before_the_turn_finishes() -> None:
+    """Intermediate status and artifact events should appear while streaming."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    release = asyncio.Event()
+    streaming_started = asyncio.Event()
+
+    working = StreamEvent(
+        event_type="status",
+        task=make_task(
+            state=TaskState.TASK_STATE_WORKING,
+            task_id="task-stream",
+            context_id="ctx-stream",
+        ),
+        text="Looking things up",
+    )
+    done = StreamEvent(
+        event_type="status",
+        task=make_task(
+            state=TaskState.TASK_STATE_COMPLETED,
+            task_id="task-stream",
+            context_id="ctx-stream",
+            artifacts=[make_artifact(text="All set")],
+        ),
+        text="Finishing up",
+    )
+
+    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+        async def events():
+            yield working
+            streaming_started.set()
+            await release.wait()
+            yield done
+
+        return events()
+
+    catalog_patch, client_patch, service_patch = _connected_workspace_patches(
+        repo_connection, make_agent_card(name="Demo Agent"), AsyncMock()
+    )
+    with catalog_patch, client_patch, service_patch as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = make_agent_card(name="Demo Agent")
+        mock_service.stream = stream
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            workspace.query_one("#message-input", Input).value = "Do the thing"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await asyncio.wait_for(streaming_started.wait(), timeout=2)
+            await pilot.pause()
+
+            # Mid-turn: a live reply is mounted and shows the agent's progress.
+            live = workspace.query_one("#streaming-message", StreamingMessage)
+            assert "Looking things up" in live.body_text
+            label = workspace.query_one("#send-loading-label", Static)
+            assert "working" in str(label.content)
+            # The stop control is offered while the turn is in flight.
+            assert not workspace.query_one("#cancel-btn", Button).has_class("hidden")
+
+            release.set()
+            await pilot.pause()
+            await pilot.pause()
+
+            # After the turn: live widget gone, final message rendered.
+            assert not workspace.query("#streaming-message")
+            assert workspace.query_one("#cancel-btn", Button).has_class("hidden")
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("All set" in text for text in texts)
+
+
+@pytest.mark.asyncio
+async def test_input_required_prompts_for_a_reply_and_keeps_the_task(
+    patch_server_sources: Mock,
+) -> None:
+    """An agent asking a question should unblock input and keep the task."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    asking = StreamEvent(
+        event_type="status",
+        task=make_task(
+            state=TaskState.TASK_STATE_INPUT_REQUIRED,
+            task_id="task-ask",
+            context_id="ctx-ask",
+        ),
+        text="Which region should I deploy to?",
+    )
+
+    catalog_patch, client_patch, service_patch = _connected_workspace_patches(
+        repo_connection, make_agent_card(name="Demo Agent"), AsyncMock()
+    )
+    with catalog_patch, client_patch, service_patch as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = make_agent_card(name="Demo Agent")
+        stream_calls = _stub_stream(mock_service, [asking])
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            workspace.query_one("#message-input", Input).value = "deploy"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await pilot.pause()
+
+            message_input = workspace.query_one("#message-input", Input)
+            # The turn ends rather than hanging, and input comes back.
+            assert message_input.disabled is False
+            assert "waiting for your reply" in message_input.placeholder.lower()
+            # The open task is kept so the reply continues it.
+            assert workspace.state.current_task_id == "task-ask"
+
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("waiting for your reply" in text.lower() for text in texts)
+
+            # The follow-up continues the same task.
+            workspace.query_one("#message-input", Input).value = "us-east-1"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert stream_calls[-1] == call(
+                "us-east-1", context_id="ctx-ask", task_id="task-ask"
+            )
+
+
+@pytest.mark.asyncio
+async def test_cancel_button_stops_the_turn_and_asks_the_agent() -> None:
+    """Pressing stop should send a protocol cancel and release the input."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    streaming_started = asyncio.Event()
+
+    working = StreamEvent(
+        event_type="status",
+        task=make_task(
+            state=TaskState.TASK_STATE_WORKING,
+            task_id="task-cancel",
+            context_id="ctx-cancel",
+        ),
+        text="Working on it",
+    )
+
+    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+        async def events():
+            yield working
+            streaming_started.set()
+            await asyncio.sleep(30)
+
+        return events()
+
+    catalog_patch, client_patch, service_patch = _connected_workspace_patches(
+        repo_connection, make_agent_card(name="Demo Agent"), AsyncMock()
+    )
+    with catalog_patch, client_patch, service_patch as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = make_agent_card(name="Demo Agent")
+        mock_service.stream = stream
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            workspace.query_one("#message-input", Input).value = "long job"
+            workspace.handle_send_button()
+            await pilot.pause()
+            await asyncio.wait_for(streaming_started.wait(), timeout=2)
+            await pilot.pause()
+
+            await workspace.cancel_active_turn()
+            await pilot.pause()
+            await pilot.pause()
+
+            # The agent was asked to cancel the actual task.
+            mock_service.cancel_task.assert_awaited_once_with("task-cancel")
+            # The UI is usable again rather than stuck waiting.
+            assert workspace.query_one("#message-input", Input).disabled is False
+            assert not workspace.query("#streaming-message")
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("canceled" in text.lower() for text in texts)

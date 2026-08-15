@@ -441,6 +441,15 @@ Select:focus SelectCurrent {
     text-style: bold;
 }
 
+#cancel-btn {
+    width: auto;
+    min-width: 8;
+    margin-right: 1;
+    background: $error 25%;
+    color: $text;
+    text-style: bold;
+}
+
 #connect-btn {
     width: 13;
     min-width: 13;
@@ -525,6 +534,19 @@ Message.message-system {
 AgentMessage {
     color: $text;
     background: $accent 8%;
+}
+
+StreamingMessage {
+    color: $text;
+    background: $accent 8%;
+    height: auto;
+    margin: 0 0 1 0;
+    padding: 1 2;
+}
+
+StreamingMessage .message-stream-state {
+    color: $accent;
+    text-style: bold;
 }
 
 .message-header {
