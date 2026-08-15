@@ -37,6 +37,9 @@ dependencies = [
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "rich>=13.0.0",
+    # Imported directly by the push notification webhook server. Declared rather
+    # than relied upon transitively via a2a-sdk[http-server].
+    "starlette>=0.37.0",
     "textual>=0.47.0",
     "uvicorn>=0.30.0",
     "textual-serve>=1.1.0",

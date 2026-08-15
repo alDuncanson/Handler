@@ -269,6 +269,134 @@ class TestTaskGet:
         assert "task_id contains reserved URL characters" in result.output
 
 
+class TestTaskIdArgument:
+    """Tests for supplying a task ID positionally instead of with --task."""
+
+    @pytest.mark.parametrize(
+        "command,extra",
+        [
+            ("get", []),
+            ("cancel", []),
+            (
+                "notification",
+                ["--webhook-url", "http://webhook.example.com"],
+            ),
+        ],
+    )
+    def test_task_id_accepted_positionally(self, runner, command, extra):
+        """Every task command takes the ID positionally as well as via --task."""
+        argv = (
+            ["notification", "set", "task-123"]
+            if command == "notification"
+            else [command, "task-123"]
+        )
+        argv += ["--url", "http://localhost:8000", *extra]
+
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_task.return_value = _make_task()
+            mock_service.cancel_task.return_value = _make_task(
+                state=TaskState.TASK_STATE_CANCELED
+            )
+            mock_service.set_push_config.return_value = make_push_config()
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(task, argv)
+
+        assert result.exit_code == 0, result.output
+
+    def test_positional_and_option_agree(self, runner):
+        """Passing the same ID both ways is accepted rather than rejected."""
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_task.return_value = _make_task()
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "get",
+                    "task-123",
+                    "--task",
+                    "task-123",
+                    "--url",
+                    "http://localhost:8000",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+
+    def test_conflicting_task_ids_rejected(self, runner):
+        """Two different IDs is ambiguous and must not silently pick one."""
+        result = runner.invoke(
+            task,
+            [
+                "get",
+                "task-abc",
+                "--task",
+                "task-xyz",
+                "--url",
+                "http://localhost:8000",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Conflicting task IDs" in result.output
+
+    def test_missing_task_id_reports_both_forms(self, runner):
+        """Omitting the ID entirely explains both ways to supply it."""
+        result = runner.invoke(task, ["get", "--url", "http://localhost:8000"])
+
+        assert result.exit_code != 0
+        assert "Missing task ID" in result.output
+        assert "--task" in result.output
+
+    def test_task_id_from_json_params_alone(self, runner):
+        """--params may carry task_id without the flag or positional argument."""
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_task.return_value = _make_task()
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--params",
+                    '{"task_id": "task-123"}',
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_service.get_task.assert_awaited_once_with("task-123", None)
+
+
 class TestTaskCancel:
     """Tests for task cancel command."""
 

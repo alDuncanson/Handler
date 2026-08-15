@@ -6,6 +6,7 @@ from typing import Literal
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from a2a_handler import __version__
 from a2a_handler.auth import (
     AuthCredentials,
     AuthType,
@@ -121,6 +122,11 @@ def create_mcp_server() -> FastMCP:
         ),
         website_url="https://github.com/alDuncanson/handler",
     )
+
+    # FastMCP exposes no `version` parameter, and the low-level server reports the
+    # `mcp` library version when its own is left unset. Set Handler's version so
+    # clients inspecting `serverInfo` see the server they are talking to.
+    mcp._mcp_server.version = __version__
 
     @mcp.tool()
     async def validate_agent_card(

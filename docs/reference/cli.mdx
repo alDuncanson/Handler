@@ -105,27 +105,30 @@ handler --output ndjson message stream --server my-agent --text "Run the workflo
 Options match `message send`, except `--text` is required and streaming is
 always enabled.
 
+Every `task` command accepts the task ID positionally or with `--task`. The two
+forms are equivalent; passing two different IDs is an error.
+
 ### `handler task get`
 
 Retrieve task status.
 
 ```bash
-handler task get --server my-agent --task task-123
+handler task get task-123 --server my-agent
 ```
 
 ```bash
 handler task get --server my-agent --task task-123 --history-length 10
 ```
 
-Options: `--url`, `-s, --server`, `--task`, `-n, --history-length`, `--params`,
-`-b, --bearer-env`, `-k, --api-key-env`.
+Options: `[TASK_ID]`, `--url`, `-s, --server`, `--task`, `-n, --history-length`,
+`--params`, `-b, --bearer-env`, `-k, --api-key-env`.
 
 ### `handler task cancel`
 
 Request cancellation of a task.
 
 ```bash
-handler task cancel --server my-agent --task task-123
+handler task cancel task-123 --server my-agent
 ```
 
 ### `handler task resubscribe`
@@ -133,7 +136,7 @@ handler task cancel --server my-agent --task task-123
 Resubscribe to a task's SSE stream after disconnection.
 
 ```bash
-handler task resubscribe --server my-agent --task task-123
+handler task resubscribe task-123 --server my-agent
 ```
 
 ### `handler task notification get`
@@ -141,19 +144,18 @@ handler task resubscribe --server my-agent --task task-123
 Get the push notification configuration for a task.
 
 ```bash
-handler task notification get --server my-agent --task task-123
+handler task notification get task-123 --server my-agent
 ```
 
-Options: `--url`, `-s, --server`, `--task`, `-c, --config-id`, `-b, --bearer-env`, `-k, --api-key-env`.
+Options: `[TASK_ID]`, `--url`, `-s, --server`, `--task`, `-c, --config-id`, `-b, --bearer-env`, `-k, --api-key-env`.
 
 ### `handler task notification set`
 
 Configure a push notification webhook for a task.
 
 ```bash
-handler task notification set \
+handler task notification set task-123 \
   --server my-agent \
-  --task task-123 \
   --webhook-url http://127.0.0.1:9000/webhook \
   --token local-secret
 ```
