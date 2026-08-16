@@ -59,6 +59,43 @@ TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_REJECTED,
 }
 
+# States where the task is still open but the agent has handed control back and
+# will not progress until the client acts. A client that waits for a terminal
+# state without checking these will hang forever.
+INTERRUPTED_TASK_STATES = {
+    TaskState.TASK_STATE_INPUT_REQUIRED,
+    TaskState.TASK_STATE_AUTH_REQUIRED,
+}
+
+
+def state_is_terminal(state: int | None) -> bool:
+    """Return whether a task state means the task will never progress further."""
+    return state in TERMINAL_TASK_STATES if state else False
+
+
+def state_is_interrupted(state: int | None) -> bool:
+    """Return whether a task is paused waiting on the client."""
+    return state in INTERRUPTED_TASK_STATES if state else False
+
+
+def state_needs_input(state: int | None) -> bool:
+    """Return whether the agent is waiting for another message from the user."""
+    return state == TaskState.TASK_STATE_INPUT_REQUIRED
+
+
+def state_needs_auth(state: int | None) -> bool:
+    """Return whether the agent is waiting for the client to authenticate."""
+    return state == TaskState.TASK_STATE_AUTH_REQUIRED
+
+
+def state_is_settled(state: int | None) -> bool:
+    """Return whether a turn should stop waiting on this state.
+
+    A turn ends either because the task finished or because the agent handed
+    control back to the client.
+    """
+    return state_is_terminal(state) or state_is_interrupted(state)
+
 
 def to_json_dict(message: Any) -> dict[str, Any]:
     """Serialize an A2A protobuf message to its canonical JSON dict.
@@ -197,7 +234,13 @@ def extract_text_from_message_parts(message_parts: Iterable[Part] | None) -> str
 
 
 def extract_text_from_task(task: Task) -> str:
-    """Extract text from task artifacts, falling back to history if no artifacts."""
+    """Extract an agent's text from a task.
+
+    Prefers artifacts, then agent messages in history, then the status message.
+    The last of those matters for a task that pauses rather than finishes: an
+    agent asking a question often carries it only on the status, and without
+    this fallback the user is shown a paused task with nothing to read.
+    """
     extracted_texts = []
 
     if task.artifacts:
@@ -210,6 +253,11 @@ def extract_text_from_task(task: Task) -> str:
         for message in task.history:
             if message.role == Role.ROLE_AGENT and message.parts:
                 extracted_texts.append(extract_text_from_message_parts(message.parts))
+
+    if not any(extracted_texts) and task.status.HasField("message"):
+        extracted_texts.append(
+            extract_text_from_message_parts(task.status.message.parts)
+        )
 
     return "\n".join(text for text in extracted_texts if text)
 
@@ -238,13 +286,29 @@ def response_state(response: A2AResponse) -> int | None:
 
 def is_terminal(response: A2AResponse) -> bool:
     """Check if the response reached a terminal state."""
-    state = response_state(response)
-    return state in TERMINAL_TASK_STATES if state else False
+    return state_is_terminal(response_state(response))
 
 
 def response_needs_auth(response: A2AResponse) -> bool:
     """Check if the response requires authentication."""
-    return response_state(response) == TaskState.TASK_STATE_AUTH_REQUIRED
+    return state_needs_auth(response_state(response))
+
+
+def response_needs_input(response: A2AResponse) -> bool:
+    """Check if the agent is waiting for another message from the user."""
+    return state_needs_input(response_state(response))
+
+
+def continuation_task_id(response: A2AResponse) -> str | None:
+    """Return the task ID a follow-up message should continue, if any.
+
+    A terminal task cannot accept more messages, so it yields ``None``. An
+    interrupted task (input or auth required) is still open and must be
+    continued by ID, otherwise the agent loses the thread.
+    """
+    if is_terminal(response):
+        return None
+    return response_task_id(response)
 
 
 def extract_text(response: A2AResponse) -> str:

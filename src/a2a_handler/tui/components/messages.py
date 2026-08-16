@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 
-from a2a.types import Task
+from a2a.types import Task, TaskState
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -138,6 +138,82 @@ class Message(Container):
         self.app.open_url(url)
 
 
+class StreamingMessage(Container):
+    """A live agent reply, updated in place while a turn is still running.
+
+    This widget is transient: once the turn settles it is removed and replaced
+    by a regular :class:`AgentMessage`, so the finished transcript looks the
+    same whether or not the reply arrived incrementally.
+    """
+
+    PLACEHOLDER = "Waiting for the agent..."
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.add_class("message-agent")
+        self.add_class("message-streaming")
+        self._status = "working"
+        self._narration = ""
+        self._output: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="message-header"):
+            yield Static("Agent", classes="message-role")
+            yield Static(self._status, classes="message-time message-stream-state")
+        yield Static(self.PLACEHOLDER, classes="message-body message-body-plain")
+
+    def on_mount(self) -> None:
+        for widget in self.query("Static"):
+            widget.can_focus = False
+
+    @property
+    def body_text(self) -> str:
+        """Return the text currently shown, for tests and transcript scans."""
+        return self._render_body()
+
+    def set_state(self, state: int | None, narration: str = "") -> None:
+        """Update the live state chip and any narration the agent sent."""
+        self._status = state_label(state)
+        if narration:
+            self._narration = narration
+        self._refresh()
+
+    def append_output(self, text: str) -> None:
+        """Append artifact text as the agent produces it."""
+        if text and text not in self._output:
+            self._output.append(text)
+        self._refresh()
+
+    def _render_body(self) -> str:
+        if self._output:
+            return "\n\n".join(self._output)
+        if self._narration:
+            return self._narration
+        return self.PLACEHOLDER
+
+    def _refresh(self) -> None:
+        """Push current state into the mounted widgets, if they exist yet."""
+        try:
+            self.query_one(".message-stream-state", Static).update(self._status)
+            self.query_one(".message-body", Static).update(self._render_body())
+        except Exception:  # noqa: BLE001 - not mounted yet; compose() will render
+            logger.debug("Streaming message not mounted yet; deferring update")
+
+
+def _empty_body(state: int | None) -> str:
+    """Describe a reply that carries no text, without claiming the agent was silent.
+
+    A task stopped before the agent said anything is a different thing from a
+    task that finished with nothing to show, and the user watched one of them
+    happen.
+    """
+    if state == TaskState.TASK_STATE_CANCELED:
+        return "(stopped before the agent replied)"
+    if state == TaskState.TASK_STATE_FAILED:
+        return "(the task failed without a message)"
+    return "(no text in response)"
+
+
 class AgentMessage(Message):
     """An agent message with A2A protocol metadata."""
 
@@ -145,9 +221,17 @@ class AgentMessage(Message):
         self,
         response: A2AResponse,
         timestamp: datetime | None = None,
+        fallback_text: str = "",
         **kwargs: Any,
     ) -> None:
-        content = extract_text(response) or "(no text in response)"
+        # A canceled or interrupted task often carries no text of its own. The
+        # fallback is what the agent last said while streaming, which beats
+        # telling the user there was no response to something they watched.
+        content = (
+            extract_text(response)
+            or fallback_text
+            or _empty_body(response_state(response))
+        )
         self.task_id = response_task_id(response)
         self.context_id = response_context_id(response)
         self.artifacts = (
@@ -312,20 +396,38 @@ class TabbedMessagesPanel(Container):
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
-    def add_agent_message(self, response: A2AResponse) -> None:
+    def add_agent_message(self, response: A2AResponse, fallback_text: str = "") -> None:
         logger.debug(
             "Adding agent message - task_id=%s, state=%s",
             response_task_id(response),
             response_state(response),
         )
         chat_container = self._get_chat_container()
-        message_widget = AgentMessage(response)
+        message_widget = AgentMessage(response, fallback_text=fallback_text)
         chat_container.mount(message_widget)
         chat_container.scroll_end(animate=False)
 
     def add_system_message(self, content: str) -> None:
         logger.info("System message: %s", content)
         self.add_message("system", content)
+
+    def begin_agent_stream(self) -> StreamingMessage:
+        """Mount a live agent reply and return it for incremental updates."""
+        self.end_agent_stream()
+        chat_container = self._get_chat_container()
+        streaming = StreamingMessage(id="streaming-message")
+        chat_container.mount(streaming)
+        chat_container.scroll_end(animate=False)
+        return streaming
+
+    def end_agent_stream(self) -> None:
+        """Remove the live agent reply, if one is mounted."""
+        for widget in self.query("#streaming-message"):
+            widget.remove()
+
+    def scroll_chat_to_end(self) -> None:
+        """Keep the newest content in view while a reply streams in."""
+        self._get_chat_container().scroll_end(animate=False)
 
     def add_log(self, line: str) -> None:
         """Add a log line to the logs panel."""

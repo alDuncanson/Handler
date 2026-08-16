@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import Generator
 from typing import Any
 
 import httpx
-from a2a.client.errors import A2AClientError
 from a2a.types import AgentCard, Message as A2AMessage, Role, Task, TaskState
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.message import Message as TextualMessage
 from textual.widgets import Button, Input, RadioSet, Select
+from textual.worker import Worker
 
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
@@ -32,13 +33,14 @@ from a2a_handler.service import (
     A2AService,
     card_protocol_version,
     extract_text_from_message_parts,
-    is_terminal,
-    response_context_id,
     response_task_id,
     response_state,
+    state_label,
 )
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
+from a2a_handler.tui.components.messages import StreamingMessage
+from a2a_handler.turn import AgentTurn, TurnEvent, TurnEventKind, TurnResult
 from a2a_handler.tui.server.session import resolve_saved_conversation
 from a2a_handler.tui.server.types import (
     MANUAL_SERVER_ID,
@@ -53,6 +55,10 @@ from a2a_handler.tui.server.types import (
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
 
 logger = get_logger(__name__)
+
+# How long to let an agent acknowledge a cancel before stopping locally.
+CANCEL_GRACE_SECONDS = 2.0
+CANCEL_POLL_SECONDS = 0.05
 
 
 class ServerTab(Container):
@@ -91,6 +97,8 @@ class ServerTab(Container):
         self._syncing_auth_depth = 0
         self._suspend_connect_events = False
         self._log_lines: list[str] = []
+        self._active_turn: AgentTurn | None = None
+        self._send_worker: Worker[None] | None = None
 
     def compose(self) -> ComposeResult:
         yield ServerView()
@@ -621,13 +629,66 @@ class ServerTab(Container):
 
     @on(Input.Submitted, "#message-input")
     def handle_message_submit(self) -> None:
-        if self.is_connected:
-            self._send_message()
+        self._start_send()
 
     @on(Button.Pressed, "#send-btn")
     def handle_send_button(self) -> None:
-        if self.is_connected:
-            self._send_message()
+        self._start_send()
+
+    def _start_send(self) -> None:
+        """Start a turn, keeping the worker handle so it can be canceled."""
+        if not self.is_connected or self._active_turn is not None:
+            return
+        self._send_worker = self._send_message()
+
+    @on(Button.Pressed, "#cancel-btn")
+    async def _handle_cancel_pressed(self) -> None:
+        await self.cancel_active_turn()
+
+    async def cancel_active_turn(self) -> None:
+        """Stop the in-flight turn, asking the agent to cancel its task.
+
+        The agent is asked first, then given a moment to acknowledge. An
+        acknowledged cancel arrives as a ``canceled`` status and settles the
+        turn normally, which keeps the task and everything the agent said. Only
+        an agent that ignores the request gets the worker pulled out from under
+        it, so the composer always comes back either way.
+        """
+        turn = self._active_turn
+        if turn is None:
+            return
+
+        server_view = self._try_get_server_view()
+        if server_view is not None:
+            server_view.input_panel().set_status("Canceling...")
+
+        sent = await turn.request_cancel()
+        if server_view is not None and not sent:
+            server_view.messages_panel().add_system_message(
+                "The agent could not cancel this task; it may keep running on "
+                "the server."
+            )
+
+        if await self._turn_settles_within(CANCEL_GRACE_SECONDS):
+            return
+
+        logger.info(
+            "Agent did not acknowledge cancel within %ss; stopping locally",
+            CANCEL_GRACE_SECONDS,
+        )
+        worker = self._send_worker
+        if worker is not None:
+            worker.cancel()
+
+    async def _turn_settles_within(self, seconds: float) -> bool:
+        """Wait briefly for the in-flight turn to finish on its own."""
+        deadline = seconds
+        while deadline > 0:
+            if self._active_turn is None:
+                return True
+            await asyncio.sleep(CANCEL_POLL_SECONDS)
+            deadline -= CANCEL_POLL_SECONDS
+        return self._active_turn is None
 
     @work(exclusive=True)
     async def _send_message(self) -> None:
@@ -647,77 +708,141 @@ class ServerTab(Container):
 
         messages_panel = server_view.messages_panel()
         messages_panel.add_message("user", message_text)
-        input_panel.set_waiting(True)
 
         try:
             credentials = messages_panel.get_auth_credentials()
-            if credentials is not None:
-                self._agent_service.set_credentials(credentials)
-            else:
-                self._agent_service.clear_credentials()
+        except InputValidationError as error:
+            messages_panel.add_system_message(f"Error: {error.message}")
+            return
 
-            self._refresh_status_badges()
+        if credentials is not None:
+            self._agent_service.set_credentials(credentials)
+        else:
+            self._agent_service.clear_credentials()
+        self._refresh_status_badges()
 
-            try:
-                response = await self._agent_service.send(
-                    message_text,
-                    context_id=self.state.current_context_id,
-                    task_id=self.state.current_task_id,
+        turn = AgentTurn(
+            service=self._agent_service,
+            text=message_text,
+            context_id=self.state.current_context_id,
+            task_id=self.state.current_task_id,
+        )
+        self._active_turn = turn
+        live = messages_panel.begin_agent_stream()
+        input_panel.set_waiting(True, cancellable=True)
+
+        try:
+            async for event in turn.events():
+                self._apply_turn_event(server_view, live, event)
+        finally:
+            self._finish_turn(server_view, turn)
+
+    def _apply_turn_event(
+        self,
+        server_view: ServerView,
+        live: StreamingMessage,
+        event: TurnEvent,
+    ) -> None:
+        """Reflect one in-flight turn event in the live view."""
+        messages_panel = server_view.messages_panel()
+
+        if event.kind is TurnEventKind.NOTICE:
+            messages_panel.add_system_message(event.text)
+            return
+
+        if event.kind is TurnEventKind.STATUS:
+            live.set_state(event.state, event.text)
+            server_view.input_panel().set_status(
+                f"Agent is {state_label(event.state)}..."
+            )
+        elif event.kind is TurnEventKind.ARTIFACT:
+            live.append_output(event.text)
+            if event.artifact is not None:
+                task_id = (
+                    self._active_turn.active_task_id if self._active_turn else None
                 )
-            except Exception as error:
-                if self.state.current_task_id and self._is_uncontinuable_task_error(
-                    error
-                ):
-                    logger.info(
-                        "Retrying %s without active task_id %s",
-                        self.server_id,
-                        self.state.current_task_id,
-                    )
-                    self._clear_current_task_id()
-                    messages_panel.add_system_message(
-                        "Saved task can no longer accept messages; retrying with the saved context only."
-                    )
-                    response = await self._agent_service.send(
-                        message_text,
-                        context_id=self.state.current_context_id,
-                        task_id=None,
-                    )
-                else:
-                    raise
+                messages_panel.update_artifact(
+                    event.artifact,
+                    task_id or "",
+                    self.state.current_context_id or "",
+                )
+        elif event.kind is TurnEventKind.MESSAGE:
+            live.append_output(event.text)
 
-            ctx_id = response_context_id(response)
-            if ctx_id:
-                self.state.current_context_id = ctx_id
-            next_task_id = response_task_id(response)
-            self.state.current_task_id = None if is_terminal(response) else next_task_id
-            self._persist_session_state()
+        if event.task is not None:
+            messages_panel.update_task(event.task)
+        messages_panel.scroll_chat_to_end()
 
-            messages_panel.add_agent_message(response)
+    def _finish_turn(self, server_view: ServerView, turn: AgentTurn) -> None:
+        """Tear down the live view and apply the turn's outcome."""
+        self._active_turn = None
+        self._send_worker = None
 
+        messages_panel = server_view.messages_panel()
+        messages_panel.end_agent_stream()
+
+        result = turn.result
+        if result is not None:
+            self._apply_turn_result(server_view, result)
+
+        if self.is_connected:
+            input_panel = server_view.input_panel()
+            input_panel.set_waiting(False)
+            if result is not None and result.awaiting_input:
+                input_panel.prompt_for_reply()
+            input_panel.focus_input()
+
+    def _apply_turn_result(
+        self,
+        server_view: ServerView,
+        result: TurnResult,
+    ) -> None:
+        """Persist the outcome of a turn and render its final message."""
+        messages_panel = server_view.messages_panel()
+
+        if result.context_id:
+            self.state.current_context_id = result.context_id
+        self.state.current_task_id = result.continue_task_id
+        self._persist_session_state()
+
+        if result.error is not None:
+            logger.error(
+                "Turn failed for %s: %s", self.server_id, result.error, exc_info=True
+            )
+            messages_panel.add_system_message(f"Error: {result.error!s}")
+            self._refresh_status_badges()
+            return
+
+        response = result.response
+        if response is not None:
+            messages_panel.add_agent_message(response, result.narration)
+        elif result.narration:
+            # A turn stopped before the agent sent a final task still produced
+            # work the user watched. Keep it rather than drop the exchange.
+            messages_panel.add_message("agent", result.narration)
             if isinstance(response, Task):
                 messages_panel.update_task(response)
-                if response.artifacts:
-                    for artifact in response.artifacts:
-                        messages_panel.update_artifact(
-                            artifact,
-                            response_task_id(response) or "",
-                            self.state.current_context_id or "",
-                        )
+                for artifact in response.artifacts or []:
+                    messages_panel.update_artifact(
+                        artifact,
+                        response_task_id(response) or "",
+                        self.state.current_context_id or "",
+                    )
 
-            self._refresh_status_badges()
-
-        except Exception as error:
-            logger.error(
-                "Error sending message from %s: %s",
-                self.server_id,
-                error,
-                exc_info=True,
+        if result.canceled:
+            messages_panel.add_system_message("Canceled.")
+        elif result.awaiting_input:
+            messages_panel.add_system_message(
+                "The agent is waiting for your reply. Your next message "
+                "continues this task."
             )
-            messages_panel.add_system_message(f"Error: {error!s}")
-        finally:
-            if self.is_connected:
-                input_panel.set_waiting(False)
-                input_panel.focus_input()
+        elif result.awaiting_auth:
+            messages_panel.add_system_message(
+                "The agent requires authentication before it can continue. "
+                "Update credentials in the Auth tab, then reply."
+            )
+
+        self._refresh_status_badges()
 
     def _refresh_status_badges(self) -> None:
         server_view = self._try_get_server_view()
@@ -769,23 +894,6 @@ class ServerTab(Container):
             return
         self.state.current_task_id = None
         self._persist_session_state()
-
-    def _is_uncontinuable_task_error(self, error: Exception) -> bool:
-        """Return True when the server rejects continuing the current task."""
-        if not isinstance(error, A2AClientError):
-            return False
-        message = str(error).lower()
-        if "task" in message and (
-            "does not exist" in message or "not found" in message
-        ):
-            return True
-        terminal_markers = (
-            "terminal state",
-            "cannot accept further messages",
-            "already completed",
-            "task is completed",
-        )
-        return any(marker in message for marker in terminal_markers)
 
     def _load_task_into_live_view(self, server_view: ServerView, task: Task) -> None:
         messages_panel = server_view.messages_panel()
