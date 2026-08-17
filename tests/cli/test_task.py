@@ -397,6 +397,91 @@ class TestTaskIdArgument:
         mock_service.get_task.assert_awaited_once_with("task-123", None)
 
 
+class TestTaskList:
+    """Tests for task list command."""
+
+    def _invoke_list(self, runner, args, tasks):
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.list_all_tasks.return_value = tasks
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(task, ["list", *args])
+            return result, mock_service
+
+    def test_task_list_success(self, runner):
+        """Listing shows every returned task with its state."""
+        tasks = [
+            _make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1"),
+            _make_task(TaskState.TASK_STATE_WORKING, task_id="task-2"),
+        ]
+        result, _ = self._invoke_list(runner, ["--url", "http://localhost:8000"], tasks)
+
+        assert result.exit_code == 0
+        assert "task-1" in result.output
+        assert "completed" in result.output
+        assert "task-2" in result.output
+        assert "working" in result.output
+
+    def test_task_list_empty(self, runner):
+        """An empty listing says so instead of printing nothing."""
+        result, _ = self._invoke_list(runner, ["--url", "http://localhost:8000"], [])
+
+        assert result.exit_code == 0
+        assert "No tasks found" in result.output
+
+    def test_task_list_passes_filters(self, runner):
+        """Context, status, and paging options reach the service."""
+        result, mock_service = self._invoke_list(
+            runner,
+            [
+                "--url",
+                "http://localhost:8000",
+                "--context-id",
+                "ctx-9",
+                "--status",
+                "completed",
+                "--page-size",
+                "10",
+                "--include-artifacts",
+            ],
+            [],
+        )
+
+        assert result.exit_code == 0
+        mock_service.list_all_tasks.assert_called_once_with(
+            context_id="ctx-9",
+            status=TaskState.TASK_STATE_COMPLETED,
+            page_size=10,
+            history_length=None,
+            include_artifacts=True,
+        )
+
+    def test_task_list_rejects_unknown_status(self, runner):
+        """An unknown status label fails before any network call."""
+        result = runner.invoke(
+            task,
+            ["list", "--url", "http://localhost:8000", "--status", "sleeping"],
+        )
+        assert result.exit_code != 0
+
+    def test_task_list_rejects_invalid_context_id(self, runner):
+        """A malformed context ID fails before any network call."""
+        result = runner.invoke(
+            task,
+            ["list", "--url", "http://localhost:8000", "--context-id", "ctx?bad"],
+        )
+        assert result.exit_code != 0
+
+
 class TestTaskCancel:
     """Tests for task cancel command."""
 
