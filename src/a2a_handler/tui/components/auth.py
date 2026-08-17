@@ -10,9 +10,11 @@ from a2a_handler.auth import (
     AuthCredentials,
     AuthType,
     create_api_key_auth,
+    create_basic_auth,
     create_bearer_auth,
     create_mtls_auth,
     create_oauth2_auth,
+    create_oidc_auth,
 )
 from a2a_handler.common import get_logger
 
@@ -40,8 +42,10 @@ class AuthPanel(Vertical):
         """Hide all auth-specific field groups."""
         self.query_one("#api-key-fields", Vertical).add_class("hidden")
         self.query_one("#bearer-fields", Vertical).add_class("hidden")
+        self.query_one("#basic-fields", Vertical).add_class("hidden")
         self.query_one("#mtls-fields", Vertical).add_class("hidden")
         self.query_one("#oauth2-fields", Vertical).add_class("hidden")
+        self.query_one("#oidc-fields", Vertical).add_class("hidden")
 
     def _apply_auth_specific_field_visibility(self) -> None:
         """Show only the field group for the selected auth type."""
@@ -50,10 +54,14 @@ class AuthPanel(Vertical):
             self.query_one("#api-key-fields", Vertical).remove_class("hidden")
         elif self.query_one("#auth-bearer", RadioButton).value:
             self.query_one("#bearer-fields", Vertical).remove_class("hidden")
+        elif self.query_one("#auth-basic", RadioButton).value:
+            self.query_one("#basic-fields", Vertical).remove_class("hidden")
         elif self.query_one("#auth-mtls", RadioButton).value:
             self.query_one("#mtls-fields", Vertical).remove_class("hidden")
         elif self.query_one("#auth-oauth2", RadioButton).value:
             self.query_one("#oauth2-fields", Vertical).remove_class("hidden")
+        elif self.query_one("#auth-oidc", RadioButton).value:
+            self.query_one("#oidc-fields", Vertical).remove_class("hidden")
 
     def _set_none_selected(self) -> None:
         """Set no-auth selection and hide auth-specific fields."""
@@ -66,6 +74,14 @@ class AuthPanel(Vertical):
     def _set_bearer_selected(self) -> None:
         """Set bearer selection and show bearer fields."""
         self._select_auth_button("auth-bearer")
+
+    def _set_basic_selected(self) -> None:
+        """Set HTTP basic selection and show basic fields."""
+        self._select_auth_button("auth-basic")
+
+    def _set_oidc_selected(self) -> None:
+        """Set OIDC selection and show OIDC fields."""
+        self._select_auth_button("auth-oidc")
 
     def _set_mtls_selected(self) -> None:
         """Set mTLS selection and show mTLS fields."""
@@ -81,8 +97,10 @@ class AuthPanel(Vertical):
             yield RadioButton("None", id="auth-none", value=True)
             yield RadioButton("API Key", id="auth-api-key")
             yield RadioButton("Bearer Token", id="auth-bearer")
+            yield RadioButton("HTTP Basic", id="auth-basic")
             yield RadioButton("mTLS (Client Certificate)", id="auth-mtls")
             yield RadioButton("OAuth2 (Client Credentials)", id="auth-oauth2")
+            yield RadioButton("OpenID Connect", id="auth-oidc")
 
         with Vertical(id="api-key-fields", classes="auth-fields hidden"):
             yield Label("API Key")
@@ -94,6 +112,16 @@ class AuthPanel(Vertical):
             yield Label("Bearer Token")
             yield Input(
                 placeholder="Enter bearer token", id="bearer-token-input", password=True
+            )
+
+        with Vertical(id="basic-fields", classes="auth-fields hidden"):
+            yield Label("Username")
+            yield Input(placeholder="Enter username", id="basic-username-input")
+            yield Label("Password")
+            yield Input(
+                placeholder="Enter password",
+                id="basic-password-input",
+                password=True,
             )
 
         with Vertical(id="mtls-fields", classes="auth-fields hidden"):
@@ -120,6 +148,23 @@ class AuthPanel(Vertical):
             )
             yield Label("Scopes (optional, space-separated)")
             yield Input(placeholder="read write", id="oauth2-scopes-input")
+
+        with Vertical(id="oidc-fields", classes="auth-fields hidden"):
+            yield Label("Issuer URL")
+            yield Input(
+                placeholder="https://auth.example.com",
+                id="oidc-issuer-url-input",
+            )
+            yield Label("Client ID")
+            yield Input(placeholder="Enter client ID", id="oidc-client-id-input")
+            yield Label("Client Secret")
+            yield Input(
+                placeholder="Enter client secret",
+                id="oidc-client-secret-input",
+                password=True,
+            )
+            yield Label("Scopes (optional, space-separated)")
+            yield Input(placeholder="openid profile", id="oidc-scopes-input")
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Handle auth type selection changes."""
@@ -156,6 +201,12 @@ class AuthPanel(Vertical):
             if token:
                 credentials = create_bearer_auth(token)
 
+        elif self.query_one("#auth-basic", RadioButton).value:
+            username = self.query_one("#basic-username-input", Input).value.strip()
+            password = self.query_one("#basic-password-input", Input).value
+            if username:
+                credentials = create_basic_auth(username, password)
+
         elif self.query_one("#auth-mtls", RadioButton).value:
             cert_path = self.query_one("#mtls-cert-input", Input).value.strip()
             key_path = self.query_one("#mtls-key-input", Input).value.strip()
@@ -179,6 +230,19 @@ class AuthPanel(Vertical):
                     token_url, client_id, client_secret, scopes
                 )
 
+        elif self.query_one("#auth-oidc", RadioButton).value:
+            issuer_url = self.query_one("#oidc-issuer-url-input", Input).value.strip()
+            client_id = self.query_one("#oidc-client-id-input", Input).value.strip()
+            client_secret = self.query_one(
+                "#oidc-client-secret-input", Input
+            ).value.strip()
+            scopes_raw = self.query_one("#oidc-scopes-input", Input).value.strip()
+            scopes = scopes_raw.split() if scopes_raw else None
+            if issuer_url and client_id and client_secret:
+                credentials = create_oidc_auth(
+                    issuer_url, client_id, client_secret, scopes
+                )
+
         return credentials
 
     def get_auth_type(self) -> AuthType | None:
@@ -187,10 +251,14 @@ class AuthPanel(Vertical):
             return AuthType.API_KEY
         if self.query_one("#auth-bearer", RadioButton).value:
             return AuthType.BEARER
+        if self.query_one("#auth-basic", RadioButton).value:
+            return AuthType.BASIC
         if self.query_one("#auth-mtls", RadioButton).value:
             return AuthType.MTLS
         if self.query_one("#auth-oauth2", RadioButton).value:
             return AuthType.OAUTH2
+        if self.query_one("#auth-oidc", RadioButton).value:
+            return AuthType.OIDC
         return None
 
     def set_bearer_token(self, token: str) -> None:
@@ -236,11 +304,37 @@ class AuthPanel(Vertical):
         )
         logger.debug("Preconfigured OAuth2 authentication")
 
+    def set_basic(self, username: str, password: str) -> None:
+        """Preconfigure HTTP basic authentication."""
+        self._set_basic_selected()
+        self.query_one("#basic-username-input", Input).value = username
+        self.query_one("#basic-password-input", Input).value = password
+        logger.debug("Preconfigured HTTP basic authentication")
+
+    def set_oidc(
+        self,
+        issuer_url: str,
+        client_id: str,
+        client_secret: str,
+        scopes: list[str] | None = None,
+    ) -> None:
+        """Preconfigure OpenID Connect authentication."""
+        self._set_oidc_selected()
+        self.query_one("#oidc-issuer-url-input", Input).value = issuer_url
+        self.query_one("#oidc-client-id-input", Input).value = client_id
+        self.query_one("#oidc-client-secret-input", Input).value = client_secret
+        self.query_one("#oidc-scopes-input", Input).value = (
+            " ".join(scopes) if scopes else ""
+        )
+        logger.debug("Preconfigured OIDC authentication")
+
     def clear(self) -> None:
         """Reset auth fields to no authentication selected."""
         self.query_one("#api-key-input", Input).value = ""
         self.query_one("#api-key-header-input", Input).value = ""
         self.query_one("#bearer-token-input", Input).value = ""
+        self.query_one("#basic-username-input", Input).value = ""
+        self.query_one("#basic-password-input", Input).value = ""
         self.query_one("#mtls-cert-input", Input).value = ""
         self.query_one("#mtls-key-input", Input).value = ""
         self.query_one("#mtls-ca-input", Input).value = ""
@@ -248,4 +342,8 @@ class AuthPanel(Vertical):
         self.query_one("#oauth2-client-id-input", Input).value = ""
         self.query_one("#oauth2-client-secret-input", Input).value = ""
         self.query_one("#oauth2-scopes-input", Input).value = ""
+        self.query_one("#oidc-issuer-url-input", Input).value = ""
+        self.query_one("#oidc-client-id-input", Input).value = ""
+        self.query_one("#oidc-client-secret-input", Input).value = ""
+        self.query_one("#oidc-scopes-input", Input).value = ""
         self._set_none_selected()

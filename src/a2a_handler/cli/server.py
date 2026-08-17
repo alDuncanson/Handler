@@ -60,6 +60,10 @@ def _server_to_dict(server_def: ServerDefinition) -> dict[str, object]:
             auth["env_var"] = server_def.auth.env_var
         if server_def.auth.auth_type.value == "api_key":
             auth["header"] = server_def.auth.header_name
+        if server_def.auth.username:
+            auth["username"] = server_def.auth.username
+        if server_def.auth.issuer_url:
+            auth["issuer_url"] = server_def.auth.issuer_url
         if server_def.auth.cert_path:
             auth["cert_path"] = server_def.auth.cert_path
         if server_def.auth.key_path:
@@ -173,6 +177,8 @@ def _diagnostic_to_dict(diagnostic: ServerLoadDiagnostic) -> dict[str, object]:
 def _build_server_auth_entry(
     *,
     bearer_env: str | None,
+    basic_username: str | None,
+    basic_password_env: str | None,
     api_key_env: str | None,
     api_key_header: str,
     cert_path: str | None,
@@ -181,8 +187,13 @@ def _build_server_auth_entry(
     oauth2_client_id_env: str | None,
     oauth2_client_secret_env: str | None,
     oauth2_scopes: tuple[str, ...],
+    oidc_issuer_url: str | None,
+    oidc_client_id_env: str | None,
+    oidc_client_secret_env: str | None,
+    oidc_scopes: tuple[str, ...],
 ) -> tuple[dict[str, object] | None, str | None]:
     """Build the auth table for a new server or return a validation error."""
+    has_basic = basic_username is not None or basic_password_env is not None
     has_mtls = cert_path is not None or key_path is not None
     has_oauth2 = any(
         (
@@ -192,13 +203,23 @@ def _build_server_auth_entry(
             oauth2_scopes,
         )
     )
+    has_oidc = any(
+        (
+            oidc_issuer_url,
+            oidc_client_id_env,
+            oidc_client_secret_env,
+            oidc_scopes,
+        )
+    )
     configured_methods = sum(
         bool(enabled)
         for enabled in (
             bearer_env,
+            has_basic,
             api_key_env,
             has_mtls,
             has_oauth2,
+            has_oidc,
         )
     )
     if configured_methods > 1:
@@ -211,6 +232,17 @@ def _build_server_auth_entry(
 
     if bearer_env:
         return {"type": "bearer", "env": bearer_env}, None
+
+    if has_basic:
+        if not basic_username or not basic_password_env:
+            return None, (
+                "Basic auth requires both --basic-username and --basic-password-env"
+            )
+        return {
+            "type": "basic",
+            "username": basic_username,
+            "env": basic_password_env,
+        }, None
 
     if api_key_env:
         try:
@@ -243,6 +275,29 @@ def _build_server_auth_entry(
         }
         if oauth2_scopes:
             auth["scopes"] = list(oauth2_scopes)
+        return auth, None
+
+    if has_oidc:
+        missing_flags = [
+            flag
+            for flag, value in (
+                ("--oidc-issuer-url", oidc_issuer_url),
+                ("--oidc-client-id-env", oidc_client_id_env),
+                ("--oidc-client-secret-env", oidc_client_secret_env),
+            )
+            if not value
+        ]
+        if missing_flags:
+            return None, ("OIDC auth requires " + ", ".join(missing_flags))
+
+        auth = {
+            "type": "oidc",
+            "issuer_url": oidc_issuer_url,
+            "client_id_env": oidc_client_id_env,
+            "client_secret_env": oidc_client_secret_env,
+        }
+        if oidc_scopes:
+            auth["scopes"] = list(oidc_scopes)
         return auth, None
 
     return None, None
@@ -386,6 +441,11 @@ def server_show(name: str, source: str | None) -> None:
 @click.argument("name")
 @click.option("--url", required=True, help="Server URL")
 @click.option("--bearer-env", help="Env var containing bearer token for authentication")
+@click.option("--basic-username", help="Username for HTTP basic authentication")
+@click.option(
+    "--basic-password-env",
+    help="Env var containing the HTTP basic password",
+)
 @click.option("--api-key-env", help="Env var containing API key for authentication")
 @click.option(
     "--api-key-header",
@@ -411,6 +471,24 @@ def server_show(name: str, source: str | None) -> None:
     help="OAuth2 scope to request (repeatable)",
 )
 @click.option(
+    "--oidc-issuer-url",
+    help="OpenID Connect issuer URL (token endpoint is discovered)",
+)
+@click.option(
+    "--oidc-client-id-env",
+    help="Env var containing the OIDC client ID",
+)
+@click.option(
+    "--oidc-client-secret-env",
+    help="Env var containing the OIDC client secret",
+)
+@click.option(
+    "--oidc-scope",
+    "oidc_scopes",
+    multiple=True,
+    help="OIDC scope to request (repeatable)",
+)
+@click.option(
     "--global",
     "use_global",
     is_flag=True,
@@ -427,6 +505,8 @@ def server_add(
     name: str,
     url: str,
     bearer_env: str | None,
+    basic_username: str | None,
+    basic_password_env: str | None,
     api_key_env: str | None,
     api_key_header: str,
     cert_path: str | None,
@@ -435,6 +515,10 @@ def server_add(
     oauth2_client_id_env: str | None,
     oauth2_client_secret_env: str | None,
     oauth2_scopes: tuple[str, ...],
+    oidc_issuer_url: str | None,
+    oidc_client_id_env: str | None,
+    oidc_client_secret_env: str | None,
+    oidc_scopes: tuple[str, ...],
     use_global: bool,
     use_repository: bool,
 ) -> None:
@@ -444,9 +528,11 @@ def server_add(
     Examples:
       $ handler server add my_agent --url http://localhost:8000
       $ handler server add my_agent --url http://localhost:8000 --bearer-env MY_TOKEN
+      $ handler server add my_agent --url http://localhost:8000 --basic-username alice --basic-password-env MY_PASSWORD
       $ handler server add my_agent --url http://localhost:8000 --api-key-env MY_KEY
       $ handler server add my_agent --url http://localhost:8000 --cert client.crt --key client.key
       $ handler server add my_agent --url http://localhost:8000 --oauth2-token-url https://auth.example.com/token --oauth2-client-id-env CLIENT_ID --oauth2-client-secret-env CLIENT_SECRET --oauth2-scope read
+      $ handler server add my_agent --url http://localhost:8000 --oidc-issuer-url https://auth.example.com --oidc-client-id-env CLIENT_ID --oidc-client-secret-env CLIENT_SECRET
       $ handler server add my_agent --url http://localhost:8000 --repository
     """
     output = Output()
@@ -498,6 +584,8 @@ def server_add(
 
     auth_entry, auth_error = _build_server_auth_entry(
         bearer_env=bearer_env,
+        basic_username=basic_username,
+        basic_password_env=basic_password_env,
         api_key_env=api_key_env,
         api_key_header=api_key_header,
         cert_path=cert_path,
@@ -506,6 +594,10 @@ def server_add(
         oauth2_client_id_env=oauth2_client_id_env,
         oauth2_client_secret_env=oauth2_client_secret_env,
         oauth2_scopes=oauth2_scopes,
+        oidc_issuer_url=oidc_issuer_url,
+        oidc_client_id_env=oidc_client_id_env,
+        oidc_client_secret_env=oidc_client_secret_env,
+        oidc_scopes=oidc_scopes,
     )
     if auth_error:
         output.error(code="invalid_auth", message=auth_error)

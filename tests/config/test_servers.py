@@ -485,3 +485,217 @@ def test_resolve_oauth2_warns_when_client_secret_env_missing(
     assert credentials is None
     assert warning is not None
     assert "MISSING_SECRET" in warning
+
+
+def test_load_servers_parses_basic_entry(tmp_path: Path) -> None:
+    """HTTP basic server tables load with a username and password env var."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.legacy]
+url = "https://legacy.example.com/agent"
+
+[servers.legacy.auth]
+type = "basic"
+username = "alice"
+env = "LEGACY_PASSWORD"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert len(servers) == 1
+    assert servers[0].auth is not None
+    assert servers[0].auth.auth_type == AuthType.BASIC
+    assert servers[0].auth.username == "alice"
+    assert servers[0].auth.env_var == "LEGACY_PASSWORD"
+
+
+def test_load_servers_skips_basic_without_username(tmp_path: Path) -> None:
+    """Basic auth without a username is rejected."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.legacy]
+url = "https://legacy.example.com/agent"
+
+[servers.legacy.auth]
+type = "basic"
+env = "LEGACY_PASSWORD"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert servers == []
+
+
+def test_load_servers_rejects_username_outside_basic(tmp_path: Path) -> None:
+    """auth.username only makes sense for basic auth."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.oops]
+url = "https://example.com/agent"
+
+[servers.oops.auth]
+type = "bearer"
+username = "alice"
+env = "TOKEN"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert servers == []
+
+
+def test_resolve_basic_server_credentials(tmp_path: Path, monkeypatch) -> None:
+    """Basic server credentials resolve the password from the env var."""
+    monkeypatch.setenv("LEGACY_PASSWORD", "resolved-password")
+
+    server_def = ServerDefinition(
+        server_id="global:legacy",
+        source=ServerSource.GLOBAL,
+        name="legacy",
+        agent_url="https://legacy.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.BASIC,
+            username="alice",
+            env_var="LEGACY_PASSWORD",
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert warning is None
+    assert credentials is not None
+    assert credentials.auth_type == AuthType.BASIC
+    assert credentials.username == "alice"
+    assert credentials.value == "resolved-password"
+
+
+def test_resolve_basic_warns_when_password_env_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A missing basic password env var yields a warning, not credentials."""
+    monkeypatch.delenv("LEGACY_PASSWORD", raising=False)
+
+    server_def = ServerDefinition(
+        server_id="global:legacy",
+        source=ServerSource.GLOBAL,
+        name="legacy",
+        agent_url="https://legacy.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.BASIC,
+            username="alice",
+            env_var="LEGACY_PASSWORD",
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert credentials is None
+    assert warning is not None
+    assert "LEGACY_PASSWORD" in warning
+
+
+def test_load_servers_parses_oidc_entry(tmp_path: Path) -> None:
+    """OIDC server tables load with an issuer URL and env var names."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.sso]
+url = "https://sso.example.com/agent"
+
+[servers.sso.auth]
+type = "oidc"
+issuer_url = "https://auth.example.com"
+client_id_env = "SSO_CLIENT_ID"
+client_secret_env = "SSO_CLIENT_SECRET"
+scopes = ["openid", "profile"]
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert len(servers) == 1
+    assert servers[0].auth is not None
+    assert servers[0].auth.auth_type == AuthType.OIDC
+    assert servers[0].auth.issuer_url == "https://auth.example.com"
+    assert servers[0].auth.client_id_env == "SSO_CLIENT_ID"
+    assert servers[0].auth.client_secret_env == "SSO_CLIENT_SECRET"
+    assert servers[0].auth.scopes == ["openid", "profile"]
+
+
+def test_load_servers_skips_oidc_without_issuer(tmp_path: Path) -> None:
+    """OIDC auth without an issuer URL is rejected."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.sso]
+url = "https://sso.example.com/agent"
+
+[servers.sso.auth]
+type = "oidc"
+client_id_env = "SSO_CLIENT_ID"
+client_secret_env = "SSO_CLIENT_SECRET"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert servers == []
+
+
+def test_resolve_oidc_server_credentials(tmp_path: Path, monkeypatch) -> None:
+    """OIDC server credentials resolve from env vars with the issuer URL."""
+    monkeypatch.setenv("SSO_CLIENT_ID", "resolved-id")
+    monkeypatch.setenv("SSO_CLIENT_SECRET", "resolved-secret")
+
+    server_def = ServerDefinition(
+        server_id="global:sso",
+        source=ServerSource.GLOBAL,
+        name="sso",
+        agent_url="https://sso.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OIDC,
+            issuer_url="https://auth.example.com",
+            client_id_env="SSO_CLIENT_ID",
+            client_secret_env="SSO_CLIENT_SECRET",
+            scopes=["openid"],
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert warning is None
+    assert credentials is not None
+    assert credentials.auth_type == AuthType.OIDC
+    assert credentials.issuer_url == "https://auth.example.com"
+    assert credentials.client_id == "resolved-id"
+    assert credentials.client_secret == "resolved-secret"
+    assert credentials.scopes == ["openid"]
+
+
+def test_resolve_oidc_warns_when_client_id_env_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A missing OIDC client ID env var yields a warning, not credentials."""
+    monkeypatch.delenv("SSO_CLIENT_ID", raising=False)
+    monkeypatch.setenv("SSO_CLIENT_SECRET", "resolved-secret")
+
+    server_def = ServerDefinition(
+        server_id="global:sso",
+        source=ServerSource.GLOBAL,
+        name="sso",
+        agent_url="https://sso.example.com/agent",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OIDC,
+            issuer_url="https://auth.example.com",
+            client_id_env="SSO_CLIENT_ID",
+            client_secret_env="SSO_CLIENT_SECRET",
+        ),
+        origin_label="Global",
+    )
+    credentials, warning = resolve_server_credentials(server_def)
+    assert credentials is None
+    assert warning is not None
+    assert "SSO_CLIENT_ID" in warning

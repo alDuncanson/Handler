@@ -483,6 +483,8 @@ class TabbedMessagesPanel(Container):
 
         if credentials.auth_type == AuthType.BEARER and credentials.value:
             auth_panel.set_bearer_token(credentials.value)
+        elif credentials.auth_type == AuthType.BASIC and credentials.username:
+            auth_panel.set_basic(credentials.username, credentials.value)
         elif credentials.auth_type == AuthType.API_KEY:
             auth_panel.set_api_key(
                 credentials.value,
@@ -506,6 +508,18 @@ class TabbedMessagesPanel(Container):
         ):
             auth_panel.set_oauth2(
                 credentials.token_url,
+                credentials.client_id,
+                credentials.client_secret,
+                credentials.scopes,
+            )
+        elif (
+            credentials.auth_type == AuthType.OIDC
+            and credentials.issuer_url
+            and credentials.client_id
+            and credentials.client_secret
+        ):
+            auth_panel.set_oidc(
+                credentials.issuer_url,
                 credentials.client_id,
                 credentials.client_secret,
                 credentials.scopes,

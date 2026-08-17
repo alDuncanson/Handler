@@ -10,9 +10,11 @@ from a2a_handler.auth import (
     AuthCredentials,
     AuthType,
     create_api_key_auth,
+    create_basic_auth,
     create_bearer_auth,
     create_mtls_auth,
     create_oauth2_auth,
+    create_oidc_auth,
     parse_header_string,
 )
 from a2a_handler.common.input_validation import InputValidationError
@@ -220,6 +222,139 @@ class TestMTLSAuth:
         creds = AuthCredentials(auth_type=AuthType.MTLS)
         with pytest.raises(ValueError, match="cert_path and key_path"):
             creds.build_ssl_context()
+
+
+class TestBasicAuth:
+    """Tests for HTTP basic authentication."""
+
+    def test_basic_to_headers(self) -> None:
+        """Basic auth encodes username:password as base64."""
+        creds = create_basic_auth("alice", "secret")
+        headers = creds.to_headers()
+        # base64("alice:secret")
+        assert headers == {"Authorization": "Basic YWxpY2U6c2VjcmV0"}
+
+    def test_basic_allows_empty_password(self) -> None:
+        """A username with an empty password still produces a header."""
+        creds = create_basic_auth("alice", "")
+        assert creds.to_headers() == {"Authorization": "Basic YWxpY2U6"}
+
+    def test_basic_repr_redacts_username_and_password(self) -> None:
+        """repr must not leak the username or password."""
+        creds = create_basic_auth("alice", "hunter2-p4ss")
+        rendered = repr(creds)
+        assert "alice" not in rendered
+        assert "hunter2-p4ss" not in rendered
+
+    def test_basic_round_trips_through_dict(self) -> None:
+        """to_dict/from_dict preserve basic auth fields."""
+        creds = create_basic_auth("alice", "secret")
+        restored = AuthCredentials.from_dict(creds.to_dict())
+        assert restored.auth_type == AuthType.BASIC
+        assert restored.username == "alice"
+        assert restored.value == "secret"
+        assert restored.to_headers() == creds.to_headers()
+
+
+@pytest.mark.asyncio
+class TestOIDCAuth:
+    """Tests for OpenID Connect authentication."""
+
+    def _discovery_response(self, token_endpoint: str | None):
+        from unittest.mock import MagicMock
+
+        response = MagicMock()
+        document = {"issuer": "https://auth.example.com"}
+        if token_endpoint:
+            document["token_endpoint"] = token_endpoint
+        response.json.return_value = document
+        response.raise_for_status = MagicMock()
+        return response
+
+    async def test_discovery_resolves_token_endpoint(self) -> None:
+        """Discovery fetches the well-known document and caches token_url."""
+        from unittest.mock import patch
+
+        creds = create_oidc_auth(
+            "https://auth.example.com", "client-id", "client-secret"
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = self._discovery_response(
+            "https://auth.example.com/oauth/token"
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            endpoint = await creds.discover_oidc_token_endpoint()
+
+        assert endpoint == "https://auth.example.com/oauth/token"
+        assert creds.token_url == "https://auth.example.com/oauth/token"
+        mock_client.get.assert_called_once_with(
+            "https://auth.example.com/.well-known/openid-configuration"
+        )
+
+    async def test_discovery_rejects_document_without_token_endpoint(self) -> None:
+        """A discovery document with no token_endpoint fails clearly."""
+        from unittest.mock import patch
+
+        creds = create_oidc_auth(
+            "https://auth.example.com", "client-id", "client-secret"
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = self._discovery_response(None)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="no token_endpoint"):
+                await creds.discover_oidc_token_endpoint()
+
+    async def test_fetch_token_discovers_then_posts(self) -> None:
+        """An OIDC token fetch discovers the endpoint, then runs the grant."""
+        from unittest.mock import MagicMock, patch
+
+        creds = create_oidc_auth(
+            "https://auth.example.com",
+            "client-id",
+            "client-secret",
+            scopes=["openid"],
+        )
+
+        token_response = MagicMock()
+        token_response.json.return_value = {"access_token": "oidc-token-xyz"}
+        token_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = self._discovery_response(
+            "https://auth.example.com/oauth/token"
+        )
+        mock_client.post.return_value = token_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
+            token = await creds.fetch_oauth2_token()
+
+        assert token == "oidc-token-xyz"
+        assert creds.to_headers() == {"Authorization": "Bearer oidc-token-xyz"}
+        mock_client.post.assert_called_once_with(
+            "https://auth.example.com/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "scope": "openid",
+            },
+        )
+
+    async def test_discovery_requires_oidc_credentials(self) -> None:
+        """Discovery is refused for non-OIDC credential types."""
+        creds = create_bearer_auth("token")
+        with pytest.raises(ValueError, match="only valid for OIDC"):
+            await creds.discover_oidc_token_endpoint()
 
 
 class TestOAuth2Auth:
