@@ -68,6 +68,8 @@ def test_mcp_server_registers_core_tools() -> None:
     assert "send_message" in names
     assert "get_task" in names
     assert "set_task_notification" in names
+    assert "list_task_notifications" in names
+    assert "delete_task_notification" in names
     assert "list_sessions" in names
 
 
@@ -424,6 +426,79 @@ async def test_get_task_notification_success() -> None:
     assert resp["url"] == "https://hooks.example.com/notify"
     assert resp["token"] == "abcd...0xyz"
     assert resp["id"] == "cfg-2"
+
+
+# ---------------------------------------------------------------------------
+# list_task_notifications / delete_task_notification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_task_notifications_success() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_task_notifications")
+
+    configs = [
+        make_push_config(
+            task_id="task-1",
+            url="http://webhook.example.com",
+            token="secret-token-value",
+            config_id="cfg-1",
+        )
+    ]
+
+    mock_service = AsyncMock()
+    mock_service.list_all_push_configs.return_value = configs
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
+    ):
+        resp = await fn(agent_url="http://localhost:8000", task_id="task-1")
+
+    assert resp["count"] == 1
+    assert resp["configs"][0]["id"] == "cfg-1"
+    assert resp["configs"][0]["token"] != "secret-token-value"
+
+
+@pytest.mark.asyncio
+async def test_list_task_notifications_rejects_invalid_task_id() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_task_notifications")
+
+    with pytest.raises(ValueError, match="invalid_control_chars"):
+        await fn(agent_url="http://localhost:8000", task_id="bad\x00id")
+
+
+@pytest.mark.asyncio
+async def test_delete_task_notification_success() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "delete_task_notification")
+
+    mock_service = AsyncMock()
+    mock_service.delete_push_config.return_value = None
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
+    ):
+        resp = await fn(
+            agent_url="http://localhost:8000", task_id="task-1", config_id="cfg-1"
+        )
+
+    assert resp == {"deleted": True, "task_id": "task-1", "config_id": "cfg-1"}
+    mock_service.delete_push_config.assert_called_once_with("task-1", "cfg-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_task_notification_rejects_invalid_config_id() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "delete_task_notification")
+
+    with pytest.raises(ValueError, match="invalid_resource_id"):
+        await fn(
+            agent_url="http://localhost:8000", task_id="task-1", config_id="cfg?bad"
+        )
 
 
 # ---------------------------------------------------------------------------

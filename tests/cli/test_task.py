@@ -650,6 +650,152 @@ class TestTaskNotificationSet:
         assert "Missing option" in result.output or "required" in result.output.lower()
 
 
+class TestTaskNotificationList:
+    """Tests for task notification list command."""
+
+    def test_notification_list_success(self, runner):
+        """Listing shows every config with tokens redacted."""
+        configs = [
+            make_push_config(
+                task_id="task-123",
+                url="http://webhook.example.com/a",
+                token="secret-token",
+                config_id="cfg-1",
+            ),
+            make_push_config(
+                task_id="task-123",
+                url="http://webhook.example.com/b",
+                config_id="cfg-2",
+            ),
+        ]
+
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.list_all_push_configs.return_value = configs
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "notification",
+                    "list",
+                    "task-123",
+                    "--url",
+                    "http://localhost:8000",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "cfg-1" in result.output
+            assert "cfg-2" in result.output
+            assert "secret-token" not in result.output
+            mock_service.list_all_push_configs.assert_called_once_with(
+                "task-123", page_size=None
+            )
+
+    def test_notification_list_requires_task_id(self, runner):
+        """Listing without a task ID fails before any network call."""
+        result = runner.invoke(
+            task,
+            ["notification", "list", "--url", "http://localhost:8000"],
+        )
+        assert result.exit_code != 0
+
+
+class TestTaskNotificationRemove:
+    """Tests for task notification remove command."""
+
+    def test_notification_remove_success(self, runner):
+        """Removing reports what was deleted."""
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.delete_push_config.return_value = None
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "notification",
+                    "remove",
+                    "task-123",
+                    "--url",
+                    "http://localhost:8000",
+                    "--config-id",
+                    "cfg-1",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "cfg-1" in result.output
+            mock_service.delete_push_config.assert_called_once_with("task-123", "cfg-1")
+
+    def test_notification_remove_requires_config_id(self, runner):
+        """Removing without a config ID fails before any network call."""
+        result = runner.invoke(
+            task,
+            [
+                "notification",
+                "remove",
+                "task-123",
+                "--url",
+                "http://localhost:8000",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "config-id" in result.output.lower()
+
+    def test_notification_remove_surfaces_server_error(self, runner):
+        """A missing config fails loudly with the server's message."""
+        from a2a.client.errors import A2AClientError
+
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.delete_push_config.side_effect = A2AClientError(
+                "config not found"
+            )
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "notification",
+                    "remove",
+                    "task-123",
+                    "--url",
+                    "http://localhost:8000",
+                    "--config-id",
+                    "cfg-missing",
+                ],
+            )
+
+            assert result.exit_code != 0
+            assert "config not found" in result.output
+
+
 class TestTaskNotificationGet:
     """Tests for task notification get command."""
 

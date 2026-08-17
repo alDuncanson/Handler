@@ -337,6 +337,148 @@ def notification_set(
     asyncio.run(do_set())
 
 
+@task_notification.command("list")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", help="Task ID (alias for TASK_ID)")
+@click.option(
+    "--page-size",
+    type=int,
+    help="Configs per request page (all pages are still fetched)",
+)
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
+def notification_list(
+    task_id_arg: Optional[str],
+    agent_url: Optional[str],
+    server_name: Optional[str],
+    task_id: Optional[str],
+    page_size: Optional[int],
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
+) -> None:
+    """List a task's push notification configs, following pagination to the end.
+
+    \b
+    Examples:
+      $ handler task notification list task-123 --server my_agent
+      $ handler task notification list --server my_agent --task task-123
+      $ handler --output json task notification list task-123 --url http://localhost:8000
+    """
+    output = Output()
+    task_id = require_task_id(resolve_task_id(task_id_arg, task_id))
+
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
+
+    try:
+        validate_agent_url(resolved_url)
+        validate_resource_id(task_id, "task_id")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    log.info("Listing push configs for task %s at %s", task_id, resolved_url)
+
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
+
+    async def do_list() -> None:
+        try:
+            async with build_http_client(credentials=credentials) as http_client:
+                service = A2AService(http_client, resolved_url, credentials=credentials)
+
+                configs = await service.list_all_push_configs(
+                    task_id, page_size=page_size
+                )
+                output.json(
+                    {
+                        "count": len(configs),
+                        "configs": [push_config_dump(config) for config in configs],
+                    }
+                )
+
+        except Exception as e:
+            handle_client_error(e, resolved_url, output)
+            raise click.Abort()
+
+    asyncio.run(do_list())
+
+
+@task_notification.command("remove")
+@click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
+@click.option("--url", "agent_url", help="Agent URL")
+@click.option("--server", "-s", "server_name", help="Named server from servers.toml")
+@click.option("--task", "task_id", help="Task ID (alias for TASK_ID)")
+@click.option(
+    "--config-id", "-c", required=True, help="Push notification config ID to remove"
+)
+@click.option(
+    "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
+)
+@click.option(
+    "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
+)
+def notification_remove(
+    task_id_arg: Optional[str],
+    agent_url: Optional[str],
+    server_name: Optional[str],
+    task_id: Optional[str],
+    config_id: str,
+    bearer_env: Optional[str],
+    api_key_env: Optional[str],
+) -> None:
+    """Remove a push notification config from a task.
+
+    \b
+    Examples:
+      $ handler task notification remove task-123 --server my_agent --config-id cfg-1
+      $ handler task notification remove --url http://localhost:8000 --task task-123 --config-id cfg-1
+    """
+    output = Output()
+    task_id = require_task_id(resolve_task_id(task_id_arg, task_id))
+
+    selection = resolve_agent_selection(agent_url, server_name)
+    resolved_url = selection.agent_url
+
+    try:
+        validate_agent_url(resolved_url)
+        validate_resource_id(task_id, "task_id")
+        validate_resource_id(config_id, "config_id")
+    except InputValidationError as error:
+        handle_validation_error(error, output)
+        raise click.Abort() from error
+
+    log.info(
+        "Removing push config %s for task %s at %s", config_id, task_id, resolved_url
+    )
+
+    credentials = resolve_selection_credentials(selection, bearer_env, api_key_env)
+
+    async def do_remove() -> None:
+        try:
+            async with build_http_client(credentials=credentials) as http_client:
+                service = A2AService(http_client, resolved_url, credentials=credentials)
+
+                await service.delete_push_config(task_id, config_id)
+                if output.is_structured:
+                    output.json(
+                        {"deleted": True, "task_id": task_id, "config_id": config_id}
+                    )
+                else:
+                    output.text(f"Removed push config {config_id} from {task_id}.")
+
+        except Exception as e:
+            handle_client_error(e, resolved_url, output)
+            raise click.Abort()
+
+    asyncio.run(do_remove())
+
+
 @task_notification.command("get")
 @click.argument("task_id_arg", metavar="[TASK_ID]", required=False)
 @click.option("--url", "agent_url", help="Agent URL")
