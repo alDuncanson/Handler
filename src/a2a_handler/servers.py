@@ -21,9 +21,11 @@ from a2a_handler.auth import (
     AuthCredentials,
     AuthType,
     create_api_key_auth,
+    create_basic_auth,
     create_bearer_auth,
     create_mtls_auth,
     create_oauth2_auth,
+    create_oidc_auth,
 )
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
@@ -59,11 +61,14 @@ class ServerAuthConfig:
     env_var: str | None = None
     value: str | None = None
     header_name: str = "X-API-Key"
+    # HTTP basic field (the password comes from env/value)
+    username: str | None = None
     cert_path: str | None = None
     key_path: str | None = None
     ca_cert_path: str | None = None
-    # OAuth2 client credentials fields
+    # OAuth2 client credentials / OIDC fields
     token_url: str | None = None
+    issuer_url: str | None = None
     client_id_env: str | None = None
     client_secret_env: str | None = None
     scopes: list[str] | None = None
@@ -296,12 +301,19 @@ def resolve_server_credentials(
         except (ssl.SSLError, OSError, ValueError) as error:
             return None, f"Server '{server_name}': {error}"
 
-    if auth.auth_type == AuthType.OAUTH2:
-        if not auth.token_url or not auth.client_id_env or not auth.client_secret_env:
+    if auth.auth_type in (AuthType.OAUTH2, AuthType.OIDC):
+        scheme_label = "OAuth2" if auth.auth_type == AuthType.OAUTH2 else "OIDC"
+        endpoint = (
+            auth.token_url if auth.auth_type == AuthType.OAUTH2 else auth.issuer_url
+        )
+        endpoint_field = (
+            "token_url" if auth.auth_type == AuthType.OAUTH2 else "issuer_url"
+        )
+        if not endpoint or not auth.client_id_env or not auth.client_secret_env:
             return (
                 None,
-                f"Server '{server_name}' OAuth2 auth requires token_url, "
-                "client_id_env, and client_secret_env",
+                f"Server '{server_name}' {scheme_label} auth requires "
+                f"{endpoint_field}, client_id_env, and client_secret_env",
             )
         client_id = os.getenv(auth.client_id_env)
         if not client_id:
@@ -309,7 +321,7 @@ def resolve_server_credentials(
                 None,
                 (
                     f"Server '{server_name}' expects environment variable "
-                    f"{auth.client_id_env} for OAuth2 client ID"
+                    f"{auth.client_id_env} for {scheme_label} client ID"
                 ),
             )
         client_secret = os.getenv(auth.client_secret_env)
@@ -318,7 +330,7 @@ def resolve_server_credentials(
                 None,
                 (
                     f"Server '{server_name}' expects environment variable "
-                    f"{auth.client_secret_env} for OAuth2 client secret"
+                    f"{auth.client_secret_env} for {scheme_label} client secret"
                 ),
             )
         try:
@@ -330,12 +342,17 @@ def resolve_server_credentials(
             return (
                 None,
                 (
-                    f"Server '{server_name}' OAuth2 credentials contain "
+                    f"Server '{server_name}' {scheme_label} credentials contain "
                     "unsupported control characters"
                 ),
             )
+        if auth.auth_type == AuthType.OIDC:
+            return (
+                create_oidc_auth(endpoint, client_id, client_secret, auth.scopes),
+                None,
+            )
         return (
-            create_oauth2_auth(auth.token_url, client_id, client_secret, auth.scopes),
+            create_oauth2_auth(endpoint, client_id, client_secret, auth.scopes),
             None,
         )
 
@@ -375,6 +392,14 @@ def resolve_server_credentials(
 
     if auth.auth_type == AuthType.BEARER:
         return create_bearer_auth(value), None
+
+    if auth.auth_type == AuthType.BASIC:
+        if not auth.username:
+            return (
+                None,
+                f"Server '{server_name}' basic auth requires username",
+            )
+        return create_basic_auth(auth.username, value), None
 
     return create_api_key_auth(value, header_name=auth.header_name), None
 
@@ -469,7 +494,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
         auth_type = AuthType(normalized_auth_type)
     except ValueError as error:
         raise ServerConfigError(
-            "auth.type must be one of: bearer, api_key, mtls, oauth2"
+            "auth.type must be one of: bearer, basic, api_key, mtls, oauth2, oidc"
         ) from error
 
     if auth_type == AuthType.MTLS:
@@ -498,17 +523,25 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
             ca_cert_path=ca_cert,
         )
 
-    if auth_type == AuthType.OAUTH2:
+    if auth_type in (AuthType.OAUTH2, AuthType.OIDC):
         for forbidden in ("env", "value", "header"):
             if forbidden in auth_table:
                 raise ServerConfigError(
-                    f"auth.{forbidden} is not valid for oauth2 auth"
+                    f"auth.{forbidden} is not valid for {auth_type.value} auth"
                 )
-        token_url = _parse_optional_str(auth_table, "token_url")
-        if not token_url:
-            raise ServerConfigError("oauth2 auth requires token_url")
+
+        token_url: str | None = None
+        issuer_url: str | None = None
+        if auth_type == AuthType.OAUTH2:
+            token_url = _parse_optional_str(auth_table, "token_url")
+            if not token_url:
+                raise ServerConfigError("oauth2 auth requires token_url")
+        else:
+            issuer_url = _parse_optional_str(auth_table, "issuer_url")
+            if not issuer_url:
+                raise ServerConfigError("oidc auth requires issuer_url")
         try:
-            validate_token_url(token_url)
+            validate_token_url(token_url or issuer_url or "")
         except InputValidationError as error:
             raise ServerConfigError(error.message) from error
 
@@ -516,7 +549,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
         client_secret_env = _parse_optional_str(auth_table, "client_secret_env")
         if not client_id_env or not client_secret_env:
             raise ServerConfigError(
-                "oauth2 auth requires client_id_env and client_secret_env"
+                f"{auth_type.value} auth requires client_id_env and client_secret_env"
             )
         for env_field, env_name in (
             ("client_id_env", client_id_env),
@@ -543,6 +576,7 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
         return ServerAuthConfig(
             auth_type=auth_type,
             token_url=token_url,
+            issuer_url=issuer_url,
             client_id_env=client_id_env,
             client_secret_env=client_secret_env,
             scopes=scopes,
@@ -584,11 +618,24 @@ def _parse_server_auth(auth_data: object) -> ServerAuthConfig:
     elif "header" in auth_table:
         raise ServerConfigError("auth.header is only valid for api_key auth")
 
+    username: str | None = None
+    if auth_type == AuthType.BASIC:
+        username = _parse_optional_str(auth_table, "username")
+        if not username:
+            raise ServerConfigError("basic auth requires username")
+        try:
+            reject_control_chars(username, "auth.username")
+        except InputValidationError as error:
+            raise ServerConfigError(error.message) from error
+    elif "username" in auth_table:
+        raise ServerConfigError("auth.username is only valid for basic auth")
+
     return ServerAuthConfig(
         auth_type=auth_type,
         env_var=env_var,
         value=literal_value,
         header_name=header_name,
+        username=username,
     )
 
 

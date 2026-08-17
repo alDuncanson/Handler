@@ -37,7 +37,11 @@ from a2a.types import (
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
 from google.protobuf import json_format
 
-from a2a_handler.auth import AuthCredentials, AuthType
+from a2a_handler.auth import (
+    TOKEN_FETCHING_AUTH_TYPES,
+    AuthCredentials,
+    AuthType,
+)
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
     reject_control_chars,
@@ -488,9 +492,10 @@ class A2AService:
 
         if credentials.auth_type == AuthType.MTLS:
             logger.debug("mTLS credentials set (transport-level authentication)")
-        elif credentials.auth_type == AuthType.OAUTH2:
+        elif credentials.auth_type in TOKEN_FETCHING_AUTH_TYPES:
             logger.debug(
-                "OAuth2 credentials set (token will be fetched on first request)"
+                "%s credentials set (token will be fetched on first request)",
+                credentials.auth_type.value,
             )
         else:
             logger.debug(
@@ -498,28 +503,32 @@ class A2AService:
             )
 
     async def ensure_oauth2_token(self) -> None:
-        """Fetch or refresh the OAuth2 access token if needed.
+        """Fetch or refresh the OAuth2/OIDC access token if needed.
 
         Acquires a new token when no token is present or when the cached
         token has expired (or is about to expire within a safety margin).
         """
-        if self.credentials is None or self.credentials.auth_type != AuthType.OAUTH2:
+        if (
+            self.credentials is None
+            or self.credentials.auth_type not in TOKEN_FETCHING_AUTH_TYPES
+        ):
             return
         if not self.credentials.is_token_expired():
             return
         if self.credentials.value:
-            logger.info("OAuth2 access token expired, refreshing")
+            logger.info("Access token expired, refreshing")
             self.credentials.clear_token()
         else:
             logger.info(
-                "Fetching OAuth2 access token from %s", self.credentials.token_url
+                "Fetching access token from %s",
+                self.credentials.token_url or self.credentials.issuer_url,
             )
         await self.credentials.fetch_oauth2_token()
         auth_headers = self.credentials.to_headers()
         self.http_client.headers.update(auth_headers)
         self._applied_auth_headers = set(auth_headers.keys())
         self._cached_client = None
-        logger.info("OAuth2 access token applied")
+        logger.info("Access token applied")
 
     def clear_credentials(self) -> None:
         """Clear authentication credentials from the service and HTTP client."""
