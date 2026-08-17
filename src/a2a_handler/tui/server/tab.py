@@ -35,6 +35,7 @@ from a2a_handler.service import (
     card_protocol_version,
     extract_text_from_message_parts,
     part_file,
+    required_extension_uris,
     response_task_id,
     response_state,
     state_label,
@@ -477,6 +478,7 @@ class ServerTab(Container):
         self,
         agent_url: str,
         credentials: AuthCredentials | None,
+        extensions: tuple[str, ...] = (),
     ) -> AgentCard:
         previous_http_client = self.http_client
         previous_service = self._agent_service
@@ -486,6 +488,7 @@ class ServerTab(Container):
             next_http_client,
             agent_url,
             credentials=credentials,
+            extensions=extensions or None,
         )
         try:
             agent_card = await next_service.get_card()
@@ -635,7 +638,13 @@ class ServerTab(Container):
         try:
             credentials = messages_panel.get_auth_credentials()
 
-            agent_card = await self._connect_to_agent(agent_url, credentials)
+            agent_card = await self._connect_to_agent(
+                agent_url,
+                credentials,
+                extensions=(
+                    selected_server.extensions if selected_server is not None else ()
+                ),
+            )
             agent_card, extended_note = await self._maybe_fetch_extended_card(
                 agent_card
             )
@@ -663,6 +672,19 @@ class ServerTab(Container):
             )
             if extended_note:
                 messages_panel.add_system_message(extended_note)
+            requested_extensions = (
+                selected_server.extensions if selected_server is not None else ()
+            )
+            missing_extensions = [
+                uri
+                for uri in required_extension_uris(agent_card)
+                if uri not in requested_extensions
+            ]
+            if missing_extensions:
+                messages_panel.add_system_message(
+                    "This agent requires A2A extension(s) Handler did not "
+                    "request: " + ", ".join(missing_extensions)
+                )
             self._persist_session_state()
             self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 

@@ -110,6 +110,13 @@ def message() -> None:
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option(
+    "--extension",
+    "-e",
+    "extensions",
+    multiple=True,
+    help="A2A extension URI to request (repeatable)",
+)
+@click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )
 @click.option(
@@ -138,6 +145,7 @@ def message_send(
     no_wait: bool,
     push_url: Optional[str],
     push_token: Optional[str],
+    extensions: tuple[str, ...],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
     headers: tuple[str, ...] = (),
@@ -241,6 +249,8 @@ def message_send(
             reject_control_chars(push_token, "push_token")
         for output_mode in accepted_output_modes:
             reject_control_chars(output_mode, "accept")
+        for extension_uri in extensions:
+            reject_control_chars(extension_uri, "extension")
         if no_wait and stream:
             raise InputValidationError(
                 code="conflicting_options",
@@ -255,6 +265,14 @@ def message_send(
         raise click.Abort() from error
 
     message_text = text or ""
+
+    # Per-server configured extensions apply first; flags add to them.
+    requested_extensions: list[str] = []
+    if selection.server_def is not None:
+        requested_extensions.extend(selection.server_def.extensions)
+    for extension_uri in extensions:
+        if extension_uri not in requested_extensions:
+            requested_extensions.append(extension_uri)
 
     log.info("Sending message to %s", resolved_url)
 
@@ -309,6 +327,7 @@ def message_send(
                     push_notification_url=push_url,
                     push_notification_token=push_token,
                     credentials=credentials,
+                    extensions=requested_extensions or None,
                 )
 
                 if stream:
@@ -409,6 +428,13 @@ def _build_attachments(
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option(
+    "--extension",
+    "-e",
+    "extensions",
+    multiple=True,
+    help="A2A extension URI to request (repeatable)",
+)
+@click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )
 @click.option(
@@ -436,6 +462,7 @@ def message_stream(
     history_length: Optional[int],
     push_url: Optional[str],
     push_token: Optional[str],
+    extensions: tuple[str, ...],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
     headers: tuple[str, ...] = (),
@@ -465,6 +492,7 @@ def message_stream(
         no_wait=False,
         push_url=push_url,
         push_token=push_token,
+        extensions=extensions,
         bearer_env=bearer_env,
         api_key_env=api_key_env,
         headers=headers,

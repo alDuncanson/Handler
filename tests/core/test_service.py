@@ -6,6 +6,7 @@ import httpx
 import pytest
 from a2a.types import (
     AgentCard,
+    AgentExtension,
     ListTaskPushNotificationConfigsResponse,
     ListTasksResponse,
     Message,
@@ -32,6 +33,7 @@ from a2a_handler.service import (
     TERMINAL_TASK_STATES,
     TransportNegotiationError,
     attachment_part_from_spec,
+    card_extensions,
     build_data_part,
     build_file_part,
     build_url_part,
@@ -1632,3 +1634,83 @@ class TestA2AServiceTransportSelection:
 
         assert "CARRIER-PIGEON" in str(exc_info.value)
         assert "a2a-handler[grpc]" not in str(exc_info.value)
+
+
+class TestExtensions:
+    """Tests for A2A extension requesting and card inspection."""
+
+    def _http_client(self) -> AsyncMock:
+        http_client = AsyncMock()
+        http_client.headers = {}
+        return http_client
+
+    def test_requested_extensions_land_on_the_header(self):
+        http_client = self._http_client()
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, http_client),
+            agent_url="http://example.com",
+            extensions=["https://ext.example.com/traceability/v1", "urn:x:custom"],
+        )
+
+        assert service.extensions == (
+            "https://ext.example.com/traceability/v1",
+            "urn:x:custom",
+        )
+        assert http_client.headers["A2A-Extensions"] == (
+            "https://ext.example.com/traceability/v1, urn:x:custom"
+        )
+
+    def test_no_extensions_means_no_header(self):
+        http_client = self._http_client()
+        A2AService(
+            http_client=cast(httpx.AsyncClient, http_client),
+            agent_url="http://example.com",
+        )
+        assert "A2A-Extensions" not in http_client.headers
+
+    def test_extension_uris_reject_control_chars(self):
+        with pytest.raises(InputValidationError):
+            A2AService(
+                http_client=cast(httpx.AsyncClient, self._http_client()),
+                agent_url="http://example.com",
+                extensions=["bad\x00uri"],
+            )
+
+    def test_card_extensions_returns_wire_format(self):
+        card = make_agent_card(
+            extensions=[
+                AgentExtension(
+                    uri="https://ext.example.com/traceability/v1",
+                    description="Traceability",
+                    required=True,
+                )
+            ]
+        )
+        extensions = card_extensions(card)
+        assert extensions == [
+            {
+                "uri": "https://ext.example.com/traceability/v1",
+                "description": "Traceability",
+                "required": True,
+            }
+        ]
+
+    def test_unrequested_required_extensions_flags_the_gap(self):
+        card = make_agent_card(
+            extensions=[
+                AgentExtension(uri="urn:required-ext", required=True),
+                AgentExtension(uri="urn:optional-ext"),
+            ]
+        )
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, self._http_client()),
+            agent_url="http://example.com",
+        )
+        assert service.unrequested_required_extensions(card) == ["urn:required-ext"]
+
+        requesting = A2AService(
+            http_client=cast(httpx.AsyncClient, self._http_client()),
+            agent_url="http://example.com",
+            extensions=["urn:required-ext"],
+        )
+        assert requesting.unrequested_required_extensions(card) == []
