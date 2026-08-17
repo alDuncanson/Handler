@@ -48,6 +48,12 @@ dependencies = [
     "platformdirs>=4.0.0",
 ]
 
+[project.optional-dependencies]
+# Talking to gRPC-only agents needs the SDK's gRPC transport and its
+# grpcio dependencies, which are heavy enough to keep out of the default
+# install.
+grpc = ["a2a-sdk[grpc]>=1.0.0,<2.0.0"]
+
 [dependency-groups]
 dev = [
     "ruff>=0.8.0",

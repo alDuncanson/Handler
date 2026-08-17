@@ -12,10 +12,11 @@ directly.
 import uuid
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Iterable, Union
+from urllib.parse import urlparse
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
-from a2a.client.errors import AgentCardResolutionError
+from a2a.client.errors import A2AClientError, AgentCardResolutionError
 from a2a.helpers import get_data_parts, get_text_parts
 from a2a.types import (
     AgentCard,
@@ -51,6 +52,69 @@ logger = get_logger(__name__)
 # The v1.0 SDK dropped ``PREV_AGENT_CARD_WELL_KNOWN_PATH``; keep the legacy
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
+GRPC_INSTALL_HINT = (
+    "Install Handler's gRPC extra to talk to this agent: "
+    "pip install 'a2a-handler[grpc]' (or uv tool install 'a2a-handler[grpc]')"
+)
+
+
+class TransportNegotiationError(A2AClientError):
+    """Raised when no transport both sides support could be agreed on."""
+
+
+def grpc_transport_available() -> bool:
+    """Return whether the optional gRPC dependencies are installed."""
+    try:
+        import grpc  # noqa: F401, PLC0415  # ty: ignore[unresolved-import]
+
+        return True
+    except ImportError:
+        return False
+
+
+def supported_transport_bindings() -> list[str]:
+    """Return the protocol bindings this Handler install can speak.
+
+    Ordered by client preference; gRPC joins the list only when the optional
+    dependencies are installed.
+    """
+    bindings = [
+        TransportProtocol.JSONRPC.value,
+        TransportProtocol.HTTP_JSON.value,
+    ]
+    if grpc_transport_available():
+        bindings.append(TransportProtocol.GRPC.value)
+    return bindings
+
+
+def negotiate_transport_binding(
+    card: AgentCard,
+    client_bindings: Iterable[str],
+) -> str | None:
+    """Return the binding the SDK will pick for this card, or None.
+
+    Mirrors the SDK's server-preference negotiation: the first interface the
+    card advertises whose binding the client also speaks wins.
+    """
+    client_set = set(client_bindings)
+    for interface in card.supported_interfaces:
+        if interface.protocol_binding in client_set:
+            return interface.protocol_binding
+    return None
+
+
+def _grpc_channel_factory(url: str) -> Any:
+    """Create a gRPC channel for an agent interface URL."""
+    # Only reachable when the optional grpc extra is installed.
+    import grpc  # noqa: PLC0415  # ty: ignore[unresolved-import]
+
+    parsed = urlparse(url)
+    target = parsed.netloc or url
+    if parsed.scheme == "https":
+        return grpc.aio.secure_channel(target, grpc.ssl_channel_credentials())
+    return grpc.aio.insecure_channel(target)
+
 
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
@@ -586,18 +650,63 @@ class A2AService:
                     "Push notification configured: %s", self.push_notification_url
                 )
 
+            bindings = supported_transport_bindings()
             client_config = ClientConfig(
                 httpx_client=self.http_client,
-                supported_protocol_bindings=[TransportProtocol.JSONRPC.value],
+                supported_protocol_bindings=bindings,
+                grpc_channel_factory=(
+                    _grpc_channel_factory if grpc_transport_available() else None
+                ),
                 streaming=self.enable_streaming,
                 push_notification_config=push_notification_config,
             )
 
             client_factory = ClientFactory(client_config)
-            self._cached_client = client_factory.create(agent_card)
-            logger.debug("Created A2A client for %s", agent_card.name)
+            try:
+                self._cached_client = client_factory.create(agent_card)
+            except ValueError as exc:
+                raise self._transport_negotiation_error(agent_card, bindings) from exc
+            logger.info(
+                "Negotiated transport %s for %s",
+                self.negotiated_transport,
+                agent_card.name,
+            )
 
         return self._cached_client
+
+    @staticmethod
+    def _transport_negotiation_error(
+        agent_card: AgentCard,
+        client_bindings: list[str],
+    ) -> TransportNegotiationError:
+        """Explain a failed negotiation instead of a bare 'no transports'."""
+        offered = sorted(
+            {
+                interface.protocol_binding
+                for interface in agent_card.supported_interfaces
+                if interface.protocol_binding
+            }
+        )
+        message = (
+            f"No transport in common with {agent_card.name or 'the agent'}: "
+            f"it offers {', '.join(offered) or 'none'}; this Handler install "
+            f"speaks {', '.join(client_bindings)}."
+        )
+        if TransportProtocol.GRPC.value in offered and not grpc_transport_available():
+            message = f"{message} {GRPC_INSTALL_HINT}"
+        return TransportNegotiationError(message)
+
+    @property
+    def negotiated_transport(self) -> str | None:
+        """The protocol binding the SDK picks for this agent, once known.
+
+        Available as soon as the agent card has been fetched; None before.
+        """
+        if self._cached_agent_card is None:
+            return None
+        return negotiate_transport_binding(
+            self._cached_agent_card, supported_transport_bindings()
+        )
 
     @property
     def supports_streaming(self) -> bool:

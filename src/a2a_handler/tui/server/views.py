@@ -69,6 +69,7 @@ class ConnectionBar(Container):
                 yield Static("", id="badge-source", classes="conn-badge hidden")
                 yield Static("", id="badge-auth", classes="conn-badge hidden")
                 yield Static("", id="badge-protocol", classes="conn-badge hidden")
+                yield Static("", id="badge-transport", classes="conn-badge hidden")
 
     def on_mount(self) -> None:
         for widget in self.query("#server-status-row"):
@@ -184,6 +185,7 @@ class ConnectionBar(Container):
         auth_label: str = "",
         protocol_version: str | None = None,
         agent_version: str | None = None,
+        transport_label: str = "",
     ) -> None:
         """Show connection info as individual badges."""
         self.set_connect_button_state(True)
@@ -199,6 +201,7 @@ class ConnectionBar(Container):
             "badge-version",
             f"v{agent_version}" if agent_version else "",
         )
+        self._set_badge("badge-transport", transport_label)
 
     def show_disconnected_badges(self) -> None:
         """Reset badges to disconnected state."""
@@ -209,6 +212,7 @@ class ConnectionBar(Container):
         self._set_badge("badge-auth", "")
         self._set_badge("badge-protocol", "")
         self._set_badge("badge-version", "")
+        self._set_badge("badge-transport", "")
 
 
 class ServerView(Container):

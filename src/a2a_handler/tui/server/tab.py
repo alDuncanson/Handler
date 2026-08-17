@@ -858,12 +858,19 @@ class ServerTab(Container):
         except InputValidationError:
             auth_credentials = None
 
+        transport_label = ""
+        if self._agent_service is not None:
+            negotiated = self._agent_service.negotiated_transport
+            if isinstance(negotiated, str):
+                transport_label = negotiated
+
         server_view.connection_bar().set_connected_status(
             agent_name=self.state.agent_card.name,
             source_label=self._connection_source_label(self.state.connected_server_def),
             auth_label=self._auth_badge_label(auth_credentials),
             protocol_version=card_protocol_version(self.state.agent_card),
             agent_version=self.state.agent_card.version,
+            transport_label=transport_label,
         )
 
     async def start_fresh_conversation(self) -> None:
