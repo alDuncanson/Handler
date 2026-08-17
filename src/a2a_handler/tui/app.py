@@ -234,6 +234,16 @@ class HandlerTUI(App[Any]):
             return
         await server.start_fresh_conversation()
 
+    def action_attach_file(self) -> None:
+        """Queue a file to send with the next message on the active server."""
+        server = self._get_active_server()
+        if server is None or not server.is_connected:
+            self.notify(
+                "Connect to a server before attaching files", severity="warning"
+            )
+            return
+        server.prompt_attach_file()
+
     def action_forget_saved_session(self) -> None:
         """Forget the saved session for the selected or active server URL."""
         server = self._get_active_server()

@@ -19,6 +19,7 @@ class InputPanel(Container):
     INPUT_REQUIRED_PLACEHOLDER = "The agent is waiting for your reply..."
 
     def compose(self) -> ComposeResult:
+        yield Static("", id="attachment-line", classes="hidden")
         with Horizontal(id="input-row"):
             yield Input(placeholder="Type your message...", id="message-input")
             yield LoadingIndicator(id="send-loading", classes="hidden")
@@ -26,10 +27,12 @@ class InputPanel(Container):
                 "Waiting for agent...", id="send-loading-label", classes="hidden"
             )
             yield Button("STOP", id="cancel-btn", variant="error", classes="hidden")
+            yield Button("ATTACH", id="attach-btn")
             yield Button("SEND", id="send-btn")
 
     def on_mount(self) -> None:
         self.query_one("#send-btn", Button).can_focus = False
+        self.query_one("#attach-btn", Button).can_focus = False
         self.query_one("#cancel-btn", Button).can_focus = False
         logger.debug("Input panel mounted")
 
@@ -49,6 +52,16 @@ class InputPanel(Container):
         message_input.value = ""
         return message_text
 
+    def show_attachments(self, labels: list[str]) -> None:
+        """Show the files queued to go out with the next message."""
+        line = self.query_one("#attachment-line", Static)
+        if not labels:
+            line.update("")
+            line.add_class("hidden")
+            return
+        line.update("Attached: " + ", ".join(labels))
+        line.remove_class("hidden")
+
     def focus_input(self) -> None:
         """Focus the message input field."""
         self.query_one("#message-input", Input).focus()
@@ -57,15 +70,18 @@ class InputPanel(Container):
         """Enable or disable message composition based on connection state."""
         message_input = self.query_one("#message-input", Input)
         send_button = self.query_one("#send-btn", Button)
+        attach_button = self.query_one("#attach-btn", Button)
         loading = self.query_one("#send-loading", LoadingIndicator)
         label = self.query_one("#send-loading-label", Static)
         message_input.disabled = not enabled
         send_button.disabled = not enabled
+        attach_button.disabled = not enabled
         if enabled:
             message_input.placeholder = self.DEFAULT_PLACEHOLDER
             return
         message_input.value = ""
         message_input.placeholder = self.DISCONNECTED_PLACEHOLDER
+        self.show_attachments([])
         loading.add_class("hidden")
         label.add_class("hidden")
         self.query_one("#cancel-btn", Button).add_class("hidden")
@@ -78,12 +94,14 @@ class InputPanel(Container):
         """
         message_input = self.query_one("#message-input", Input)
         send_button = self.query_one("#send-btn", Button)
+        attach_button = self.query_one("#attach-btn", Button)
         loading = self.query_one("#send-loading", LoadingIndicator)
         label = self.query_one("#send-loading-label", Static)
         cancel_button = self.query_one("#cancel-btn", Button)
 
         message_input.disabled = waiting
         send_button.disabled = waiting
+        attach_button.disabled = waiting
         if waiting:
             message_input.placeholder = self.WAITING_PLACEHOLDER
             label.update("Waiting for agent...")

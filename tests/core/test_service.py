@@ -20,8 +20,13 @@ from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
+    MAX_INLINE_FILE_BYTES,
     StreamEvent,
     TERMINAL_TASK_STATES,
+    attachment_part_from_spec,
+    build_data_part,
+    build_file_part,
+    build_url_part,
     extract_text,
     extract_text_from_task,
     extract_text_from_message_parts,
@@ -31,6 +36,7 @@ from a2a_handler.service import (
     response_needs_auth,
     response_state,
     response_task_id,
+    to_json_dict,
 )
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -443,6 +449,109 @@ class TestExtractTextFromTask:
 
         result = extract_text_from_task(task)
         assert result == ""
+
+
+class TestBuildParts:
+    """Tests for the outgoing non-text part builders."""
+
+    def test_build_data_part_round_trips_value(self):
+        part = build_data_part({"key": "value", "nested": [1, 2]})
+        assert part.HasField("data")
+        assert to_json_dict(part)["data"] == {"key": "value", "nested": [1.0, 2.0]}
+
+    def test_build_url_part_sniffs_name_and_media_type(self):
+        part = build_url_part("https://example.com/docs/report.pdf?v=2")
+        assert part.url == "https://example.com/docs/report.pdf?v=2"
+        assert part.filename == "report.pdf"
+        assert part.media_type == "application/pdf"
+
+    def test_build_url_part_without_a_path_has_no_filename(self):
+        part = build_url_part("https://example.com/")
+        assert part.url == "https://example.com/"
+        assert not part.filename
+
+    def test_build_file_part_inlines_bytes_with_sniffed_media_type(self, tmp_path):
+        file_path = tmp_path / "notes.txt"
+        file_path.write_bytes(b"hello")
+        part = build_file_part(file_path)
+        assert part.raw == b"hello"
+        assert part.filename == "notes.txt"
+        assert part.media_type == "text/plain"
+
+    def test_build_file_part_defaults_unknown_media_type(self, tmp_path):
+        file_path = tmp_path / "blob.unknownext"
+        file_path.write_bytes(b"\x00\x01")
+        part = build_file_part(file_path)
+        assert part.media_type == "application/octet-stream"
+
+    def test_build_file_part_refuses_missing_file(self, tmp_path):
+        with pytest.raises(InputValidationError) as exc_info:
+            build_file_part(tmp_path / "absent.txt")
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "unreadable_file"
+
+    def test_build_file_part_refuses_oversized_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("a2a_handler.service.MAX_INLINE_FILE_BYTES", 4)
+        file_path = tmp_path / "big.bin"
+        file_path.write_bytes(b"12345")
+        with pytest.raises(InputValidationError) as exc_info:
+            build_file_part(file_path)
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "file_too_large"
+        assert "URL" in (exc_info.value.suggestion or "")
+
+    def test_inline_limit_is_sane(self):
+        assert MAX_INLINE_FILE_BYTES == 10 * 1024 * 1024
+
+    def test_attachment_spec_url_becomes_url_part(self):
+        part = attachment_part_from_spec("https://example.com/report.pdf")
+        assert part.HasField("url")
+        assert not part.HasField("raw")
+
+    def test_attachment_spec_path_becomes_raw_part(self, tmp_path):
+        file_path = tmp_path / "report.pdf"
+        file_path.write_bytes(b"%PDF-")
+        part = attachment_part_from_spec(str(file_path))
+        assert part.HasField("raw")
+        assert part.filename == "report.pdf"
+
+
+class TestBuildUserMessage:
+    """Tests for A2AService._build_user_message part assembly."""
+
+    def _service(self) -> A2AService:
+        return A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+
+    def test_text_only_message_has_one_text_part(self):
+        message = self._service()._build_user_message("hello")
+        assert len(message.parts) == 1
+        assert message.parts[0].text == "hello"
+
+    def test_attachments_follow_the_text_part(self, tmp_path):
+        file_path = tmp_path / "notes.txt"
+        file_path.write_bytes(b"hi")
+        attachments = [build_file_part(file_path), build_data_part({"k": "v"})]
+        message = self._service()._build_user_message(
+            "review this", attachments=attachments
+        )
+        assert len(message.parts) == 3
+        assert message.parts[0].text == "review this"
+        assert message.parts[1].HasField("raw")
+        assert message.parts[2].HasField("data")
+
+    def test_attachments_alone_are_enough(self):
+        message = self._service()._build_user_message(
+            "", attachments=[build_data_part({"k": "v"})]
+        )
+        assert len(message.parts) == 1
+        assert message.parts[0].HasField("data")
+
+    def test_empty_message_is_refused(self):
+        with pytest.raises(ValueError):
+            self._service()._build_user_message("")
 
 
 class _FakeStreamingClient:

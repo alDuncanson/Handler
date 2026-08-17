@@ -70,7 +70,7 @@ def _service_streaming(
     service = AsyncMock()
     calls: list[str | None] = []
 
-    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
         calls.append(task_id)
 
         async def gen() -> AsyncIterator[StreamEvent]:
@@ -285,7 +285,7 @@ class TestCancel:
         """Cancelling the consuming task still leaves a usable result."""
         started = asyncio.Event()
 
-        def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+        def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
             async def gen() -> AsyncIterator[StreamEvent]:
                 yield _status_event(TaskState.TASK_STATE_WORKING)
                 started.set()
@@ -436,7 +436,7 @@ class TestNarration:
         """Cancelling the consumer keeps whatever the agent had already said."""
         started = asyncio.Event()
 
-        def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+        def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
             async def gen() -> AsyncIterator[StreamEvent]:
                 yield _status_event(TaskState.TASK_STATE_WORKING, "halfway there")
                 started.set()

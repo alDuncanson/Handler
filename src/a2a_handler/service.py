@@ -9,14 +9,23 @@ protocol types are constructed, inspected, and serialized. The rest of Handler
 directly.
 """
 
+import mimetypes
 import uuid
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Iterable, Union
+from pathlib import Path
+from typing import Any, AsyncIterator, Iterable, Sequence, Union
+from urllib.parse import urlparse
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
 from a2a.client.errors import AgentCardResolutionError
-from a2a.helpers import get_data_parts, get_text_parts
+from a2a.helpers import (
+    get_data_parts,
+    get_text_parts,
+    new_data_part,
+    new_raw_part,
+    new_url_part,
+)
 from a2a.types import (
     AgentCard,
     CancelTaskRequest,
@@ -40,6 +49,7 @@ from google.protobuf import json_format
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
+    InputValidationError,
     reject_control_chars,
     validate_agent_url,
     validate_resource_id,
@@ -170,6 +180,74 @@ def part_file(part: Part) -> dict[str, Any]:
     if part.HasField("raw"):
         info["num_bytes"] = len(part.raw)
     return info
+
+
+# Inline file bytes travel base64-encoded inside the request body, so the wire
+# payload is ~4/3 the file size. Servers commonly reject bodies much past this;
+# larger files should be sent by reference as a ``url`` part instead.
+MAX_INLINE_FILE_BYTES = 10 * 1024 * 1024
+
+_DEFAULT_MEDIA_TYPE = "application/octet-stream"
+
+
+def build_data_part(value: Any) -> Part:
+    """Build a structured-data part from a JSON-compatible Python value."""
+    return new_data_part(value)
+
+
+def build_url_part(url: str, media_type: str | None = None) -> Part:
+    """Build a file-by-reference part pointing at an http(s) URL."""
+    filename = Path(urlparse(url).path).name or None
+    if media_type is None and filename:
+        media_type = mimetypes.guess_type(filename)[0]
+    return new_url_part(url, media_type=media_type, filename=filename)
+
+
+def build_file_part(path: str | Path) -> Part:
+    """Build an inline file part from a local path.
+
+    The file's media type is sniffed from its name. Files over
+    ``MAX_INLINE_FILE_BYTES`` are refused: they should be uploaded somewhere
+    reachable and sent by URL instead.
+    """
+    file_path = Path(path).expanduser()
+    try:
+        raw = file_path.read_bytes()
+    except OSError as exc:
+        raise InputValidationError(
+            code="unreadable_file",
+            message=f"Cannot read file: {file_path}",
+            suggestion="Check that the path exists and is a readable file",
+            details={"field": "file", "error": str(exc)},
+        ) from exc
+    if len(raw) > MAX_INLINE_FILE_BYTES:
+        raise InputValidationError(
+            code="file_too_large",
+            message=(
+                f"{file_path.name} is {len(raw)} bytes, over the "
+                f"{MAX_INLINE_FILE_BYTES}-byte inline limit"
+            ),
+            suggestion=(
+                "Host the file somewhere the agent can reach and pass its "
+                "http(s) URL to send it by reference"
+            ),
+            details={"field": "file", "num_bytes": len(raw)},
+        )
+    media_type = mimetypes.guess_type(file_path.name)[0] or _DEFAULT_MEDIA_TYPE
+    return new_raw_part(raw, media_type=media_type, filename=file_path.name)
+
+
+def attachment_part_from_spec(spec: str) -> Part:
+    """Build a file part from a local path or an http(s) URL.
+
+    A spec that parses as an http(s) URL becomes a file-by-reference part;
+    anything else is treated as a local path and inlined.
+    """
+    reject_control_chars(spec, "file")
+    parsed = urlparse(spec)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return build_url_part(spec)
+    return build_file_part(spec)
 
 
 @dataclass
@@ -618,21 +696,31 @@ class A2AService:
         message_text: str,
         context_id: str | None = None,
         task_id: str | None = None,
+        attachments: Sequence[Part] | None = None,
     ) -> Message:
         """Build a user message.
 
         Args:
-            message_text: Message content
+            message_text: Message content (may be empty when attachments carry
+                the payload)
             context_id: Optional context ID for conversation continuity
             task_id: Optional task ID to continue
+            attachments: Optional file or data parts to send with the text
 
         Returns:
             Properly formatted Message object
         """
+        parts: list[Part] = []
+        if message_text:
+            parts.append(Part(text=message_text))
+        if attachments:
+            parts.extend(attachments)
+        if not parts:
+            raise ValueError("A message needs text or at least one attachment")
         return Message(
             message_id=uuid.uuid4().hex,
             role=Role.ROLE_USER,
-            parts=[Part(text=message_text)],
+            parts=parts,
             context_id=context_id or "",
             task_id=task_id or "",
         )
@@ -642,13 +730,16 @@ class A2AService:
         message_text: str,
         context_id: str | None = None,
         task_id: str | None = None,
+        attachments: Sequence[Part] | None = None,
     ) -> Task | Message:
         """Send a message to the agent and wait for completion.
 
         Returns the raw A2A protocol response (Task or Message).
         """
         client = await self._get_or_create_client()
-        user_message = self._build_user_message(message_text, context_id, task_id)
+        user_message = self._build_user_message(
+            message_text, context_id, task_id, attachments
+        )
 
         truncated_message = (
             message_text[:50] if len(message_text) > 50 else message_text
@@ -682,6 +773,7 @@ class A2AService:
         message_text: str,
         context_id: str | None = None,
         task_id: str | None = None,
+        attachments: Sequence[Part] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Send a message and stream responses as they arrive.
 
@@ -689,12 +781,15 @@ class A2AService:
             message_text: Message to send
             context_id: Optional context ID for conversation continuity
             task_id: Optional task ID to continue
+            attachments: Optional file or data parts to send with the text
 
         Yields:
             StreamEvent objects as they are received
         """
         client = await self._get_or_create_client()
-        user_message = self._build_user_message(message_text, context_id, task_id)
+        user_message = self._build_user_message(
+            message_text, context_id, task_id, attachments
+        )
 
         truncated_message = (
             message_text[:50] if len(message_text) > 50 else message_text

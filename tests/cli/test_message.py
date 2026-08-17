@@ -119,7 +119,9 @@ class TestMessageSend:
             )
 
             assert result.exit_code == 0
-            mock_service.send.assert_called_once_with("Hello", "ctx-456", None)
+            mock_service.send.assert_called_once_with(
+                "Hello", "ctx-456", None, attachments=None
+            )
 
     def test_message_send_with_continue_flag(self, runner):
         """Test --continue resumes the saved context without a terminal task."""
@@ -160,7 +162,9 @@ class TestMessageSend:
             )
 
             assert result.exit_code == 0
-            mock_service.send.assert_called_once_with("Hello", "saved-ctx", None)
+            mock_service.send.assert_called_once_with(
+                "Hello", "saved-ctx", None, attachments=None
+            )
 
     def test_message_send_with_bearer_auth(self, runner):
         """Test message send with bearer token."""
@@ -287,7 +291,149 @@ class TestMessageSend:
             )
 
             assert result.exit_code == 0
-            mock_service.send.assert_called_once_with("Hello from json", "ctx-9", None)
+            mock_service.send.assert_called_once_with(
+                "Hello from json", "ctx-9", None, attachments=None
+            )
+
+    def test_message_send_with_file_attachment(self, runner, tmp_path):
+        """--file attaches an inline raw part alongside the text part."""
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Reviewed")
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF-1.4 fake")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--text",
+                    "review this",
+                    "--file",
+                    str(report),
+                ],
+            )
+
+            assert result.exit_code == 0
+            attachments = mock_service.send.call_args.kwargs["attachments"]
+            assert len(attachments) == 1
+            assert attachments[0].raw == b"%PDF-1.4 fake"
+            assert attachments[0].filename == "report.pdf"
+            assert attachments[0].media_type == "application/pdf"
+
+    def test_message_send_with_file_url_attachment(self, runner):
+        """--file with an http(s) URL attaches a file-by-reference part."""
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Reviewed")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--file",
+                    "https://example.com/report.pdf",
+                ],
+            )
+
+            assert result.exit_code == 0
+            attachments = mock_service.send.call_args.kwargs["attachments"]
+            assert len(attachments) == 1
+            assert attachments[0].url == "https://example.com/report.pdf"
+
+    def test_message_send_with_data_only(self, runner):
+        """--data alone is a complete message; no text required."""
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Got it")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--data",
+                    '{"k":"v"}',
+                ],
+            )
+
+            assert result.exit_code == 0
+            sent_text = mock_service.send.call_args.args[0]
+            assert sent_text == ""
+            attachments = mock_service.send.call_args.kwargs["attachments"]
+            assert len(attachments) == 1
+            assert attachments[0].HasField("data")
+
+    def test_message_send_rejects_invalid_data_json(self, runner):
+        """--data that is not valid JSON fails before any network call."""
+        result = runner.invoke(
+            message,
+            [
+                "send",
+                "--url",
+                "http://localhost:8000",
+                "--data",
+                "not-json",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not valid JSON" in result.output
+
+    def test_message_send_rejects_missing_file(self, runner, tmp_path):
+        """--file pointing at a missing path fails before any network call."""
+        result = runner.invoke(
+            message,
+            [
+                "send",
+                "--url",
+                "http://localhost:8000",
+                "--file",
+                str(tmp_path / "absent.pdf"),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Cannot read file" in result.output
 
     def test_message_send_json_requires_text(self, runner):
         """Test message send fails when text is missing in both argument and json."""
