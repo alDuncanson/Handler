@@ -1290,6 +1290,95 @@ async def test_connect_manual_override_uses_manual_credentials() -> None:
 
 
 @pytest.mark.asyncio
+async def test_connect_shows_extended_card_when_offered() -> None:
+    """A card advertising extended support is swapped for the extended card."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    public_card = make_agent_card(name="Public Agent", extended_agent_card=True)
+    extended_card = make_agent_card(name="Extended Agent", extended_agent_card=True)
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = public_card
+        mock_service.get_extended_card.return_value = extended_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace.is_connected
+            assert workspace.state.agent_card is not None
+            assert workspace.state.agent_card.name == "Extended Agent"
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any(
+                "Showing the agent's extended card" in text for text in chat_texts
+            )
+
+
+async def test_connect_keeps_public_card_when_extended_fetch_fails() -> None:
+    """A failed extended-card fetch keeps the connection and the public card."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    public_card = make_agent_card(name="Public Agent", extended_agent_card=True)
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = public_card
+        mock_service.get_extended_card.side_effect = RuntimeError("card fetch broke")
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace.is_connected
+            assert workspace.state.agent_card is not None
+            assert workspace.state.agent_card.name == "Public Agent"
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("fetching it failed" in text for text in chat_texts)
+
+
 async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -> None:
     """Successful connect should update the unified server view and tab title."""
     repo_connection = _make_server(

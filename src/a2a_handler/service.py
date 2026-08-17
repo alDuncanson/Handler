@@ -15,11 +15,12 @@ from typing import Any, AsyncIterator, Iterable, Union
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
-from a2a.client.errors import AgentCardResolutionError
+from a2a.client.errors import A2AClientError, AgentCardResolutionError
 from a2a.helpers import get_data_parts, get_text_parts
 from a2a.types import (
     AgentCard,
     CancelTaskRequest,
+    GetExtendedAgentCardRequest,
     GetTaskPushNotificationConfigRequest,
     GetTaskRequest,
     Message,
@@ -35,6 +36,7 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
+from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
 from google.protobuf import json_format
 
 from a2a_handler.auth import AuthCredentials, AuthType
@@ -51,6 +53,16 @@ logger = get_logger(__name__)
 # The v1.0 SDK dropped ``PREV_AGENT_CARD_WELL_KNOWN_PATH``; keep the legacy
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
+
+class ExtendedCardNotSupportedError(A2AClientError):
+    """Raised when an extended agent card is requested but not on offer.
+
+    Covers both the agent whose public card never advertised one and the
+    server that advertises support yet has no extended card configured, so
+    callers get one clear message instead of a raw protocol error.
+    """
+
 
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
@@ -565,6 +577,43 @@ class A2AService:
         """
         await self.ensure_oauth2_token()
         return await self._load_agent_card()
+
+    @property
+    def supports_extended_card(self) -> bool:
+        """Whether the fetched public card advertises an extended card."""
+        if self._cached_agent_card:
+            return bool(self._cached_agent_card.capabilities.extended_agent_card)
+        return False
+
+    async def get_extended_card(self) -> AgentCard:
+        """Fetch the extended agent card offered to authenticated clients.
+
+        Returns:
+            The extended card, which may reveal skills or interfaces the
+            public card omits.
+
+        Raises:
+            ExtendedCardNotSupportedError: If the agent's public card does not
+                advertise ``extended_agent_card``, or the server has no
+                extended card configured despite advertising one.
+        """
+        card = await self.get_card()
+        if not card.capabilities.extended_agent_card:
+            raise ExtendedCardNotSupportedError(
+                f"{card.name or self.agent_url} does not offer an extended "
+                "agent card (capabilities.extendedAgentCard is not set)"
+            )
+
+        client = await self._get_or_create_client()
+        logger.info("Fetching extended agent card from %s", self.agent_url)
+        try:
+            return await client.get_extended_agent_card(GetExtendedAgentCardRequest())
+        except ExtendedAgentCardNotConfiguredError as exc:
+            # The card advertised support but the server has nothing to serve.
+            raise ExtendedCardNotSupportedError(
+                f"{card.name or self.agent_url} advertises an extended agent "
+                "card but the server has none configured"
+            ) from exc
 
     async def _get_or_create_client(self) -> Client:
         """Get or create the A2A client.

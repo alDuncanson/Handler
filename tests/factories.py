@@ -201,11 +201,20 @@ def make_agent_card(
     protocol_version: str = "1.0",
     streaming: bool = True,
     push_notifications: bool = False,
+    extended_agent_card: bool = False,
     skills: Sequence[AgentSkill] | None = None,
     default_input_modes: Sequence[str] = ("text",),
     default_output_modes: Sequence[str] = ("text",),
 ) -> AgentCard:
     """Build a v1.0 ``AgentCard`` with a single JSON-RPC interface."""
+    capabilities = AgentCapabilities(
+        streaming=streaming,
+        push_notifications=push_notifications,
+    )
+    # Capability fields carry explicit presence; setting False would surface
+    # "extendedAgentCard": false in card renders that never showed it.
+    if extended_agent_card:
+        capabilities.extended_agent_card = True
     return AgentCard(
         name=name,
         description=description,
@@ -217,10 +226,7 @@ def make_agent_card(
                 protocol_version=protocol_version,
             )
         ],
-        capabilities=AgentCapabilities(
-            streaming=streaming,
-            push_notifications=push_notifications,
-        ),
+        capabilities=capabilities,
         default_input_modes=list(default_input_modes),
         default_output_modes=list(default_output_modes),
         skills=list(skills) if skills is not None else [],

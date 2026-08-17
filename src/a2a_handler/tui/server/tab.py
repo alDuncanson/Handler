@@ -472,6 +472,31 @@ class ServerTab(Container):
         self._agent_service = next_service
         return agent_card
 
+    async def _maybe_fetch_extended_card(
+        self,
+        agent_card: AgentCard,
+    ) -> tuple[AgentCard, str | None]:
+        """Swap in the extended card when the agent offers one.
+
+        A failed fetch keeps the public card and reports why, rather than
+        failing the connection over an optional detail.
+        """
+        if (
+            not agent_card.capabilities.extended_agent_card
+            or self._agent_service is None
+        ):
+            return agent_card, None
+        try:
+            extended_card = await self._agent_service.get_extended_card()
+        except Exception as error:  # noqa: BLE001 - reported to the user, not raised
+            logger.warning(
+                "Extended card fetch failed for %s: %s", self.server_id, error
+            )
+            return agent_card, (
+                f"The agent offers an extended card, but fetching it failed: {error}"
+            )
+        return extended_card, "Showing the agent's extended card."
+
     async def _apply_connected_ui(
         self,
         conversation_summary: str,
@@ -578,6 +603,9 @@ class ServerTab(Container):
             credentials = messages_panel.get_auth_credentials()
 
             agent_card = await self._connect_to_agent(agent_url, credentials)
+            agent_card, extended_note = await self._maybe_fetch_extended_card(
+                agent_card
+            )
             context_id: str | None = None
             resumed_task_id: str | None = None
             if saved_conversation is not None:
@@ -600,6 +628,8 @@ class ServerTab(Container):
                 ),
                 saved_conversation=saved_conversation,
             )
+            if extended_note:
+                messages_panel.add_system_message(extended_note)
             self._persist_session_state()
             self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 

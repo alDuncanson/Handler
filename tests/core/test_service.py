@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from a2a.types import (
+    AgentCard,
     Message,
     Part,
     Role,
@@ -18,8 +19,11 @@ from typing import cast
 
 from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
+from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
+
 from a2a_handler.service import (
     A2AService,
+    ExtendedCardNotSupportedError,
     StreamEvent,
     TERMINAL_TASK_STATES,
     extract_text,
@@ -443,6 +447,85 @@ class TestExtractTextFromTask:
 
         result = extract_text_from_task(task)
         assert result == ""
+
+
+class _FakeExtendedCardClient:
+    """Returns (or raises) for get_extended_agent_card, recording calls."""
+
+    def __init__(self, result: AgentCard | Exception) -> None:
+        self.result = result
+        self.calls = 0
+
+    async def get_extended_agent_card(self, request, **_kwargs):
+        self.calls += 1
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+@pytest.mark.asyncio
+class TestA2AServiceExtendedCard:
+    """Tests for A2AService.get_extended_card."""
+
+    def _service_with(
+        self,
+        public_card: AgentCard,
+        fake_client: _FakeExtendedCardClient,
+    ) -> A2AService:
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+        service._cached_agent_card = public_card
+
+        async def _get_client():
+            return fake_client
+
+        service._get_or_create_client = _get_client  # type: ignore[method-assign]
+        return service
+
+    async def test_extended_card_returned_when_offered(self):
+        public_card = make_agent_card(name="Public", extended_agent_card=True)
+        extended_card = make_agent_card(name="Extended", extended_agent_card=True)
+        fake_client = _FakeExtendedCardClient(extended_card)
+        service = self._service_with(public_card, fake_client)
+
+        card = await service.get_extended_card()
+
+        assert card.name == "Extended"
+        assert fake_client.calls == 1
+
+    async def test_refused_when_card_does_not_advertise_support(self):
+        public_card = make_agent_card(name="Public", extended_agent_card=False)
+        fake_client = _FakeExtendedCardClient(make_agent_card())
+        service = self._service_with(public_card, fake_client)
+
+        with pytest.raises(ExtendedCardNotSupportedError) as exc_info:
+            await service.get_extended_card()
+
+        assert "Public" in str(exc_info.value)
+        assert fake_client.calls == 0
+
+    async def test_server_not_configured_error_is_translated(self):
+        public_card = make_agent_card(name="Public", extended_agent_card=True)
+        fake_client = _FakeExtendedCardClient(
+            ExtendedAgentCardNotConfiguredError("raw protocol error")
+        )
+        service = self._service_with(public_card, fake_client)
+
+        with pytest.raises(ExtendedCardNotSupportedError) as exc_info:
+            await service.get_extended_card()
+
+        assert "none configured" in str(exc_info.value)
+
+    async def test_supports_extended_card_property(self):
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+        assert service.supports_extended_card is False
+        service._cached_agent_card = make_agent_card(extended_agent_card=True)
+        assert service.supports_extended_card is True
 
 
 class _FakeStreamingClient:
