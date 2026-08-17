@@ -282,7 +282,7 @@ def test_handler_tui_connected_snapshot(snap_compare, monkeypatch: pytest.Monkey
         local_patch.setattr(
             tab_module,
             "A2AService",
-            lambda http_client, agent_url, credentials=None: AsyncMock(
+            lambda http_client, agent_url, credentials=None, extensions=None: AsyncMock(
                 get_card=AsyncMock(return_value=_make_agent_card())
             ),
         )
@@ -323,7 +323,7 @@ async def test_handler_tui_tasks_tab_shows_task_details(
         local_patch.setattr(
             tab_module,
             "A2AService",
-            lambda http_client, agent_url, credentials=None: AsyncMock(
+            lambda http_client, agent_url, credentials=None, extensions=None: AsyncMock(
                 get_card=AsyncMock(return_value=_make_agent_card())
             ),
         )
@@ -380,7 +380,7 @@ async def test_handler_tui_artifacts_tab_shows_artifact_details(
         local_patch.setattr(
             tab_module,
             "A2AService",
-            lambda http_client, agent_url, credentials=None: AsyncMock(
+            lambda http_client, agent_url, credentials=None, extensions=None: AsyncMock(
                 get_card=AsyncMock(return_value=_make_agent_card())
             ),
         )

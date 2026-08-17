@@ -485,3 +485,54 @@ def test_resolve_oauth2_warns_when_client_secret_env_missing(
     assert credentials is None
     assert warning is not None
     assert "MISSING_SECRET" in warning
+
+
+def test_load_servers_parses_extensions(tmp_path: Path) -> None:
+    """Per-server extension URIs load in declaration order."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.traced]
+url = "https://traced.example.com/agent"
+extensions = ["https://ext.example.com/traceability/v1", "urn:x:custom"]
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert len(servers) == 1
+    assert servers[0].extensions == (
+        "https://ext.example.com/traceability/v1",
+        "urn:x:custom",
+    )
+
+
+def test_load_servers_defaults_to_no_extensions(tmp_path: Path) -> None:
+    """Servers without an extensions key request none."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.plain]
+url = "https://plain.example.com/agent"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert servers[0].extensions == ()
+
+
+def test_load_servers_skips_invalid_extensions(tmp_path: Path) -> None:
+    """A non-list extensions value invalidates the server entry."""
+    server_path = tmp_path / "servers.toml"
+    server_path.write_text(
+        """
+version = 1
+
+[servers.broken]
+url = "https://broken.example.com/agent"
+extensions = "not-a-list"
+""".strip()
+    )
+    servers = load_servers(tmp_path, ServerSource.GLOBAL)
+    assert servers == []

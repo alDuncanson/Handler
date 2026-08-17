@@ -34,6 +34,7 @@ from a2a.types import (
     TaskState,
     TaskStatusUpdateEvent,
 )
+from a2a.extensions.common import HTTP_EXTENSION_HEADER
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
 from google.protobuf import json_format
 
@@ -118,6 +119,20 @@ def role_label(role: int | None) -> str:
     if not role:
         return "unknown"
     return Role.Name(role).removeprefix("ROLE_").lower()
+
+
+def card_extensions(card: AgentCard) -> list[dict[str, Any]]:
+    """Return the extensions a card declares, in A2A wire format."""
+    return [to_json_dict(extension) for extension in card.capabilities.extensions]
+
+
+def required_extension_uris(card: AgentCard) -> list[str]:
+    """Return the URIs of extensions the card marks as required."""
+    return [
+        extension.uri
+        for extension in card.capabilities.extensions
+        if extension.required and extension.uri
+    ]
 
 
 def card_protocol_version(card: AgentCard) -> str:
@@ -438,6 +453,7 @@ class A2AService:
         push_notification_url: str | None = None,
         push_notification_token: str | None = None,
         credentials: AuthCredentials | None = None,
+        extensions: Iterable[str] | None = None,
     ) -> None:
         """Initialize the A2A service.
 
@@ -448,6 +464,8 @@ class A2AService:
             push_notification_url: Optional webhook URL for push notifications
             push_notification_token: Optional token for push notification auth
             credentials: Optional authentication credentials
+            extensions: Optional A2A extension URIs to request on every call
+                (sent as the ``A2A-Extensions`` header)
         """
         validate_agent_url(agent_url)
         if push_notification_url:
@@ -455,15 +473,27 @@ class A2AService:
         if push_notification_token:
             reject_control_chars(push_notification_token, "push_notification_token")
 
+        requested_extensions: list[str] = []
+        for extension_uri in extensions or ():
+            reject_control_chars(extension_uri, "extension")
+            stripped = extension_uri.strip()
+            if stripped:
+                requested_extensions.append(stripped)
+
         self.http_client = http_client
         self.agent_url = agent_url
         self.enable_streaming = enable_streaming
         self.push_notification_url = push_notification_url
         self.push_notification_token = push_notification_token
         self.credentials = credentials
+        self.extensions: tuple[str, ...] = tuple(requested_extensions)
         self._cached_client: Client | None = None
         self._cached_agent_card: AgentCard | None = None
         self._applied_auth_headers: set[str] = set()
+
+        if self.extensions:
+            self.http_client.headers[HTTP_EXTENSION_HEADER] = ", ".join(self.extensions)
+            logger.info("Requesting A2A extensions: %s", ", ".join(self.extensions))
 
         if credentials:
             self.set_credentials(credentials)
@@ -551,7 +581,24 @@ class A2AService:
                 )
                 self._cached_agent_card = await fallback_resolver.get_agent_card()
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
+            missing = self.unrequested_required_extensions(self._cached_agent_card)
+            if missing:
+                logger.warning(
+                    "Agent %s requires extension(s) this client did not request: %s",
+                    self._cached_agent_card.name,
+                    ", ".join(missing),
+                )
         return self._cached_agent_card
+
+    def unrequested_required_extensions(self, card: AgentCard) -> list[str]:
+        """Return required extension URIs the client is not requesting.
+
+        An agent that marks an extension required may refuse or degrade
+        requests without it, so this is worth surfacing to the user.
+        """
+        return [
+            uri for uri in required_extension_uris(card) if uri not in self.extensions
+        ]
 
     async def get_card(self) -> AgentCard:
         """Fetch and cache the agent card.

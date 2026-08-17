@@ -70,6 +70,40 @@ class TestCardGet:
             assert "Test Agent" in result.output
             assert "test_skill" in result.output
 
+    def test_card_get_shows_declared_extensions(self, runner):
+        """Extensions the card declares are visible in the output."""
+        from a2a.types import AgentExtension
+
+        mock_card = make_agent_card(
+            name="Extended Agent",
+            extensions=[
+                AgentExtension(
+                    uri="https://ext.example.com/traceability/v1",
+                    description="Traceability",
+                    required=True,
+                )
+            ],
+        )
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_card.return_value = mock_card
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
+
+            assert result.exit_code == 0
+            assert "https://ext.example.com/traceability/v1" in result.output
+            assert '"required": true' in result.output
+
     def test_card_get_connection_error(self, runner):
         """Test card get handles connection errors."""
         import httpx
