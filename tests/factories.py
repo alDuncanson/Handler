@@ -199,13 +199,14 @@ def make_agent_card(
     version: str = "",
     url: str = "http://localhost:8000",
     protocol_version: str = "1.0",
+    protocol_binding: str = "JSONRPC",
     streaming: bool = True,
     push_notifications: bool = False,
     skills: Sequence[AgentSkill] | None = None,
     default_input_modes: Sequence[str] = ("text",),
     default_output_modes: Sequence[str] = ("text",),
 ) -> AgentCard:
-    """Build a v1.0 ``AgentCard`` with a single JSON-RPC interface."""
+    """Build a v1.0 ``AgentCard`` with a single interface (JSON-RPC by default)."""
     return AgentCard(
         name=name,
         description=description,
@@ -213,7 +214,7 @@ def make_agent_card(
         supported_interfaces=[
             AgentInterface(
                 url=url,
-                protocol_binding="JSONRPC",
+                protocol_binding=protocol_binding,
                 protocol_version=protocol_version,
             )
         ],

@@ -22,6 +22,7 @@ from a2a_handler.service import (
     A2AService,
     StreamEvent,
     TERMINAL_TASK_STATES,
+    TransportNegotiationError,
     extract_text,
     extract_text_from_task,
     extract_text_from_message_parts,
@@ -31,6 +32,8 @@ from a2a_handler.service import (
     response_needs_auth,
     response_state,
     response_task_id,
+    negotiate_transport_binding,
+    supported_transport_bindings,
 )
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -443,6 +446,106 @@ class TestExtractTextFromTask:
 
         result = extract_text_from_task(task)
         assert result == ""
+
+
+class TestTransportNegotiation:
+    """Tests for transport binding negotiation."""
+
+    def test_bindings_always_include_jsonrpc_and_rest(self):
+        bindings = supported_transport_bindings()
+        assert "JSONRPC" in bindings
+        assert "HTTP+JSON" in bindings
+
+    def test_grpc_binding_requires_the_optional_extra(self, monkeypatch):
+        monkeypatch.setattr(
+            "a2a_handler.service.grpc_transport_available", lambda: False
+        )
+        assert "GRPC" not in supported_transport_bindings()
+        monkeypatch.setattr(
+            "a2a_handler.service.grpc_transport_available", lambda: True
+        )
+        assert "GRPC" in supported_transport_bindings()
+
+    def test_server_preference_wins(self):
+        card = make_agent_card()
+        del card.supported_interfaces[:]
+        card.supported_interfaces.add(
+            url="http://example.com/rest",
+            protocol_binding="HTTP+JSON",
+            protocol_version="1.0",
+        )
+        card.supported_interfaces.add(
+            url="http://example.com/",
+            protocol_binding="JSONRPC",
+            protocol_version="1.0",
+        )
+        # The card lists REST first, so REST wins even though the client
+        # prefers JSON-RPC.
+        assert (
+            negotiate_transport_binding(card, ["JSONRPC", "HTTP+JSON"]) == "HTTP+JSON"
+        )
+
+    def test_no_common_binding_is_none(self):
+        card = make_agent_card(protocol_binding="GRPC")
+        assert negotiate_transport_binding(card, ["JSONRPC", "HTTP+JSON"]) is None
+
+    def test_negotiated_transport_known_after_card_fetch(self):
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+        assert service.negotiated_transport is None
+        service._cached_agent_card = make_agent_card(protocol_binding="HTTP+JSON")
+        assert service.negotiated_transport == "HTTP+JSON"
+
+
+@pytest.mark.asyncio
+class TestA2AServiceTransportSelection:
+    """Tests for client creation across transports."""
+
+    def _service_with_card(self, card) -> A2AService:
+        http_client = AsyncMock()
+        # ClientFactory calls headers.setdefault; a real dict avoids the
+        # never-awaited coroutine an AsyncMock attribute would produce.
+        http_client.headers = {}
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, http_client),
+            agent_url="http://example.com",
+        )
+        service._cached_agent_card = card
+        return service
+
+    async def test_rest_only_agent_gets_a_client(self):
+        service = self._service_with_card(make_agent_card(protocol_binding="HTTP+JSON"))
+
+        client = await service._get_or_create_client()
+
+        assert client is not None
+        assert service.negotiated_transport == "HTTP+JSON"
+
+    async def test_grpc_only_agent_without_extra_fails_with_install_hint(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "a2a_handler.service.grpc_transport_available", lambda: False
+        )
+        service = self._service_with_card(make_agent_card(protocol_binding="GRPC"))
+
+        with pytest.raises(TransportNegotiationError) as exc_info:
+            await service._get_or_create_client()
+
+        assert "a2a-handler[grpc]" in str(exc_info.value)
+
+    async def test_unknown_binding_fails_without_grpc_hint(self):
+        service = self._service_with_card(
+            make_agent_card(protocol_binding="CARRIER-PIGEON")
+        )
+
+        with pytest.raises(TransportNegotiationError) as exc_info:
+            await service._get_or_create_client()
+
+        assert "CARRIER-PIGEON" in str(exc_info.value)
+        assert "a2a-handler[grpc]" not in str(exc_info.value)
 
 
 class _FakeStreamingClient:
