@@ -564,6 +564,123 @@ def create_mcp_server() -> FastMCP:
             return push_config_dump(config)
 
     @mcp.tool()
+    async def list_task_notifications(
+        agent_url: str,
+        task_id: str,
+        bearer_token: str | None = None,
+        api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+    ) -> dict:
+        """List every push notification config for a task.
+
+        Follows pagination to the end, so the result is the complete set of
+        webhook configurations registered for the task.
+
+        Args:
+            agent_url: Base URL of the A2A agent
+            task_id: ID of the task
+            bearer_token: Optional bearer token for authentication
+            api_key: Optional API key for authentication
+
+        Returns:
+            A dictionary containing:
+            - count: Number of configs returned
+            - configs: The configs with webhook tokens truncated for security
+        """
+        logger.info("Listing push configs for task %s at %s", task_id, agent_url)
+        try:
+            validate_agent_url(agent_url)
+            validate_resource_id(task_id, "task_id")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
+
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
+
+        async with _build_http_client(credentials=credentials) as http_client:
+            service = A2AService(http_client, agent_url, credentials=credentials)
+            configs = await service.list_all_push_configs(task_id)
+
+            return {
+                "count": len(configs),
+                "configs": [push_config_dump(config) for config in configs],
+            }
+
+    @mcp.tool()
+    async def delete_task_notification(
+        agent_url: str,
+        task_id: str,
+        config_id: str,
+        bearer_token: str | None = None,
+        api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+    ) -> dict:
+        """Delete a push notification config from a task.
+
+        Removes a webhook configuration so it no longer receives task updates.
+        Fails with the server's error if the config does not exist.
+
+        Args:
+            agent_url: Base URL of the A2A agent
+            task_id: ID of the task
+            config_id: ID of the config to delete
+            bearer_token: Optional bearer token for authentication
+            api_key: Optional API key for authentication
+
+        Returns:
+            A dictionary containing:
+            - deleted: True once the server confirmed the deletion
+            - task_id: The task ID
+            - config_id: The removed config ID
+        """
+        logger.info(
+            "Deleting push config %s for task %s at %s", config_id, task_id, agent_url
+        )
+        try:
+            validate_agent_url(agent_url)
+            validate_resource_id(task_id, "task_id")
+            validate_resource_id(config_id, "config_id")
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
+
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
+
+        async with _build_http_client(credentials=credentials) as http_client:
+            service = A2AService(http_client, agent_url, credentials=credentials)
+            await service.delete_push_config(task_id, config_id)
+
+            return {"deleted": True, "task_id": task_id, "config_id": config_id}
+
+    @mcp.tool()
     async def list_sessions() -> dict:
         """List all saved sessions.
 

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from a2a.types import (
+    ListTaskPushNotificationConfigsResponse,
     Message,
     Part,
     Role,
@@ -14,12 +15,13 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from typing import cast
+from typing import Any, cast
 
 from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
+    PushConfigNotFoundError,
     StreamEvent,
     TERMINAL_TASK_STATES,
     extract_text,
@@ -465,6 +467,121 @@ class _FakePushConfigClient:
     async def create_task_push_notification_config(self, push_config):
         self.push_config = push_config
         return push_config
+
+
+class _FakePushConfigListDeleteClient:
+    """Replays list pages and records delete requests."""
+
+    def __init__(self, pages: list[ListTaskPushNotificationConfigsResponse]) -> None:
+        self.pages = pages
+        self.list_requests: list[Any] = []
+        self.delete_requests: list[Any] = []
+
+    async def list_task_push_notification_configs(self, request):
+        self.list_requests.append(request)
+        index = min(len(self.list_requests) - 1, len(self.pages) - 1)
+        return self.pages[index]
+
+    async def delete_task_push_notification_config(self, request):
+        self.delete_requests.append(request)
+        return None
+
+
+@pytest.mark.asyncio
+class TestA2AServicePushConfigListDelete:
+    """Tests for list_push_configs, list_all_push_configs, delete_push_config."""
+
+    def _service_with(self, fake_client: _FakePushConfigListDeleteClient) -> A2AService:
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+
+        async def _get_client():
+            return fake_client
+
+        service._get_or_create_client = _get_client  # type: ignore[method-assign]
+        return service
+
+    async def test_list_push_configs_builds_request(self):
+        page = ListTaskPushNotificationConfigsResponse(
+            configs=[make_push_config(task_id="task-1")]
+        )
+        fake_client = _FakePushConfigListDeleteClient([page])
+        service = self._service_with(fake_client)
+
+        response = await service.list_push_configs("task-1", page_size=5)
+
+        assert len(response.configs) == 1
+        request = fake_client.list_requests[0]
+        assert request.task_id == "task-1"
+        assert request.page_size == 5
+
+    async def test_list_push_configs_sends_nonzero_default_page_size(self):
+        fake_client = _FakePushConfigListDeleteClient(
+            [ListTaskPushNotificationConfigsResponse()]
+        )
+        service = self._service_with(fake_client)
+
+        await service.list_push_configs("task-1")
+
+        assert fake_client.list_requests[0].page_size > 0
+
+    async def test_list_push_configs_rejects_bad_task_id(self):
+        service = self._service_with(
+            _FakePushConfigListDeleteClient([ListTaskPushNotificationConfigsResponse()])
+        )
+        with pytest.raises(InputValidationError):
+            await service.list_push_configs("task?bad")
+
+    async def test_list_all_push_configs_follows_pages(self):
+        pages = [
+            ListTaskPushNotificationConfigsResponse(
+                configs=[make_push_config(task_id="task-1", config_id="cfg-1")],
+                next_page_token="page-2",
+            ),
+            ListTaskPushNotificationConfigsResponse(
+                configs=[make_push_config(task_id="task-1", config_id="cfg-2")],
+            ),
+        ]
+        fake_client = _FakePushConfigListDeleteClient(pages)
+        service = self._service_with(fake_client)
+
+        configs = await service.list_all_push_configs("task-1")
+
+        assert [config.id for config in configs] == ["cfg-1", "cfg-2"]
+        assert fake_client.list_requests[1].page_token == "page-2"
+
+    async def test_delete_push_config_sends_ids(self):
+        page = ListTaskPushNotificationConfigsResponse(
+            configs=[make_push_config(task_id="task-1", config_id="cfg-1")]
+        )
+        fake_client = _FakePushConfigListDeleteClient([page])
+        service = self._service_with(fake_client)
+
+        await service.delete_push_config("task-1", "cfg-1")
+
+        request = fake_client.delete_requests[0]
+        assert request.task_id == "task-1"
+        assert request.id == "cfg-1"
+
+    async def test_delete_push_config_fails_loudly_for_missing_config(self):
+        # Servers accept deletes for configs that never existed; Handler
+        # must not report that as a successful removal.
+        fake_client = _FakePushConfigListDeleteClient(
+            [ListTaskPushNotificationConfigsResponse()]
+        )
+        service = self._service_with(fake_client)
+
+        with pytest.raises(PushConfigNotFoundError):
+            await service.delete_push_config("task-1", "cfg-missing")
+
+        assert fake_client.delete_requests == []
+
+    async def test_delete_push_config_rejects_bad_config_id(self):
+        service = self._service_with(_FakePushConfigListDeleteClient([]))
+        with pytest.raises(InputValidationError):
+            await service.delete_push_config("task-1", "cfg?bad")
 
 
 class _FakeGetPushConfigClient:

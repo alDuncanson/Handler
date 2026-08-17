@@ -15,13 +15,16 @@ from typing import Any, AsyncIterator, Iterable, Union
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
-from a2a.client.errors import AgentCardResolutionError
+from a2a.client.errors import A2AClientError, AgentCardResolutionError
 from a2a.helpers import get_data_parts, get_text_parts
 from a2a.types import (
     AgentCard,
     CancelTaskRequest,
+    DeleteTaskPushNotificationConfigRequest,
     GetTaskPushNotificationConfigRequest,
     GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest,
+    ListTaskPushNotificationConfigsResponse,
     Message,
     Part,
     Role,
@@ -51,6 +54,20 @@ logger = get_logger(__name__)
 # The v1.0 SDK dropped ``PREV_AGENT_CARD_WELL_KNOWN_PATH``; keep the legacy
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
+# Configs fetched per ListTaskPushNotificationConfigs request when the caller
+# does not choose a page size. Servers reject a zero (i.e. unset) page size.
+DEFAULT_PUSH_CONFIG_PAGE_SIZE = 50
+
+
+class PushConfigNotFoundError(A2AClientError):
+    """Raised when a push config to delete does not exist on the task.
+
+    Servers commonly treat deletes as idempotent and report success for a
+    config that was never there, so Handler checks first: a mistyped config ID
+    should fail loudly, not read as a successful removal.
+    """
+
 
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
@@ -807,3 +824,99 @@ class A2AService:
         logger.info("Getting push config for task %s", task_id)
 
         return await client.get_task_push_notification_config(request)
+
+    async def list_push_configs(
+        self,
+        task_id: str,
+        page_size: int | None = None,
+        page_token: str | None = None,
+    ) -> ListTaskPushNotificationConfigsResponse:
+        """List a task's push notification configs, one page at a time.
+
+        Args:
+            task_id: ID of the task
+            page_size: Maximum configs per page (server may return fewer);
+                defaults to ``DEFAULT_PUSH_CONFIG_PAGE_SIZE``
+            page_token: Continuation token from a previous page's
+                ``next_page_token``
+
+        Returns:
+            The raw response with configs and the next page token.
+        """
+        validate_resource_id(task_id, "task_id")
+        if page_token:
+            reject_control_chars(page_token, "page_token")
+
+        client = await self._get_or_create_client()
+
+        # An unset proto3 int is indistinguishable from 0, and servers reject a
+        # zero page size, so always send an explicit one.
+        request = ListTaskPushNotificationConfigsRequest(
+            task_id=task_id,
+            page_size=page_size or DEFAULT_PUSH_CONFIG_PAGE_SIZE,
+            page_token=page_token or "",
+        )
+        logger.info("Listing push configs for task %s", task_id)
+
+        return await client.list_task_push_notification_configs(request)
+
+    async def list_all_push_configs(
+        self,
+        task_id: str,
+        page_size: int | None = None,
+    ) -> list[TaskPushNotificationConfig]:
+        """List a task's push configs across every page.
+
+        A repeated token stops the loop, so a server that keeps returning the
+        same page cannot spin this forever.
+        """
+        configs: list[TaskPushNotificationConfig] = []
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
+
+        while True:
+            response = await self.list_push_configs(
+                task_id,
+                page_size=page_size,
+                page_token=page_token,
+            )
+            configs.extend(response.configs)
+            page_token = response.next_page_token
+            if not page_token or page_token in seen_tokens:
+                break
+            seen_tokens.add(page_token)
+
+        logger.info("Listed %d push config(s) for task %s", len(configs), task_id)
+        return configs
+
+    async def delete_push_config(self, task_id: str, config_id: str) -> None:
+        """Delete a push notification config from a task.
+
+        The config is listed first: servers commonly accept a delete for a
+        config that never existed, and that silence would hide a mistyped ID.
+
+        Args:
+            task_id: ID of the task
+            config_id: ID of the config to delete
+
+        Raises:
+            PushConfigNotFoundError: If no such config exists on the task.
+        """
+        validate_resource_id(task_id, "task_id")
+        validate_resource_id(config_id, "config_id")
+
+        existing = await self.list_all_push_configs(task_id)
+        if all(config.id != config_id for config in existing):
+            raise PushConfigNotFoundError(
+                f"Task {task_id} has no push notification config '{config_id}'"
+            )
+
+        client = await self._get_or_create_client()
+
+        request = DeleteTaskPushNotificationConfigRequest(
+            task_id=task_id,
+            id=config_id,
+        )
+        logger.info("Deleting push config %s for task %s", config_id, task_id)
+
+        await client.delete_task_push_notification_config(request)
