@@ -11,7 +11,7 @@ directly.
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Iterable, Union
+from typing import Any, AsyncIterator, Iterable, Union, cast
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
@@ -22,6 +22,8 @@ from a2a.types import (
     CancelTaskRequest,
     GetTaskPushNotificationConfigRequest,
     GetTaskRequest,
+    ListTasksRequest,
+    ListTasksResponse,
     Message,
     Part,
     Role,
@@ -40,6 +42,7 @@ from google.protobuf import json_format
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
+    InputValidationError,
     reject_control_chars,
     validate_agent_url,
     validate_resource_id,
@@ -51,6 +54,10 @@ logger = get_logger(__name__)
 # The v1.0 SDK dropped ``PREV_AGENT_CARD_WELL_KNOWN_PATH``; keep the legacy
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
+# Tasks fetched per ListTasks request when the caller does not choose a page
+# size. Servers reject a zero (i.e. unset) page size outright.
+DEFAULT_LIST_TASKS_PAGE_SIZE = 50
 
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
@@ -111,6 +118,29 @@ def state_label(state: int | None) -> str:
     if not state:
         return "unknown"
     return TaskState.Name(state).removeprefix("TASK_STATE_").lower()
+
+
+#: Compact labels for every real task state, e.g. ``completed``,
+#: ``input_required``. Used for CLI choices and label parsing.
+TASK_STATE_LABELS = tuple(state_label(value) for value in TaskState.values() if value)
+
+
+def task_state_from_label(label: str) -> int:
+    """Return the ``TaskState`` value for a compact label like ``completed``.
+
+    Accepts hyphens or underscores (``input-required`` and ``input_required``
+    both work).
+    """
+    normalized = label.strip().lower().replace("-", "_")
+    try:
+        return TaskState.Value(f"TASK_STATE_{normalized.upper()}")
+    except ValueError:
+        raise InputValidationError(
+            code="invalid_task_state",
+            message=f"Unknown task state: {label}",
+            suggestion=f"Use one of: {', '.join(TASK_STATE_LABELS)}",
+            details={"field": "status"},
+        ) from None
 
 
 def role_label(role: int | None) -> str:
@@ -734,6 +764,96 @@ class A2AService:
         logger.info("Canceling task: %s", task_id)
 
         return await client.cancel_task(CancelTaskRequest(id=task_id))
+
+    async def list_tasks(
+        self,
+        context_id: str | None = None,
+        status: int | None = None,
+        page_size: int | None = None,
+        page_token: str | None = None,
+        history_length: int | None = None,
+        include_artifacts: bool = False,
+    ) -> ListTasksResponse:
+        """List tasks on the agent, one page at a time.
+
+        Args:
+            context_id: Only return tasks in this context
+            status: Only return tasks in this ``TaskState``
+            page_size: Maximum tasks per page (server may return fewer);
+                defaults to ``DEFAULT_LIST_TASKS_PAGE_SIZE``
+            page_token: Continuation token from a previous page's
+                ``next_page_token``
+            history_length: Number of history messages to include per task
+            include_artifacts: Whether to include task artifacts
+
+        Returns:
+            The raw ``ListTasksResponse`` with tasks and the next page token.
+        """
+        if context_id:
+            validate_resource_id(context_id, "context_id")
+        if page_token:
+            reject_control_chars(page_token, "page_token")
+
+        client = await self._get_or_create_client()
+
+        # An unset proto3 int is indistinguishable from 0, and servers reject a
+        # zero page size, so always send an explicit one.
+        request = ListTasksRequest(
+            context_id=context_id or "",
+            page_size=page_size or DEFAULT_LIST_TASKS_PAGE_SIZE,
+            page_token=page_token or "",
+            include_artifacts=include_artifacts,
+        )
+        if status is not None:
+            request.status = cast("TaskState", status)
+        if history_length is not None:
+            request.history_length = history_length
+
+        logger.info(
+            "Listing tasks (context_id=%s, status=%s, page_token=%s)",
+            context_id,
+            state_label(status) if status else "any",
+            page_token or "",
+        )
+
+        return await client.list_tasks(request)
+
+    async def list_all_tasks(
+        self,
+        context_id: str | None = None,
+        status: int | None = None,
+        page_size: int | None = None,
+        history_length: int | None = None,
+        include_artifacts: bool = False,
+    ) -> list[Task]:
+        """List tasks across every page, following continuation tokens.
+
+        A repeated token stops the loop, so a server that keeps returning the
+        same page cannot spin this forever.
+        """
+        tasks: list[Task] = []
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
+
+        while True:
+            response = await self.list_tasks(
+                context_id=context_id,
+                status=status,
+                page_size=page_size,
+                page_token=page_token,
+                history_length=history_length,
+                include_artifacts=include_artifacts,
+            )
+            tasks.extend(response.tasks)
+            page_token = response.next_page_token
+            if not page_token or page_token in seen_tokens:
+                break
+            seen_tokens.add(page_token)
+
+        logger.info(
+            "Listed %d task(s) across %d page(s)", len(tasks), len(seen_tokens) + 1
+        )
+        return tasks
 
     async def resubscribe(self, task_id: str) -> AsyncIterator[StreamEvent]:
         """Resubscribe to a task's event stream.
