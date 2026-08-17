@@ -70,6 +70,59 @@ class TestCardGet:
             assert "Test Agent" in result.output
             assert "test_skill" in result.output
 
+    def test_card_get_extended_success(self, runner):
+        """--extended fetches the extended card instead of the public one."""
+        extended_card = make_agent_card(name="Extended Agent")
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_extended_card.return_value = extended_card
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                card, ["get", "--url", "http://localhost:8000", "--extended"]
+            )
+
+            assert result.exit_code == 0
+            assert "Extended Agent" in result.output
+            mock_service.get_extended_card.assert_called_once_with()
+            mock_service.get_card.assert_not_called()
+
+    def test_card_get_extended_unsupported_fails_clearly(self, runner):
+        """An agent without an extended card yields a clear message."""
+        from a2a_handler.service import ExtendedCardNotSupportedError
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_extended_card.side_effect = ExtendedCardNotSupportedError(
+                "Test Agent does not offer an extended agent card"
+            )
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                card, ["get", "--url", "http://localhost:8000", "--extended"]
+            )
+
+            assert result.exit_code != 0
+            assert "does not offer an extended agent card" in result.output
+            assert "Traceback" not in result.output
+
     def test_card_get_connection_error(self, runner):
         """Test card get handles connection errors."""
         import httpx

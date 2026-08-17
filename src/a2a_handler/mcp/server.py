@@ -202,7 +202,16 @@ def create_mcp_server() -> FastMCP:
         return response
 
     @mcp.tool()
-    async def get_agent_card(agent_url: str) -> dict:
+    async def get_agent_card(
+        agent_url: str,
+        extended: bool = False,
+        bearer_token: str | None = None,
+        api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+    ) -> dict:
         """Retrieve an agent's card with full details.
 
         Fetches the agent card from the specified A2A agent URL. The agent card
@@ -211,6 +220,11 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent (e.g., "http://localhost:8000")
+            extended: If True, fetch the extended card agents offer to
+                     authenticated clients. Fails clearly when the agent does
+                     not offer one.
+            bearer_token: Optional bearer token for authentication
+            api_key: Optional API key for authentication
 
         Returns:
             The agent card as a dictionary with all available fields.
@@ -218,14 +232,29 @@ def create_mcp_server() -> FastMCP:
         logger.info("Getting agent card from %s", agent_url)
         try:
             validate_agent_url(agent_url)
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
         except InputValidationError as error:
             raise _validation_error(error) from error
 
-        credentials = _resolve_credentials(agent_url)
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
 
         async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            card = await service.get_card()
+            if extended:
+                card = await service.get_extended_card()
+            else:
+                card = await service.get_card()
 
             return to_json_dict(card)
 

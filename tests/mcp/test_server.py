@@ -157,6 +157,48 @@ async def test_get_agent_card_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_agent_card_extended() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "get_agent_card")
+
+    extended_card = _make_agent_card(name="ExtendedAgent")
+    mock_service = AsyncMock()
+    mock_service.get_extended_card.return_value = extended_card
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
+    ):
+        resp = await fn(agent_url="http://localhost:8000", extended=True)
+
+    assert resp["name"] == "ExtendedAgent"
+    mock_service.get_extended_card.assert_called_once_with()
+    mock_service.get_card.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_agent_card_extended_unsupported_raises_clear_error() -> None:
+    from a2a_handler.service import ExtendedCardNotSupportedError
+
+    server = create_mcp_server()
+    fn = _tool_fn(server, "get_agent_card")
+
+    mock_service = AsyncMock()
+    mock_service.get_extended_card.side_effect = ExtendedCardNotSupportedError(
+        "TestAgent does not offer an extended agent card"
+    )
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
+    ):
+        with pytest.raises(
+            ExtendedCardNotSupportedError, match="does not offer an extended"
+        ):
+            await fn(agent_url="http://localhost:8000", extended=True)
+
+
+@pytest.mark.asyncio
 async def test_get_agent_card_rejects_invalid_url() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "get_agent_card")
