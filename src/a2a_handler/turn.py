@@ -14,12 +14,12 @@ the rules stay in one testable place.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
 from a2a.client.errors import A2AClientError
-from a2a.types import Artifact, Message, Task
+from a2a.types import Artifact, Message, Part, Task
 
 from a2a_handler.common import get_logger
 from a2a_handler.service import (
@@ -115,6 +115,7 @@ class AgentTurn:
     text: str
     context_id: str | None = None
     task_id: str | None = None
+    attachments: Sequence[Part] | None = None
 
     result: TurnResult | None = None
     _task_id_seen: str | None = field(default=None, init=False)
@@ -203,6 +204,7 @@ class AgentTurn:
             self.text,
             context_id=self.context_id,
             task_id=task_id,
+            attachments=self.attachments,
         ):
             if event.task_id:
                 self._task_id_seen = event.task_id

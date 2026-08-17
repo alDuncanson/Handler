@@ -29,6 +29,8 @@ from a2a_handler.service import (
     A2AService,
     A2AResponse,
     StreamEvent,
+    attachment_part_from_spec,
+    build_data_part,
     part_data,
     part_file,
     part_kind,
@@ -64,6 +66,19 @@ def message() -> None:
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--text", "-t", help="Message text")
+@click.option(
+    "--file",
+    "-f",
+    "files",
+    multiple=True,
+    help="Attach a file: a local path is sent inline, an http(s) URL by reference (repeatable)",
+)
+@click.option(
+    "--data",
+    "data_values",
+    multiple=True,
+    help="Attach structured data as a JSON value (repeatable)",
+)
 @click.option("--stream", is_flag=True, help="Stream responses in real-time")
 @click.option(
     "--json",
@@ -94,6 +109,8 @@ def message_send(
     agent_url: Optional[str],
     server_name: Optional[str],
     text: Optional[str],
+    files: tuple[str, ...],
+    data_values: tuple[str, ...],
     stream: bool,
     json_payload: Optional[str],
     context_id: Optional[str],
@@ -114,6 +131,9 @@ def message_send(
       $ handler message send --server my_agent --text "Hello" --stream
       $ handler message send --server my_agent --text "Follow up" --continue
       $ handler message send --url http://localhost:8000 --bearer-env MY_TOKEN --text "Hi"
+      $ handler message send --server my_agent --text "review this" --file ./report.pdf
+      $ handler message send --server my_agent --file https://example.com/report.pdf
+      $ handler message send --server my_agent --data '{"key": "value"}'
     """
     output = Output()
     payload: dict[str, Any] = {}
@@ -140,12 +160,19 @@ def message_send(
                 "json_payload",
             )
 
+        attachments = _build_attachments(files, data_values)
+
         if text is None:
-            text = payload.get("text") or payload.get("message")  # type: ignore[assignment]
-            if not isinstance(text, str) or not text:
+            payload_text = payload.get("text") or payload.get("message")
+            if isinstance(payload_text, str) and payload_text:
+                text = payload_text
+            elif not attachments:
                 raise InputValidationError(
                     code="missing_message_text",
-                    message="Provide message text as argument or in --json payload",
+                    message=(
+                        "Provide message text as argument or in --json payload, "
+                        "or attach content with --file/--data"
+                    ),
                     suggestion='Pass --text or include {"text": "..."} in --json',
                 )
 
@@ -185,7 +212,7 @@ def message_send(
         handle_validation_error(error, output)
         raise click.Abort() from error
 
-    assert text is not None
+    message_text = text or ""
 
     log.info("Sending message to %s", resolved_url)
 
@@ -244,10 +271,21 @@ def message_send(
 
                 if stream:
                     await _stream_message(
-                        service, text, context_id, task_id, resolved_url, output
+                        service,
+                        message_text,
+                        context_id,
+                        task_id,
+                        resolved_url,
+                        output,
+                        attachments=attachments or None,
                     )
                 else:
-                    response = await service.send(text, context_id, task_id)
+                    response = await service.send(
+                        message_text,
+                        context_id,
+                        task_id,
+                        attachments=attachments or None,
+                    )
                     update_session(
                         resolved_url,
                         response_context_id(response),
@@ -262,10 +300,49 @@ def message_send(
     asyncio.run(do_send())
 
 
+def _build_attachments(
+    files: tuple[str, ...],
+    data_values: tuple[str, ...],
+) -> list[Part]:
+    """Build non-text parts from --file and --data option values.
+
+    Raises InputValidationError for an unreadable/oversized file or invalid
+    JSON, so callers handle it alongside the other input checks.
+    """
+    attachments: list[Part] = []
+    for file_spec in files:
+        attachments.append(attachment_part_from_spec(file_spec))
+    for raw_value in data_values:
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise InputValidationError(
+                code="invalid_json",
+                message="--data is not valid JSON",
+                suggestion='Pass a JSON value, e.g. --data \'{"key": "value"}\'',
+                details={"field": "data", "error": str(exc)},
+            ) from exc
+        attachments.append(build_data_part(value))
+    return attachments
+
+
 @message.command("stream")
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-@click.option("--text", "-t", required=True, help="Message text")
+@click.option("--text", "-t", help="Message text")
+@click.option(
+    "--file",
+    "-f",
+    "files",
+    multiple=True,
+    help="Attach a file: a local path is sent inline, an http(s) URL by reference (repeatable)",
+)
+@click.option(
+    "--data",
+    "data_values",
+    multiple=True,
+    help="Attach structured data as a JSON value (repeatable)",
+)
 @click.option("--context-id", help="Context ID for conversation continuity")
 @click.option("--task-id", help="Task ID to continue")
 @click.option(
@@ -291,7 +368,9 @@ def message_stream(
     ctx: click.Context,
     agent_url: Optional[str],
     server_name: Optional[str],
-    text: str,
+    text: Optional[str],
+    files: tuple[str, ...],
+    data_values: tuple[str, ...],
     context_id: Optional[str],
     task_id: Optional[str],
     use_session: bool,
@@ -308,12 +387,15 @@ def message_stream(
       $ handler message stream --server my_agent --text "Hello"
       $ handler message stream --url http://localhost:8000 --text "Hello"
       $ handler message stream --server my_agent --text "Follow up" --continue
+      $ handler message stream --server my_agent --text "review this" --file ./report.pdf
     """
     ctx.invoke(
         message_send,
         agent_url=agent_url,
         server_name=server_name,
         text=text,
+        files=files,
+        data_values=data_values,
         stream=True,
         context_id=context_id,
         task_id=task_id,
@@ -333,6 +415,7 @@ async def _stream_message(
     task_id: Optional[str],
     agent_url: str,
     output: Output,
+    attachments: Sequence[Part] | None = None,
 ) -> None:
     """Stream a message and handle events."""
     last_context_id: str | None = None
@@ -345,7 +428,7 @@ async def _stream_message(
     last_output_was_text = False
     emitted_full_task_id: str | None = None
 
-    async for event in service.stream(text, context_id, task_id):
+    async for event in service.stream(text, context_id, task_id, attachments):
         last_context_id = event.context_id or last_context_id
         last_task_id = event.task_id or last_task_id
         if event.task:

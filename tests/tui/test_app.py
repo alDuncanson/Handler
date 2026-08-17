@@ -96,8 +96,18 @@ def _stub_stream(mock_service: AsyncMock, turns: list[_TurnPayload]) -> list[obj
     """
     calls: list[object] = []
 
-    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001
-        calls.append(call(text, context_id=context_id, task_id=task_id))
+    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001
+        if attachments is not None:
+            calls.append(
+                call(
+                    text,
+                    context_id=context_id,
+                    task_id=task_id,
+                    attachments=attachments,
+                )
+            )
+        else:
+            calls.append(call(text, context_id=context_id, task_id=task_id))
         payload = turns[min(len(calls) - 1, len(turns) - 1)]
 
         async def events():
@@ -1829,6 +1839,126 @@ async def test_send_button_submits_typed_message_through_ui() -> None:
 
 
 @pytest.mark.asyncio
+async def test_attached_file_is_sent_with_the_next_message(tmp_path) -> None:
+    """A queued attachment rides along with the next send, then clears."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-1.4 fake")
+
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = make_agent_card(name="Demo Agent")
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="Received your file")],
+        context_id="ctx-response",
+        task_id="task-response",
+    )
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        stream_calls = _stub_stream(mock_service, [response_message])
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            workspace._handle_attach_result(str(report))
+            await pilot.pause()
+
+            attachment_line = workspace.query_one("#attachment-line", Static)
+            assert not attachment_line.has_class("hidden")
+            assert "report.pdf" in str(attachment_line.render())
+
+            message_input = workspace.query_one("#message-input", Input)
+            message_input.value = "review this"
+            workspace.handle_send_button()
+            await pilot.pause()
+
+            assert len(stream_calls) == 1
+            sent_call = stream_calls[0]
+            assert isinstance(sent_call, type(call()))
+            sent_attachments = sent_call.kwargs["attachments"]
+            assert len(sent_attachments) == 1
+            assert sent_attachments[0].filename == "report.pdf"
+            assert sent_attachments[0].raw == b"%PDF-1.4 fake"
+
+            assert attachment_line.has_class("hidden")
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("[attached: report.pdf" in text for text in chat_texts)
+
+
+async def test_attach_rejects_a_missing_file(tmp_path) -> None:
+    """A bad attachment path is reported and nothing is queued."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = make_agent_card(name="Demo Agent")
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            workspace._handle_attach_result(str(tmp_path / "absent.pdf"))
+            await pilot.pause()
+
+            assert workspace._pending_attachments == []
+            attachment_line = workspace.query_one("#attachment-line", Static)
+            assert attachment_line.has_class("hidden")
+            chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("Attach failed" in text for text in chat_texts)
+
+
 async def test_send_shows_loading_indicator_while_waiting_for_response() -> None:
     """Slow A2A responses should show an in-flight loading indicator."""
     repo_connection = _make_server(
@@ -1849,7 +1979,7 @@ async def test_send_shows_loading_indicator_while_waiting_for_response() -> None
     send_started = asyncio.Event()
     release_response = asyncio.Event()
 
-    def slow_stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+    def slow_stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
         async def events():
             send_started.set()
             await release_response.wait()
@@ -2087,7 +2217,7 @@ async def test_streaming_updates_render_before_the_turn_finishes() -> None:
         text="Finishing up",
     )
 
-    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
         async def events():
             yield working
             streaming_started.set()
@@ -2225,7 +2355,7 @@ async def test_cancel_button_stops_the_turn_and_asks_the_agent() -> None:
         text="Working on it",
     )
 
-    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
         async def events():
             yield working
             streaming_started.set()
@@ -2301,7 +2431,7 @@ async def test_cancel_before_any_text_says_so_plainly() -> None:
         ),
     )
 
-    def stream(text, *, context_id=None, task_id=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
         async def events():
             yield silent
             started.set()

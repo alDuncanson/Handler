@@ -8,7 +8,7 @@ from collections.abc import Generator
 from typing import Any
 
 import httpx
-from a2a.types import AgentCard, Message as A2AMessage, Role, Task, TaskState
+from a2a.types import AgentCard, Message as A2AMessage, Part, Role, Task, TaskState
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -31,8 +31,10 @@ from a2a_handler.servers import (
 )
 from a2a_handler.service import (
     A2AService,
+    attachment_part_from_spec,
     card_protocol_version,
     extract_text_from_message_parts,
+    part_file,
     response_task_id,
     response_state,
     state_label,
@@ -59,6 +61,15 @@ logger = get_logger(__name__)
 # How long to let an agent acknowledge a cancel before stopping locally.
 CANCEL_GRACE_SECONDS = 2.0
 CANCEL_POLL_SECONDS = 0.05
+
+
+def _attachment_label(part: Part) -> str:
+    """Return a short composer label for a queued attachment part."""
+    info = part_file(part)
+    name = info.get("name") or info.get("uri") or "attachment"
+    if "num_bytes" in info:
+        return f"{name} ({info['num_bytes']} bytes)"
+    return str(name)
 
 
 class ServerTab(Container):
@@ -99,6 +110,7 @@ class ServerTab(Container):
         self._log_lines: list[str] = []
         self._active_turn: AgentTurn | None = None
         self._send_worker: Worker[None] | None = None
+        self._pending_attachments: list[tuple[str, Part]] = []
 
     def compose(self) -> ComposeResult:
         yield ServerView()
@@ -641,6 +653,49 @@ class ServerTab(Container):
             return
         self._send_worker = self._send_message()
 
+    @on(Button.Pressed, "#attach-btn")
+    def _handle_attach_pressed(self) -> None:
+        self.prompt_attach_file()
+
+    def prompt_attach_file(self) -> None:
+        """Ask for a path or URL and queue it for the next message."""
+        if not self.is_connected:
+            return
+        # Imported here: a module-level import is circular through
+        # tui.commands.palette, which imports the server tab widgets.
+        from a2a_handler.tui.commands.screens import TextPromptScreen
+
+        self.app.push_screen(
+            TextPromptScreen(
+                "Attach File",
+                "Local paths are sent inline; http(s) URLs are sent by reference.",
+                placeholder="./report.pdf or https://example.com/report.pdf",
+                confirm_label="Attach",
+            ),
+            callback=self._handle_attach_result,
+        )
+
+    def _handle_attach_result(self, spec: str | None) -> None:
+        """Queue an attachment from the prompt, or explain why it can't be."""
+        if not spec:
+            return
+        server_view = self._try_get_server_view()
+        if server_view is None:
+            return
+        try:
+            part = attachment_part_from_spec(spec)
+        except InputValidationError as error:
+            detail = error.message
+            if error.suggestion:
+                detail = f"{detail}. {error.suggestion}"
+            server_view.messages_panel().add_system_message(f"Attach failed: {detail}")
+            return
+        self._pending_attachments.append((_attachment_label(part), part))
+        server_view.input_panel().show_attachments(
+            [label for label, _ in self._pending_attachments]
+        )
+        server_view.input_panel().focus_input()
+
     @on(Button.Pressed, "#cancel-btn")
     async def _handle_cancel_pressed(self) -> None:
         await self.cancel_active_turn()
@@ -703,11 +758,17 @@ class ServerTab(Container):
 
         input_panel = server_view.input_panel()
         message_text = input_panel.get_message()
-        if not message_text:
+        attachment_labels = [label for label, _ in self._pending_attachments]
+        attachments = [part for _, part in self._pending_attachments]
+        if not message_text and not attachments:
             return
+        self._pending_attachments = []
+        input_panel.show_attachments([])
 
         messages_panel = server_view.messages_panel()
-        messages_panel.add_message("user", message_text)
+        display_lines = [message_text] if message_text else []
+        display_lines.extend(f"[attached: {label}]" for label in attachment_labels)
+        messages_panel.add_message("user", "\n".join(display_lines))
 
         try:
             credentials = messages_panel.get_auth_credentials()
@@ -726,6 +787,7 @@ class ServerTab(Container):
             text=message_text,
             context_id=self.state.current_context_id,
             task_id=self.state.current_task_id,
+            attachments=attachments or None,
         )
         self._active_turn = turn
         live = messages_panel.begin_agent_stream()
