@@ -67,6 +67,7 @@ def test_mcp_server_registers_core_tools() -> None:
 
     assert "send_message" in names
     assert "get_task" in names
+    assert "list_tasks" in names
     assert "set_task_notification" in names
     assert "list_sessions" in names
 
@@ -317,6 +318,63 @@ async def test_get_task_rejects_invalid_task_id() -> None:
 
     with pytest.raises(ValueError, match="invalid_control_chars"):
         await fn(agent_url="http://localhost:8000", task_id="bad\x00id")
+
+
+# ---------------------------------------------------------------------------
+# list_tasks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_success() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    tasks = [
+        _make_task(task_id="task-1", state=TaskState.TASK_STATE_COMPLETED),
+        _make_task(task_id="task-2", state=TaskState.TASK_STATE_WORKING),
+    ]
+
+    mock_service = AsyncMock()
+    mock_service.list_all_tasks.return_value = tasks
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
+    ):
+        resp = await fn(
+            agent_url="http://localhost:8000",
+            context_id="ctx-1",
+            status="completed",
+        )
+
+    assert resp["count"] == 2
+    assert resp["tasks"][0]["id"] == "task-1"
+    mock_service.list_all_tasks.assert_called_once_with(
+        context_id="ctx-1",
+        status=TaskState.TASK_STATE_COMPLETED,
+        page_size=None,
+        history_length=None,
+        include_artifacts=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_rejects_invalid_url() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    with pytest.raises(ValueError, match="invalid_agent_url"):
+        await fn(agent_url="nope")
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_rejects_unknown_status() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    with pytest.raises(ValueError, match="invalid_task_state"):
+        await fn(agent_url="http://localhost:8000", status="sleeping")
 
 
 # ---------------------------------------------------------------------------

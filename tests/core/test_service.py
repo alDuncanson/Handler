@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from a2a.types import (
+    ListTasksResponse,
     Message,
     Part,
     Role,
@@ -14,13 +15,14 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from typing import cast
+from typing import Any, cast
 
 from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     A2AService,
     StreamEvent,
+    TASK_STATE_LABELS,
     TERMINAL_TASK_STATES,
     extract_text,
     extract_text_from_task,
@@ -31,6 +33,7 @@ from a2a_handler.service import (
     response_needs_auth,
     response_state,
     response_task_id,
+    task_state_from_label,
 )
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -443,6 +446,119 @@ class TestExtractTextFromTask:
 
         result = extract_text_from_task(task)
         assert result == ""
+
+
+class TestTaskStateLabels:
+    """Tests for the state-label parsing used by task listing filters."""
+
+    def test_labels_cover_every_real_state(self):
+        assert "completed" in TASK_STATE_LABELS
+        assert "input_required" in TASK_STATE_LABELS
+        assert "unspecified" not in TASK_STATE_LABELS
+
+    def test_label_round_trips(self):
+        assert task_state_from_label("completed") == TaskState.TASK_STATE_COMPLETED
+
+    def test_label_accepts_hyphens(self):
+        assert (
+            task_state_from_label("input-required")
+            == TaskState.TASK_STATE_INPUT_REQUIRED
+        )
+
+    def test_unknown_label_is_rejected(self):
+        with pytest.raises(InputValidationError) as exc_info:
+            task_state_from_label("sleeping")
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "invalid_task_state"
+
+
+class _FakeListTasksClient:
+    """Replays one ListTasksResponse per call, recording each request."""
+
+    def __init__(self, pages: list[ListTasksResponse]) -> None:
+        self.pages = pages
+        self.requests: list[Any] = []
+
+    async def list_tasks(self, request):
+        self.requests.append(request)
+        index = min(len(self.requests) - 1, len(self.pages) - 1)
+        return self.pages[index]
+
+
+@pytest.mark.asyncio
+class TestA2AServiceListTasks:
+    """Tests for A2AService.list_tasks and list_all_tasks."""
+
+    def _service_with(self, fake_client: _FakeListTasksClient) -> A2AService:
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+
+        async def _get_client():
+            return fake_client
+
+        service._get_or_create_client = _get_client  # type: ignore[method-assign]
+        return service
+
+    async def test_list_tasks_passes_filters_through(self):
+        page = ListTasksResponse(tasks=[_make_task(TaskState.TASK_STATE_COMPLETED)])
+        fake_client = _FakeListTasksClient([page])
+        service = self._service_with(fake_client)
+
+        response = await service.list_tasks(
+            context_id="ctx-1",
+            status=TaskState.TASK_STATE_COMPLETED,
+            page_size=25,
+            history_length=5,
+            include_artifacts=True,
+        )
+
+        assert len(response.tasks) == 1
+        request = fake_client.requests[0]
+        assert request.context_id == "ctx-1"
+        assert request.status == TaskState.TASK_STATE_COMPLETED
+        assert request.page_size == 25
+        assert request.history_length == 5
+        assert request.include_artifacts is True
+
+    async def test_list_tasks_rejects_bad_context_id(self):
+        service = self._service_with(_FakeListTasksClient([ListTasksResponse()]))
+        with pytest.raises(InputValidationError):
+            await service.list_tasks(context_id="ctx?bad")
+
+    async def test_list_all_tasks_follows_pages(self):
+        pages = [
+            ListTasksResponse(
+                tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")],
+                next_page_token="page-2",
+            ),
+            ListTasksResponse(
+                tasks=[_make_task(TaskState.TASK_STATE_WORKING, task_id="task-2")],
+            ),
+        ]
+        fake_client = _FakeListTasksClient(pages)
+        service = self._service_with(fake_client)
+
+        tasks = await service.list_all_tasks(page_size=1)
+
+        assert [item.id for item in tasks] == ["task-1", "task-2"]
+        assert len(fake_client.requests) == 2
+        assert fake_client.requests[1].page_token == "page-2"
+
+    async def test_list_all_tasks_stops_on_repeated_token(self):
+        page = ListTasksResponse(
+            tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")],
+            next_page_token="same-token",
+        )
+        fake_client = _FakeListTasksClient([page])
+        service = self._service_with(fake_client)
+
+        tasks = await service.list_all_tasks()
+
+        # First call, then one follow-up with the token; the repeat stops it.
+        assert len(fake_client.requests) == 2
+        assert len(tasks) == 2
 
 
 class _FakeStreamingClient:

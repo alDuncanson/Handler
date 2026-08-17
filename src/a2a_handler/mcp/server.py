@@ -29,6 +29,7 @@ from a2a_handler.service import (
     push_config_dump,
     response_context_id,
     response_task_id,
+    task_state_from_label,
     to_json_dict,
 )
 from a2a_handler.session import (
@@ -385,6 +386,82 @@ def create_mcp_server() -> FastMCP:
             task = await service.get_task(task_id, history_length)
 
             return protocol_dump(task)
+
+    @mcp.tool()
+    async def list_tasks(
+        agent_url: str,
+        context_id: str | None = None,
+        status: str | None = None,
+        page_size: int | None = None,
+        history_length: int | None = None,
+        include_artifacts: bool = False,
+        bearer_token: str | None = None,
+        api_key: str | None = None,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_cert_path: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+    ) -> dict:
+        """List an agent's tasks, following pagination to the end.
+
+        Retrieves every task the agent will show this client, optionally
+        filtered by context or state.
+
+        Args:
+            agent_url: Base URL of the A2A agent
+            context_id: Only list tasks in this context
+            status: Only list tasks in this state (e.g., "completed",
+                   "working", "input_required")
+            page_size: Tasks per request page (all pages are still fetched)
+            history_length: History messages to include per task
+            include_artifacts: Whether to include task artifacts
+            bearer_token: Optional bearer token for authentication
+            api_key: Optional API key for authentication
+
+        Returns:
+            A dictionary containing:
+            - count: Number of tasks returned
+            - tasks: The tasks in A2A wire format
+        """
+        logger.info("Listing tasks at %s", agent_url)
+        status_value: int | None = None
+        try:
+            validate_agent_url(agent_url)
+            if context_id:
+                validate_resource_id(context_id, "context_id")
+            if status:
+                status_value = task_state_from_label(status)
+            if bearer_token:
+                reject_control_chars(bearer_token, "bearer_token")
+            if api_key:
+                reject_control_chars(api_key, "api_key")
+        except InputValidationError as error:
+            raise _validation_error(error) from error
+
+        credentials = _resolve_credentials(
+            agent_url,
+            bearer_token,
+            api_key,
+            cert_path,
+            key_path,
+            ca_cert_path,
+            custom_headers,
+        )
+
+        async with _build_http_client(credentials=credentials) as http_client:
+            service = A2AService(http_client, agent_url, credentials=credentials)
+            tasks = await service.list_all_tasks(
+                context_id=context_id,
+                status=status_value,
+                page_size=page_size,
+                history_length=history_length,
+                include_artifacts=include_artifacts,
+            )
+
+            return {
+                "count": len(tasks),
+                "tasks": [protocol_dump(task) for task in tasks],
+            }
 
     @mcp.tool()
     async def cancel_task(
