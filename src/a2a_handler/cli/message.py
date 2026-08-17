@@ -75,6 +75,23 @@ def message() -> None:
 @click.option(
     "--continue", "-C", "use_session", is_flag=True, help="Continue from saved session"
 )
+@click.option(
+    "--accept",
+    "accepted_output_modes",
+    multiple=True,
+    help="Media type the client can render (repeatable, e.g. text/plain)",
+)
+@click.option(
+    "--history-length",
+    type=int,
+    help="History messages the agent should include on the task",
+)
+@click.option(
+    "--no-wait",
+    is_flag=True,
+    help="Return as soon as the agent acknowledges with a task instead of "
+    "waiting for completion",
+)
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option(
@@ -99,6 +116,9 @@ def message_send(
     context_id: Optional[str],
     task_id: Optional[str],
     use_session: bool,
+    accepted_output_modes: tuple[str, ...],
+    history_length: Optional[int],
+    no_wait: bool,
     push_url: Optional[str],
     push_token: Optional[str],
     bearer_env: Optional[str],
@@ -114,6 +134,8 @@ def message_send(
       $ handler message send --server my_agent --text "Hello" --stream
       $ handler message send --server my_agent --text "Follow up" --continue
       $ handler message send --url http://localhost:8000 --bearer-env MY_TOKEN --text "Hi"
+      $ handler message send --server my_agent --text "Render this" --accept text/plain
+      $ handler message send --server my_agent --text "Long job" --no-wait
     """
     output = Output()
     payload: dict[str, Any] = {}
@@ -181,6 +203,17 @@ def message_send(
             validate_webhook_url(push_url)
         if push_token:
             reject_control_chars(push_token, "push_token")
+        for output_mode in accepted_output_modes:
+            reject_control_chars(output_mode, "accept")
+        if no_wait and stream:
+            raise InputValidationError(
+                code="conflicting_options",
+                message="--no-wait cannot be combined with --stream",
+                suggestion=(
+                    "Use --no-wait to get a task ID back, then "
+                    "'handler task resubscribe' to watch it"
+                ),
+            )
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -244,10 +277,24 @@ def message_send(
 
                 if stream:
                     await _stream_message(
-                        service, text, context_id, task_id, resolved_url, output
+                        service,
+                        text,
+                        context_id,
+                        task_id,
+                        resolved_url,
+                        output,
+                        accepted_output_modes=accepted_output_modes or None,
+                        history_length=history_length,
                     )
                 else:
-                    response = await service.send(text, context_id, task_id)
+                    response = await service.send(
+                        text,
+                        context_id,
+                        task_id,
+                        accepted_output_modes=accepted_output_modes or None,
+                        history_length=history_length,
+                        return_immediately=no_wait,
+                    )
                     update_session(
                         resolved_url,
                         response_context_id(response),
@@ -270,6 +317,17 @@ def message_send(
 @click.option("--task-id", help="Task ID to continue")
 @click.option(
     "--continue", "-C", "use_session", is_flag=True, help="Continue from saved session"
+)
+@click.option(
+    "--accept",
+    "accepted_output_modes",
+    multiple=True,
+    help="Media type the client can render (repeatable, e.g. text/plain)",
+)
+@click.option(
+    "--history-length",
+    type=int,
+    help="History messages the agent should include on the task",
 )
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
@@ -295,6 +353,8 @@ def message_stream(
     context_id: Optional[str],
     task_id: Optional[str],
     use_session: bool,
+    accepted_output_modes: tuple[str, ...],
+    history_length: Optional[int],
     push_url: Optional[str],
     push_token: Optional[str],
     bearer_env: Optional[str],
@@ -318,6 +378,9 @@ def message_stream(
         context_id=context_id,
         task_id=task_id,
         use_session=use_session,
+        accepted_output_modes=accepted_output_modes,
+        history_length=history_length,
+        no_wait=False,
         push_url=push_url,
         push_token=push_token,
         bearer_env=bearer_env,
@@ -333,6 +396,8 @@ async def _stream_message(
     task_id: Optional[str],
     agent_url: str,
     output: Output,
+    accepted_output_modes: tuple[str, ...] | None = None,
+    history_length: Optional[int] = None,
 ) -> None:
     """Stream a message and handle events."""
     last_context_id: str | None = None
@@ -345,7 +410,13 @@ async def _stream_message(
     last_output_was_text = False
     emitted_full_task_id: str | None = None
 
-    async for event in service.stream(text, context_id, task_id):
+    async for event in service.stream(
+        text,
+        context_id,
+        task_id,
+        accepted_output_modes=accepted_output_modes,
+        history_length=history_length,
+    ):
         last_context_id = event.context_id or last_context_id
         last_task_id = event.task_id or last_task_id
         if event.task:

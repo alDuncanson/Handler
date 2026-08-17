@@ -11,7 +11,7 @@ directly.
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Iterable, Union
+from typing import Any, AsyncIterator, Iterable, Sequence, Union
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
@@ -25,6 +25,7 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    SendMessageConfiguration,
     SendMessageRequest,
     StreamResponse,
     SubscribeToTaskRequest,
@@ -576,21 +577,12 @@ class A2AService:
         if self._cached_client is None:
             agent_card = await self._load_agent_card()
 
-            push_notification_config: TaskPushNotificationConfig | None = None
-            if self.push_notification_url:
-                push_notification_config = TaskPushNotificationConfig(
-                    url=self.push_notification_url,
-                    token=self.push_notification_token or "",
-                )
-                logger.info(
-                    "Push notification configured: %s", self.push_notification_url
-                )
-
+            # Push config is attached per message via SendMessageConfiguration
+            # (where the protocol carries it), not through ClientConfig.
             client_config = ClientConfig(
                 httpx_client=self.http_client,
                 supported_protocol_bindings=[TransportProtocol.JSONRPC.value],
                 streaming=self.enable_streaming,
-                push_notification_config=push_notification_config,
             )
 
             client_factory = ClientFactory(client_config)
@@ -637,25 +629,101 @@ class A2AService:
             task_id=task_id or "",
         )
 
+    def _build_send_configuration(
+        self,
+        accepted_output_modes: Sequence[str] | None,
+        history_length: int | None,
+        return_immediately: bool,
+    ) -> SendMessageConfiguration | None:
+        """Build the per-message configuration, or None when nothing is set.
+
+        The service's push notification settings ride along here on every
+        message; ``SendMessageConfiguration`` is where the protocol carries
+        them.
+        """
+        push_config: TaskPushNotificationConfig | None = None
+        if self.push_notification_url:
+            push_config = TaskPushNotificationConfig(
+                url=self.push_notification_url,
+                token=self.push_notification_token or "",
+            )
+
+        if not (
+            accepted_output_modes
+            or history_length is not None
+            or return_immediately
+            or push_config is not None
+        ):
+            return None
+
+        configuration = SendMessageConfiguration(
+            return_immediately=return_immediately,
+        )
+        if accepted_output_modes:
+            configuration.accepted_output_modes.extend(accepted_output_modes)
+        if history_length is not None:
+            configuration.history_length = history_length
+        if push_config is not None:
+            configuration.task_push_notification_config.CopyFrom(push_config)
+        return configuration
+
+    def _build_send_request(
+        self,
+        message_text: str,
+        context_id: str | None,
+        task_id: str | None,
+        accepted_output_modes: Sequence[str] | None,
+        history_length: int | None,
+        return_immediately: bool,
+    ) -> SendMessageRequest:
+        """Build a send request with its message and optional configuration."""
+        user_message = self._build_user_message(message_text, context_id, task_id)
+        request = SendMessageRequest(message=user_message)
+        configuration = self._build_send_configuration(
+            accepted_output_modes, history_length, return_immediately
+        )
+        if configuration is not None:
+            request.configuration.CopyFrom(configuration)
+        return request
+
     async def send(
         self,
         message_text: str,
         context_id: str | None = None,
         task_id: str | None = None,
+        *,
+        accepted_output_modes: Sequence[str] | None = None,
+        history_length: int | None = None,
+        return_immediately: bool = False,
     ) -> Task | Message:
         """Send a message to the agent and wait for completion.
+
+        Args:
+            message_text: Message content
+            context_id: Optional context ID for conversation continuity
+            task_id: Optional task ID to continue
+            accepted_output_modes: Media types the client can render
+            history_length: History messages the agent should return per task
+            return_immediately: Ask the agent to acknowledge with a task
+                right away instead of blocking until completion
 
         Returns the raw A2A protocol response (Task or Message).
         """
         client = await self._get_or_create_client()
-        user_message = self._build_user_message(message_text, context_id, task_id)
 
         truncated_message = (
             message_text[:50] if len(message_text) > 50 else message_text
         )
         logger.info("Sending message: %s", truncated_message)
 
-        request = SendMessageRequest(message=user_message)
+        request = self._build_send_request(
+            message_text,
+            context_id,
+            task_id,
+            accepted_output_modes,
+            history_length,
+            return_immediately,
+        )
 
         last_task: Task | None = None
         last_message: Message | None = None
@@ -682,6 +750,10 @@ class A2AService:
         message_text: str,
         context_id: str | None = None,
         task_id: str | None = None,
+        *,
+        accepted_output_modes: Sequence[str] | None = None,
+        history_length: int | None = None,
+        return_immediately: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Send a message and stream responses as they arrive.
 
@@ -689,19 +761,29 @@ class A2AService:
             message_text: Message to send
             context_id: Optional context ID for conversation continuity
             task_id: Optional task ID to continue
+            accepted_output_modes: Media types the client can render
+            history_length: History messages the agent should return per task
+            return_immediately: Ask the agent to acknowledge with a task
+                right away instead of blocking until completion
 
         Yields:
             StreamEvent objects as they are received
         """
         client = await self._get_or_create_client()
-        user_message = self._build_user_message(message_text, context_id, task_id)
 
         truncated_message = (
             message_text[:50] if len(message_text) > 50 else message_text
         )
         logger.info("Streaming message: %s", truncated_message)
 
-        request = SendMessageRequest(message=user_message)
+        request = self._build_send_request(
+            message_text,
+            context_id,
+            task_id,
+            accepted_output_modes,
+            history_length,
+            return_immediately,
+        )
 
         async for event in _translate_stream(client.send_message(request)):
             yield event

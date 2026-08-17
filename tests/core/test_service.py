@@ -448,14 +448,97 @@ class TestExtractTextFromTask:
 class _FakeStreamingClient:
     def __init__(self, events):
         self._events = events
+        self.requests = []
 
-    async def send_message(self, _message):
+    async def send_message(self, request):
+        self.requests.append(request)
         for event in self._events:
             yield event
 
     async def subscribe(self, _task_id_params):
         for event in self._events:
             yield event
+
+
+@pytest.mark.asyncio
+class TestA2AServiceSendConfiguration:
+    """Tests for SendMessageConfiguration on outgoing requests."""
+
+    def _service_with(
+        self,
+        fake_client: _FakeStreamingClient,
+        **service_kwargs,
+    ) -> A2AService:
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+            **service_kwargs,
+        )
+
+        async def _get_client():
+            return fake_client
+
+        service._get_or_create_client = _get_client  # type: ignore[method-assign]
+        return service
+
+    def _fake_client(self) -> _FakeStreamingClient:
+        task = _make_task(TaskState.TASK_STATE_COMPLETED)
+        return _FakeStreamingClient(events=[make_stream_response(task=task)])
+
+    async def test_no_configuration_when_nothing_is_set(self):
+        fake_client = self._fake_client()
+        service = self._service_with(fake_client)
+
+        await service.send("hello")
+
+        request = fake_client.requests[0]
+        assert not request.HasField("configuration")
+
+    async def test_send_attaches_configuration_fields(self):
+        fake_client = self._fake_client()
+        service = self._service_with(fake_client)
+
+        await service.send(
+            "hello",
+            accepted_output_modes=["text/plain", "image/png"],
+            history_length=3,
+            return_immediately=True,
+        )
+
+        configuration = fake_client.requests[0].configuration
+        assert list(configuration.accepted_output_modes) == [
+            "text/plain",
+            "image/png",
+        ]
+        assert configuration.history_length == 3
+        assert configuration.return_immediately is True
+
+    async def test_stream_attaches_configuration_fields(self):
+        fake_client = self._fake_client()
+        service = self._service_with(fake_client)
+
+        async for _event in service.stream(
+            "hello", accepted_output_modes=["text/plain"]
+        ):
+            pass
+
+        configuration = fake_client.requests[0].configuration
+        assert list(configuration.accepted_output_modes) == ["text/plain"]
+
+    async def test_push_config_rides_on_every_message(self):
+        fake_client = self._fake_client()
+        service = self._service_with(
+            fake_client,
+            push_notification_url="https://hooks.example.com/notify",
+            push_notification_token="hook-token",
+        )
+
+        await service.send("hello")
+
+        configuration = fake_client.requests[0].configuration
+        push_config = configuration.task_push_notification_config
+        assert push_config.url == "https://hooks.example.com/notify"
+        assert push_config.token == "hook-token"
 
 
 class _FakePushConfigClient:
