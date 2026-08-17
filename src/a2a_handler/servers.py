@@ -79,6 +79,8 @@ class ServerDefinition:
     agent_url: str
     auth: ServerAuthConfig | None = None
     origin_label: str = ""
+    #: A2A extension URIs to request on every call to this server.
+    extensions: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -447,6 +449,10 @@ def _parse_server(
     if "auth" in server_table:
         auth = _parse_server_auth(server_table.get("auth"))
 
+    extensions: tuple[str, ...] = ()
+    if "extensions" in server_table:
+        extensions = _parse_server_extensions(server_table.get("extensions"))
+
     return ServerDefinition(
         server_id=f"{source.value}:{name}",
         source=source,
@@ -454,7 +460,26 @@ def _parse_server(
         agent_url=raw_url,
         auth=auth,
         origin_label=server_source_label(source),
+        extensions=extensions,
     )
+
+
+def _parse_server_extensions(extensions_data: object) -> tuple[str, ...]:
+    """Validate a server's requested A2A extension URI list."""
+    if not isinstance(extensions_data, list) or not all(
+        isinstance(uri, str) for uri in extensions_data
+    ):
+        raise ServerConfigError("extensions must be a list of strings")
+    validated: list[str] = []
+    for uri in extensions_data:
+        if not isinstance(uri, str) or not uri.strip():
+            raise ServerConfigError("extensions entries must be non-empty strings")
+        try:
+            reject_control_chars(uri, "extensions")
+        except InputValidationError as error:
+            raise ServerConfigError(error.message) from error
+        validated.append(uri.strip())
+    return tuple(validated)
 
 
 def _parse_server_auth(auth_data: object) -> ServerAuthConfig:

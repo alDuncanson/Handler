@@ -289,6 +289,72 @@ class TestMessageSend:
             assert result.exit_code == 0
             mock_service.send.assert_called_once_with("Hello from json", "ctx-9", None)
 
+    def test_message_send_with_extensions(self, runner):
+        """--extension URIs reach the service so they land on the wire."""
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--text",
+                    "Hello",
+                    "--extension",
+                    "https://ext.example.com/traceability/v1",
+                    "--extension",
+                    "urn:x:custom",
+                ],
+            )
+
+            assert result.exit_code == 0
+            call_kwargs = mock_service_cls.call_args.kwargs
+            assert call_kwargs["extensions"] == [
+                "https://ext.example.com/traceability/v1",
+                "urn:x:custom",
+            ]
+
+    def test_message_send_without_extensions_passes_none(self, runner):
+        """No extension flags means no A2A-Extensions header is requested."""
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="Response")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                ["send", "--url", "http://localhost:8000", "--text", "Hello"],
+            )
+
+            assert result.exit_code == 0
+            assert mock_service_cls.call_args.kwargs["extensions"] is None
+
     def test_message_send_json_requires_text(self, runner):
         """Test message send fails when text is missing in both argument and json."""
         result = runner.invoke(

@@ -22,6 +22,7 @@ from a2a import helpers
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
+    AgentExtension,
     AgentInterface,
     AgentSkill,
     Artifact,
@@ -201,6 +202,7 @@ def make_agent_card(
     protocol_version: str = "1.0",
     streaming: bool = True,
     push_notifications: bool = False,
+    extensions: Sequence[AgentExtension] | None = None,
     skills: Sequence[AgentSkill] | None = None,
     default_input_modes: Sequence[str] = ("text",),
     default_output_modes: Sequence[str] = ("text",),
@@ -220,6 +222,7 @@ def make_agent_card(
         capabilities=AgentCapabilities(
             streaming=streaming,
             push_notifications=push_notifications,
+            extensions=list(extensions) if extensions else None,
         ),
         default_input_modes=list(default_input_modes),
         default_output_modes=list(default_output_modes),
