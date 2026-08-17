@@ -36,6 +36,11 @@ def card() -> None:
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option(
+    "--extended",
+    is_flag=True,
+    help="Fetch the extended card offered to authenticated clients",
+)
+@click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )
 @click.option(
@@ -44,6 +49,7 @@ def card() -> None:
 def card_get(
     agent_url: Optional[str],
     server_name: Optional[str],
+    extended: bool,
     bearer_env: Optional[str],
     api_key_env: Optional[str],
 ) -> None:
@@ -54,6 +60,7 @@ def card_get(
       $ handler card get --server my_agent
       $ handler card get --url http://localhost:8000
       $ handler card get --url http://localhost:8000 --bearer-env MY_TOKEN
+      $ handler card get --url http://localhost:8000 --extended --bearer-env MY_TOKEN
     """
     output = Output()
 
@@ -74,7 +81,10 @@ def card_get(
         try:
             async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, resolved_url, credentials=credentials)
-                card_data = await service.get_card()
+                if extended:
+                    card_data = await service.get_extended_card()
+                else:
+                    card_data = await service.get_card()
                 log.info("Retrieved card for agent: %s", card_data.name)
 
                 _format_agent_card(card_data, output)
