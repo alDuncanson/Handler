@@ -308,6 +308,124 @@ class TestServerAdd:
         assert data["servers"]["demo"]["auth"]["cert"] == "/path/to/cert.pem"
         assert data["servers"]["demo"]["auth"]["key"] == "/path/to/key.pem"
 
+    def test_add_with_basic(self, runner: CliRunner, servers_dir: Path) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://legacy.example.com",
+                    "--basic-username",
+                    "alice",
+                    "--basic-password-env",
+                    "LEGACY_PASSWORD",
+                ],
+            )
+
+        assert result.exit_code == 0
+        data = tomllib.loads(path.read_text())
+        auth = data["servers"]["demo"]["auth"]
+        assert auth["type"] == "basic"
+        assert auth["username"] == "alice"
+        assert auth["env"] == "LEGACY_PASSWORD"
+
+    def test_add_rejects_partial_basic(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://legacy.example.com",
+                    "--basic-username",
+                    "alice",
+                ],
+            )
+
+        assert "basic-password-env" in result.output.lower().replace("_", "-")
+        assert not path.exists()
+
+    def test_add_with_oidc(self, runner: CliRunner, servers_dir: Path) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://agent.example.com",
+                    "--oidc-issuer-url",
+                    "https://auth.example.com",
+                    "--oidc-client-id-env",
+                    "SSO_CLIENT_ID",
+                    "--oidc-client-secret-env",
+                    "SSO_CLIENT_SECRET",
+                    "--oidc-scope",
+                    "openid",
+                ],
+            )
+
+        assert result.exit_code == 0
+        data = tomllib.loads(path.read_text())
+        auth = data["servers"]["demo"]["auth"]
+        assert auth["type"] == "oidc"
+        assert auth["issuer_url"] == "https://auth.example.com"
+        assert auth["client_id_env"] == "SSO_CLIENT_ID"
+        assert auth["client_secret_env"] == "SSO_CLIENT_SECRET"
+        assert auth["scopes"] == ["openid"]
+
+    def test_add_rejects_mixing_basic_and_oidc(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "https://agent.example.com",
+                    "--basic-username",
+                    "alice",
+                    "--basic-password-env",
+                    "PW",
+                    "--oidc-issuer-url",
+                    "https://auth.example.com",
+                ],
+            )
+
+        assert "only one auth method" in result.output.lower()
+        assert not path.exists()
+
     def test_add_with_oauth2(self, runner: CliRunner, servers_dir: Path) -> None:
         from unittest.mock import patch
 

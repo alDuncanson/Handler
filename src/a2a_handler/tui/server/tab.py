@@ -399,6 +399,10 @@ class ServerTab(Container):
             return "mTLS"
         if credentials.auth_type == AuthType.OAUTH2:
             return "OAuth 2.0"
+        if credentials.auth_type == AuthType.OIDC:
+            return "OIDC"
+        if credentials.auth_type == AuthType.BASIC:
+            return "Basic"
         if credentials.auth_type == AuthType.API_KEY:
             return "API Key"
         if credentials.auth_type == AuthType.BEARER:
@@ -518,9 +522,12 @@ class ServerTab(Container):
     @on(
         Input.Changed,
         "#api-key-input, #api-key-header-input, #bearer-token-input, "
+        "#basic-username-input, #basic-password-input, "
         "#custom-headers-input, #mtls-cert-input, #mtls-key-input, #mtls-ca-input, "
         "#oauth2-token-url-input, #oauth2-client-id-input, "
-        "#oauth2-client-secret-input, #oauth2-scopes-input",
+        "#oauth2-client-secret-input, #oauth2-scopes-input, "
+        "#oidc-issuer-url-input, #oidc-client-id-input, "
+        "#oidc-client-secret-input, #oidc-scopes-input",
     )
     def _handle_auth_field_changed(self) -> None:
         if self._is_syncing_auth_panel:
