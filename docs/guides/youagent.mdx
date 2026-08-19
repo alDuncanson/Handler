@@ -1,0 +1,149 @@
+---
+title: "Test against youagent"
+description: "Run a real local A2A agent with youagent and exercise Handler's card, message, and server commands against it."
+---
+
+# Test Handler against a youagent agent
+
+Handler needs an A2A server to talk to. If you do not have one handy, you can
+run a [youagent](https://github.com/brainsparker/youagent) instance locally in
+a couple of minutes. youagent is an MIT-licensed, CLI-first agent framework
+whose agents expose a standard A2A server: card discovery at
+`/.well-known/agent.json`, a health endpoint, and JSON-RPC 2.0 `message/send`,
+`tasks/get`, and `tasks/cancel`.
+
+This gives you a real, independently implemented A2A server for
+interoperability checks, demos, and client development, with no API keys
+required. Requires Node 20+.
+
+## Start a local agent
+
+Install the published package and create a small server script:
+
+```bash
+mkdir youagent-demo && cd youagent-demo
+npm install youagent
+```
+
+```javascript serve.mjs
+import { createAgentCard, A2AServer } from "youagent";
+
+const card = createAgentCard({
+  handle: "demo-agent",
+  displayName: "Demo Agent",
+  interests: [{ topic: "a2a interoperability" }],
+  cadence: "6h",
+  url: "http://localhost:3141",
+});
+
+// Handler's client (the a2a SDK) requires protocol version 0.3 or newer;
+// youagent 0.0.2 stamps cards with 0.2.1, so bump it before serving.
+card.protocolVersion = "0.3.0";
+
+const server = new A2AServer({ agentCard: card, port: 3141 });
+
+server.registerYouAgentHandlers({
+  onMessage: async (message) => ({
+    role: "agent",
+    messageId: crypto.randomUUID(),
+    parts: [
+      {
+        type: "text",
+        text: `Demo Agent received: ${
+          // Spec 0.3+ clients (Handler included) send parts keyed by "kind";
+          // youagent's own client sends "type". Accept both.
+          message.parts.find((part) => part.type === "text" || part.kind === "text")
+            ?.text ?? "(no text)"
+        }`,
+      },
+    ],
+  }),
+});
+
+await server.start();
+console.log("A2A server listening on http://localhost:3141");
+```
+
+```bash
+node serve.mjs
+```
+
+The server exposes:
+
+- `GET /.well-known/agent.json` for card discovery (also `/agent-card`)
+- `GET /health` for liveness checks
+- `POST /` for JSON-RPC: `message/send`, `tasks/get`, `tasks/cancel`
+
+## Inspect and validate the card
+
+```bash
+handler card get --url http://localhost:3141
+```
+
+```bash
+handler card validate --url http://localhost:3141
+```
+
+You should see a standard A2A agent card. youagent cards also carry an
+optional `youagent` extension block with identity, interests, and search
+cadence. Handler renders the standard card fields either way, which is the
+point of the exercise: unknown extensions should not break a compliant client.
+
+## Send a message
+
+```bash
+handler message send --url http://localhost:3141 --text "Hello from Handler"
+```
+
+The agent responds with a completed task containing the echoed reply from the
+`onMessage` handler above. Structured output works as usual:
+
+```bash
+handler --output json message send --url http://localhost:3141 --text "ping"
+```
+
+## Add it as a configured server
+
+If you test against youagent regularly, add it to your server config:
+
+```bash
+handler server add youagent-local --url http://localhost:3141
+```
+
+Or repo-scoped, if an interop test setup should travel with your repository:
+
+```bash
+handler server add youagent-local --url http://localhost:3141 --repository
+```
+
+Then use the short form anywhere a server is accepted:
+
+```bash
+handler message send --server youagent-local --text "Hello again"
+```
+
+Or browse it interactively:
+
+```bash
+handler tui
+```
+
+## Health check
+
+youagent also exposes a liveness endpoint you can use in scripts before
+driving Handler at it:
+
+```bash
+curl http://localhost:3141/health
+```
+
+## Notes
+
+- youagent's social extensions (`youagent/follow`, `youagent/unfollow`,
+  `youagent/posts-request`) travel as A2A `DataPart`s inside `message/send`,
+  so any A2A-compliant client can exercise them. A plain text message does not
+  trigger them. See the
+  [youagent README](https://github.com/brainsparker/youagent#a2a-protocol-support)
+  for the payload shapes.
+- The example server does not enforce the security schemes a card can declare,
+  so treat it as a development target, not a production deployment.
