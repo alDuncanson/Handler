@@ -12,6 +12,7 @@ from a2a.types import (
 )
 
 from a2a_handler.mcp.server import create_mcp_server
+from a2a_handler.service import TaskListing
 from a2a_handler.session import AgentSession
 from a2a_handler.validation import ValidationResult, ValidationSource
 from tests.factories import make_agent_card, make_push_config
@@ -345,7 +346,7 @@ async def test_list_tasks_success() -> None:
     ]
 
     mock_service = AsyncMock()
-    mock_service.list_all_tasks.return_value = tasks
+    mock_service.list_all_tasks.return_value = TaskListing(tasks=tasks)
 
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
@@ -366,6 +367,41 @@ async def test_list_tasks_success() -> None:
         history_length=None,
         include_artifacts=False,
     )
+    assert resp["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_reports_truncation() -> None:
+    """A listing cut short is flagged rather than passed off as complete."""
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    mock_service = AsyncMock()
+    mock_service.list_all_tasks.return_value = TaskListing(
+        tasks=[_make_task(task_id="task-1", state=TaskState.TASK_STATE_COMPLETED)],
+        truncated=True,
+    )
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
+    ):
+        resp = await fn(agent_url="http://localhost:8000")
+
+    assert resp["truncated"] is True
+    assert resp["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_rejects_negative_history_length() -> None:
+    """A negative history length fails before any network call."""
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    with pytest.raises(Exception) as exc_info:
+        await fn(agent_url="http://localhost:8000", history_length=-1)
+
+    assert "must not be negative" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

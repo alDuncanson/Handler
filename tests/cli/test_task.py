@@ -1,5 +1,6 @@
 """Tests for task CLI commands."""
 
+import json
 import os
 
 import pytest
@@ -16,8 +17,9 @@ from a2a.types import (
     TaskStatus,
 )
 
+from a2a_handler.cli import cli
 from a2a_handler.cli.task import task
-from a2a_handler.service import StreamEvent
+from a2a_handler.service import StreamEvent, TaskListing
 from tests.factories import make_push_config
 
 
@@ -400,7 +402,7 @@ class TestTaskIdArgument:
 class TestTaskList:
     """Tests for task list command."""
 
-    def _invoke_list(self, runner, args, tasks):
+    def _invoke_list(self, runner, args, tasks, truncated=False):
         with (
             patch("a2a_handler.cli.task.build_http_client") as mock_client,
             patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
@@ -411,7 +413,9 @@ class TestTaskList:
             mock_client.return_value = mock_http
 
             mock_service = AsyncMock()
-            mock_service.list_all_tasks.return_value = tasks
+            mock_service.list_all_tasks.return_value = TaskListing(
+                tasks=tasks, truncated=truncated
+            )
             mock_service_cls.return_value = mock_service
 
             result = runner.invoke(task, ["list", *args])
@@ -500,6 +504,52 @@ class TestTaskList:
         )
         assert result.exit_code != 0
         assert "at least 1" in result.output
+
+    def test_task_list_rejects_negative_history_length(self, runner):
+        """A negative history length fails before any network call."""
+        result = runner.invoke(
+            task,
+            ["list", "--url", "http://localhost:8000", "--history-length", "-1"],
+        )
+        assert result.exit_code != 0
+        assert "must not be negative" in result.output
+
+    def test_task_list_warns_when_listing_is_truncated(self, runner):
+        """A listing cut short says so instead of looking complete."""
+        tasks = [_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")]
+        result, _ = self._invoke_list(
+            runner, ["--url", "http://localhost:8000"], tasks, truncated=True
+        )
+
+        assert result.exit_code == 0
+        assert "task-1" in result.output
+        assert "may not be all of them" in result.output
+
+    def test_task_list_reports_truncation_in_json(self, runner):
+        """The JSON envelope carries the truncation flag for machines."""
+        tasks = [_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")]
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+            mock_service = AsyncMock()
+            mock_service.list_all_tasks.return_value = TaskListing(
+                tasks=tasks, truncated=True
+            )
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                cli, ["--output", "json", "task", "list", "--url", "http://x.test"]
+            )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["truncated"] is True
+        assert payload["count"] == 1
 
     def test_task_list_rejects_invalid_context_id(self, runner):
         """A malformed context ID fails before any network call."""

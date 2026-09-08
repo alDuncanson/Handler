@@ -13,6 +13,8 @@ from a2a_handler.common.input_validation import (
     reject_control_chars,
     reject_unknown_keys,
     validate_agent_url,
+    validate_history_length,
+    validate_page_size,
     validate_resource_id,
     validate_webhook_url,
 )
@@ -20,6 +22,7 @@ from a2a.types import Task
 from a2a_handler.service import (
     A2AService,
     TASK_STATE_LABELS,
+    TaskListing,
     protocol_dump,
     push_config_dump,
     response_state,
@@ -192,13 +195,8 @@ def task_list(
             validate_resource_id(context_id, "context_id")
         if status:
             status_value = task_state_from_label(status)
-        if page_size is not None and page_size < 1:
-            raise InputValidationError(
-                code="invalid_page_size",
-                message="--page-size must be at least 1",
-                suggestion="Omit --page-size to use the default of 50",
-                details={"field": "page_size"},
-            )
+        validate_page_size(page_size, "--page-size")
+        validate_history_length(history_length, "--history-length")
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error
@@ -211,14 +209,14 @@ def task_list(
         try:
             async with build_http_client(credentials=credentials) as http_client:
                 service = A2AService(http_client, resolved_url, credentials=credentials)
-                tasks = await service.list_all_tasks(
+                listing = await service.list_all_tasks(
                     context_id=context_id,
                     status=status_value,
                     page_size=page_size,
                     history_length=history_length,
                     include_artifacts=include_artifacts,
                 )
-                _format_task_list(tasks, output)
+                _format_task_list(listing, output)
         except Exception as e:
             handle_client_error(e, resolved_url, output)
             raise click.Abort()
@@ -226,16 +224,24 @@ def task_list(
     asyncio.run(do_list())
 
 
-def _format_task_list(tasks: list[Task], output: Output) -> None:
-    """Format a task listing for structured or human-readable output."""
+def _format_task_list(listing: TaskListing, output: Output) -> None:
+    """Format a task listing for structured or human-readable output.
+
+    A listing cut short by a pagination defense is reported in every format,
+    so no consumer mistakes a partial result for the whole set.
+    """
+    tasks = listing.tasks
     if output.output_format == "ndjson":
         for task_item in tasks:
             output.json(protocol_dump(task_item))
+        if listing.truncated:
+            output.json({"type": "truncated", "count": len(tasks)})
         return
     if output.output_format == "json":
         output.json(
             {
                 "count": len(tasks),
+                "truncated": listing.truncated,
                 "tasks": [protocol_dump(task_item) for task_item in tasks],
             }
         )
@@ -249,6 +255,11 @@ def _format_task_list(tasks: list[Task], output: Output) -> None:
         if task_item.context_id:
             line += f"  context={task_item.context_id}"
         output.text(line)
+    if listing.truncated:
+        output.text(
+            f"Warning: listing stopped early; showing {len(tasks)} task(s), "
+            "which may not be all of them."
+        )
 
 
 @task.command("cancel")

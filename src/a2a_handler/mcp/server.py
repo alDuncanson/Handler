@@ -20,6 +20,8 @@ from a2a_handler.common.input_validation import (
     reject_control_chars,
     validate_agent_url,
     validate_header_name,
+    validate_history_length,
+    validate_page_size,
     validate_resource_id,
     validate_webhook_url,
 )
@@ -423,6 +425,8 @@ def create_mcp_server() -> FastMCP:
         Returns:
             A dictionary containing:
             - count: Number of tasks returned
+            - truncated: True when a pagination defense stopped the crawl
+              early, meaning the listing is incomplete
             - tasks: The tasks in A2A wire format
         """
         logger.info("Listing tasks at %s", agent_url)
@@ -433,13 +437,8 @@ def create_mcp_server() -> FastMCP:
                 validate_resource_id(context_id, "context_id")
             if status:
                 status_value = task_state_from_label(status)
-            if page_size is not None and page_size < 1:
-                raise InputValidationError(
-                    code="invalid_page_size",
-                    message="page_size must be at least 1",
-                    suggestion="Omit page_size to use the default of 50",
-                    details={"field": "page_size"},
-                )
+            validate_page_size(page_size)
+            validate_history_length(history_length)
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
             if api_key:
@@ -459,7 +458,7 @@ def create_mcp_server() -> FastMCP:
 
         async with _build_http_client(credentials=credentials) as http_client:
             service = A2AService(http_client, agent_url, credentials=credentials)
-            tasks = await service.list_all_tasks(
+            listing = await service.list_all_tasks(
                 context_id=context_id,
                 status=status_value,
                 page_size=page_size,
@@ -468,8 +467,9 @@ def create_mcp_server() -> FastMCP:
             )
 
             return {
-                "count": len(tasks),
-                "tasks": [protocol_dump(task) for task in tasks],
+                "count": len(listing.tasks),
+                "truncated": listing.truncated,
+                "tasks": [protocol_dump(task) for task in listing.tasks],
             }
 
     @mcp.tool()
