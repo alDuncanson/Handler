@@ -420,6 +420,69 @@ class TestMessageSend:
         assert result.exit_code != 0
         assert "not valid JSON" in result.output
 
+    def test_message_send_rejects_empty_text_without_attachments(self, runner):
+        """An empty --text (e.g. unset shell var) is a validation error."""
+        result = runner.invoke(
+            message,
+            ["send", "--url", "http://localhost:8000", "--text", ""],
+        )
+        assert result.exit_code != 0
+        assert "Provide message text" in result.output
+        assert "Traceback" not in result.output
+
+    def test_message_send_empty_text_with_attachment_is_fine(self, runner, tmp_path):
+        """Empty --text with a data part behaves like an attachment-only send."""
+        mock_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--text",
+                    "",
+                    "--data",
+                    '{"k":"v"}',
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert mock_service.send.call_args.args[0] == ""
+
+    def test_message_send_rejects_non_string_json_text(self, runner, tmp_path):
+        """Non-string json text errors even when attachments are present."""
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF-")
+        result = runner.invoke(
+            message,
+            [
+                "send",
+                "--url",
+                "http://localhost:8000",
+                "--json",
+                '{"text": 123}',
+                "--file",
+                str(report),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "must be a string" in result.output
+
     def test_message_send_rejects_missing_file(self, runner, tmp_path):
         """--file pointing at a missing path fails before any network call."""
         result = runner.invoke(

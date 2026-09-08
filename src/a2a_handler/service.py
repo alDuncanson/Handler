@@ -203,36 +203,59 @@ def build_url_part(url: str, media_type: str | None = None) -> Part:
     return new_url_part(url, media_type=media_type, filename=filename)
 
 
+def _unreadable_file_error(path: Path, reason: str) -> InputValidationError:
+    return InputValidationError(
+        code="unreadable_file",
+        message=f"Cannot read file: {path}",
+        suggestion="Check that the path exists and is a readable regular file",
+        details={"field": "file", "error": reason},
+    )
+
+
+def _file_too_large_error(path: Path, num_bytes: int) -> InputValidationError:
+    return InputValidationError(
+        code="file_too_large",
+        message=(
+            f"{path.name} is {num_bytes} bytes, over the "
+            f"{MAX_INLINE_FILE_BYTES}-byte inline limit"
+        ),
+        suggestion=(
+            "Host the file somewhere the agent can reach and pass its "
+            "http(s) URL to send it by reference"
+        ),
+        details={"field": "file", "num_bytes": num_bytes},
+    )
+
+
 def build_file_part(path: str | Path) -> Part:
     """Build an inline file part from a local path.
 
     The file's media type is sniffed from its name. Files over
     ``MAX_INLINE_FILE_BYTES`` are refused: they should be uploaded somewhere
-    reachable and sent by URL instead.
+    reachable and sent by URL instead. Only regular files are accepted, and
+    the size is checked before reading so a huge file is rejected without
+    loading it.
     """
-    file_path = Path(path).expanduser()
+    try:
+        file_path = Path(path).expanduser()
+    except RuntimeError as exc:
+        # An unresolvable ~user raises RuntimeError, not OSError.
+        raise _unreadable_file_error(Path(path), str(exc)) from exc
+    try:
+        size = file_path.stat().st_size
+    except OSError as exc:
+        raise _unreadable_file_error(file_path, str(exc)) from exc
+    if not file_path.is_file():
+        raise _unreadable_file_error(file_path, "not a regular file")
+    if size > MAX_INLINE_FILE_BYTES:
+        raise _file_too_large_error(file_path, size)
     try:
         raw = file_path.read_bytes()
     except OSError as exc:
-        raise InputValidationError(
-            code="unreadable_file",
-            message=f"Cannot read file: {file_path}",
-            suggestion="Check that the path exists and is a readable file",
-            details={"field": "file", "error": str(exc)},
-        ) from exc
+        raise _unreadable_file_error(file_path, str(exc)) from exc
+    # The file can grow between the stat and the read.
     if len(raw) > MAX_INLINE_FILE_BYTES:
-        raise InputValidationError(
-            code="file_too_large",
-            message=(
-                f"{file_path.name} is {len(raw)} bytes, over the "
-                f"{MAX_INLINE_FILE_BYTES}-byte inline limit"
-            ),
-            suggestion=(
-                "Host the file somewhere the agent can reach and pass its "
-                "http(s) URL to send it by reference"
-            ),
-            details={"field": "file", "num_bytes": len(raw)},
-        )
+        raise _file_too_large_error(file_path, len(raw))
     media_type = mimetypes.guess_type(file_path.name)[0] or _DEFAULT_MEDIA_TYPE
     return new_raw_part(raw, media_type=media_type, filename=file_path.name)
 

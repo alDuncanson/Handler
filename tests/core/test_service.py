@@ -500,6 +500,36 @@ class TestBuildParts:
         assert exc_info.value.code == "file_too_large"
         assert "URL" in (exc_info.value.suggestion or "")
 
+    def test_build_file_part_refuses_oversized_file_without_reading(
+        self, tmp_path, monkeypatch
+    ):
+        # The size check must run on the stat, before any bytes are read.
+        monkeypatch.setattr("a2a_handler.service.MAX_INLINE_FILE_BYTES", 4)
+        file_path = tmp_path / "big.bin"
+        file_path.write_bytes(b"12345")
+
+        def _explode(_self):
+            raise AssertionError("read_bytes must not run for an oversized file")
+
+        monkeypatch.setattr("pathlib.Path.read_bytes", _explode)
+        with pytest.raises(InputValidationError) as exc_info:
+            build_file_part(file_path)
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "file_too_large"
+
+    def test_build_file_part_refuses_non_regular_file(self, tmp_path):
+        with pytest.raises(InputValidationError) as exc_info:
+            build_file_part(tmp_path)  # a directory, not a file
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "unreadable_file"
+
+    def test_build_file_part_refuses_unresolvable_home(self):
+        # expanduser raises RuntimeError (not OSError) for an unknown user.
+        with pytest.raises(InputValidationError) as exc_info:
+            build_file_part("~no-such-user-xyz/report.pdf")
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "unreadable_file"
+
     def test_inline_limit_is_sane(self):
         assert MAX_INLINE_FILE_BYTES == 10 * 1024 * 1024
 

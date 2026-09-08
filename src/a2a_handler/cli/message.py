@@ -162,8 +162,17 @@ def message_send(
 
         attachments = _build_attachments(files, data_values)
 
-        if text is None:
+        # An empty --text (e.g. an unset shell variable) resolves like an
+        # absent one rather than slipping through as an empty message.
+        if not text:
             payload_text = payload.get("text") or payload.get("message")
+            if payload_text is not None and not isinstance(payload_text, str):
+                raise InputValidationError(
+                    code="invalid_json_type",
+                    message="json_payload text must be a string",
+                    suggestion='Pass text as a JSON string, e.g. {"text": "..."}',
+                    details={"field": "json_payload"},
+                )
             if isinstance(payload_text, str) and payload_text:
                 text = payload_text
             elif not attachments:

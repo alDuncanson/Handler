@@ -1912,6 +1912,152 @@ async def test_attached_file_is_sent_with_the_next_message(tmp_path) -> None:
             assert any("[attached: report.pdf" in text for text in chat_texts)
 
 
+async def test_attachment_label_with_markup_characters_renders(tmp_path) -> None:
+    """A filename containing Rich markup must not crash the composer line."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    weird = tmp_path / "a[b]c.pdf"
+    weird.write_bytes(b"%PDF-")
+
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = make_agent_card(name="Demo Agent")
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            workspace._handle_attach_result(str(weird))
+            await pilot.pause()
+
+            attachment_line = workspace.query_one("#attachment-line", Static)
+            assert not attachment_line.has_class("hidden")
+            assert "a[b]c.pdf" in str(attachment_line.render())
+
+
+async def test_pending_attachments_do_not_survive_reconnect(tmp_path) -> None:
+    """A queued attachment must not ride a message after a reconnect."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-")
+
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = make_agent_card(name="Demo Agent")
+    response_message = Message(
+        message_id="msg-1",
+        role=Role.ROLE_AGENT,
+        parts=[Part(text="hi")],
+        context_id="ctx-response",
+        task_id="task-response",
+    )
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        stream_calls = _stub_stream(mock_service, [response_message])
+        mock_service.set_credentials = Mock()
+        mock_service.clear_credentials = Mock()
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            workspace._handle_attach_result(str(report))
+            await pilot.pause()
+            assert workspace._pending_attachments
+
+            # Reconnecting resets the conversation; the queue must go too.
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            assert workspace._pending_attachments == []
+            attachment_line = workspace.query_one("#attachment-line", Static)
+            assert attachment_line.has_class("hidden")
+
+            message_input = workspace.query_one("#message-input", Input)
+            message_input.value = "hello"
+            workspace.handle_send_button()
+            await pilot.pause()
+
+            assert len(stream_calls) == 1
+            sent_call = stream_calls[0]
+            assert isinstance(sent_call, type(call()))
+            assert sent_call.kwargs.get("attachments") in (None, [])
+
+
+async def test_attach_is_ignored_while_disconnected(tmp_path) -> None:
+    """A prompt resolved after the connection drops queues nothing."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-")
+
+    app = HandlerTUI()
+
+    with patch(
+        "a2a_handler.tui.server.tab.load_server_catalog",
+        return_value=ServerCatalog(repository_servers=(repo_connection,)),
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            assert not workspace.is_connected
+
+            workspace._handle_attach_result(str(report))
+            await pilot.pause()
+
+            assert workspace._pending_attachments == []
+
+
 async def test_attach_rejects_a_missing_file(tmp_path) -> None:
     """A bad attachment path is reported and nothing is queued."""
     repo_connection = _make_server(

@@ -1,5 +1,6 @@
 """Input panel component for composing and sending messages."""
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Button, Input, LoadingIndicator, Static
@@ -59,7 +60,9 @@ class InputPanel(Container):
             line.update("")
             line.add_class("hidden")
             return
-        line.update("Attached: " + ", ".join(labels))
+        # Filenames are untrusted display text; brackets would parse as
+        # Rich markup and can crash the render.
+        line.update("Attached: " + ", ".join(escape(label) for label in labels))
         line.remove_class("hidden")
 
     def focus_input(self) -> None:

@@ -110,7 +110,7 @@ class ServerTab(Container):
         self._log_lines: list[str] = []
         self._active_turn: AgentTurn | None = None
         self._send_worker: Worker[None] | None = None
-        self._pending_attachments: list[tuple[str, Part]] = []
+        self._pending_attachments: list[Part] = []
 
     def compose(self) -> ComposeResult:
         yield ServerView()
@@ -435,7 +435,20 @@ class ServerTab(Container):
         if warning:
             messages_panel.add_system_message(warning)
 
+    def _clear_pending_attachments(self) -> None:
+        """Drop queued attachments and their composer indicator together.
+
+        The queue must never outlive the connection it was staged for: a
+        stale part would otherwise ride the next message invisibly, possibly
+        to a different server.
+        """
+        self._pending_attachments = []
+        server_view = self._try_get_server_view()
+        if server_view is not None:
+            server_view.input_panel().show_attachments([])
+
     def _show_disconnected_state(self) -> None:
+        self._clear_pending_attachments()
         server_view = self._get_server_view()
         server_view.connection_bar().show_disconnected_badges()
         server_view.agent_card_panel().update_card(None)
@@ -493,6 +506,7 @@ class ServerTab(Container):
         agent_card = self.state.agent_card
         assert agent_card is not None
 
+        self._clear_pending_attachments()
         server_view = self._get_server_view()
         await server_view.reset_session()
         server_view.agent_card_panel().update_card(agent_card)
@@ -682,6 +696,10 @@ class ServerTab(Container):
         server_view = self._try_get_server_view()
         if server_view is None:
             return
+        # The connection can drop while the prompt is up; a part queued then
+        # would ride the first message after a reconnect.
+        if not self.is_connected:
+            return
         try:
             part = attachment_part_from_spec(spec)
         except InputValidationError as error:
@@ -690,9 +708,9 @@ class ServerTab(Container):
                 detail = f"{detail}. {error.suggestion}"
             server_view.messages_panel().add_system_message(f"Attach failed: {detail}")
             return
-        self._pending_attachments.append((_attachment_label(part), part))
+        self._pending_attachments.append(part)
         server_view.input_panel().show_attachments(
-            [label for label, _ in self._pending_attachments]
+            [_attachment_label(queued) for queued in self._pending_attachments]
         )
         server_view.input_panel().focus_input()
 
@@ -756,25 +774,29 @@ class ServerTab(Container):
         ):
             return
 
-        input_panel = server_view.input_panel()
-        message_text = input_panel.get_message()
-        attachment_labels = [label for label, _ in self._pending_attachments]
-        attachments = [part for _, part in self._pending_attachments]
-        if not message_text and not attachments:
-            return
-        self._pending_attachments = []
-        input_panel.show_attachments([])
-
         messages_panel = server_view.messages_panel()
-        display_lines = [message_text] if message_text else []
-        display_lines.extend(f"[attached: {label}]" for label in attachment_labels)
-        messages_panel.add_message("user", "\n".join(display_lines))
 
+        # Validate credentials before draining the composer: a validation
+        # error must not discard the typed text or the queued attachments,
+        # nor render a user bubble for a message that never went out.
         try:
             credentials = messages_panel.get_auth_credentials()
         except InputValidationError as error:
             messages_panel.add_system_message(f"Error: {error.message}")
             return
+
+        input_panel = server_view.input_panel()
+        message_text = input_panel.get_message()
+        attachments = list(self._pending_attachments)
+        if not message_text and not attachments:
+            return
+        self._clear_pending_attachments()
+
+        display_lines = [message_text] if message_text else []
+        display_lines.extend(
+            f"[attached: {_attachment_label(part)}]" for part in attachments
+        )
+        messages_panel.add_message("user", "\n".join(display_lines))
 
         if credentials is not None:
             self._agent_service.set_credentials(credentials)
