@@ -1042,6 +1042,42 @@ class TestTaskNotificationGet:
                 "task-123", "specific-config-id"
             )
 
+    def test_notification_get_reports_ambiguous_configs(self, runner):
+        """Several configs without --config-id should fail locally, not on the server."""
+        from a2a_handler.service import PushConfigAmbiguousError
+
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_push_config.side_effect = PushConfigAmbiguousError(
+                "Task task-123 has 2 push notification configs "
+                "(cfg-1, cfg-2); specify config_id to choose one"
+            )
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                task,
+                [
+                    "notification",
+                    "get",
+                    "--url",
+                    "http://localhost:8000",
+                    "--task",
+                    "task-123",
+                ],
+            )
+
+            assert result.exit_code != 0
+            assert "cfg-1" in result.output
+            assert "specify config_id" in result.output
+
 
 class TestFormatTask:
     """Tests for _format_task helper."""

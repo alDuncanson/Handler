@@ -618,7 +618,11 @@ def notification_remove(
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--task", "task_id", help="Task ID (alias for TASK_ID)")
-@click.option("--config-id", "-c", help="Specific push notification config ID")
+@click.option(
+    "--config-id",
+    "-c",
+    help="Push notification config ID (required when the task has more than one)",
+)
 @click.option(
     "--bearer-env", "-b", help="Env var containing bearer token (overrides saved)"
 )

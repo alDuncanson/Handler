@@ -104,11 +104,21 @@ DEFAULT_PUSH_CONFIG_PAGE_SIZE = 50
 
 
 class PushConfigNotFoundError(A2AClientError):
-    """Raised when a push config to delete does not exist on the task.
+    """Raised when a push config does not exist on the task.
 
-    Servers commonly treat deletes as idempotent and report success for a
-    config that was never there, so Handler checks first: a mistyped config ID
-    should fail loudly, not read as a successful removal.
+    Used when get has nothing to return, and when delete would otherwise look
+    successful: servers commonly treat deletes as idempotent, so Handler
+    checks first. A mistyped config ID should fail loudly, not read as a
+    successful removal.
+    """
+
+
+class PushConfigAmbiguousError(A2AClientError):
+    """Raised when a task has several push configs and none was chosen.
+
+    ``get_push_config`` without a config ID can only auto-select when the
+    task has exactly one config. Several configs need an explicit ID so
+    Handler never sends an empty string that servers reject as invalid.
     """
 
 
@@ -1400,22 +1410,47 @@ class A2AService:
     ) -> TaskPushNotificationConfig:
         """Get push notification configuration for a task.
 
+        An omitted ``config_id`` is not sent as an empty string: servers
+        reject that as ``InvalidParams``. The task's configs are listed
+        instead, and the single config is returned when there is exactly one.
+
         Args:
             task_id: ID of the task
             config_id: Optional specific config ID to retrieve
 
         Returns:
             The push notification configuration
+
+        Raises:
+            PushConfigNotFoundError: If the task has no push configs.
+            PushConfigAmbiguousError: If the task has several configs and
+                ``config_id`` was omitted.
         """
-        client = await self._get_or_create_client()
+        validate_resource_id(task_id, "task_id")
+        if config_id:
+            validate_resource_id(config_id, "config_id")
+            client = await self._get_or_create_client()
+            request = GetTaskPushNotificationConfigRequest(
+                task_id=task_id,
+                id=config_id,
+            )
+            logger.info("Getting push config %s for task %s", config_id, task_id)
+            return await client.get_task_push_notification_config(request)
 
-        request = GetTaskPushNotificationConfigRequest(
-            task_id=task_id,
-            id=config_id or "",
-        )
-        logger.info("Getting push config for task %s", task_id)
+        configs = await self.list_all_push_configs(task_id)
+        if not configs:
+            raise PushConfigNotFoundError(
+                f"Task {task_id} has no push notification config"
+            )
+        if len(configs) > 1:
+            ids = ", ".join(config.id or "(unnamed)" for config in configs)
+            raise PushConfigAmbiguousError(
+                f"Task {task_id} has {len(configs)} push notification configs "
+                f"({ids}); specify config_id to choose one"
+            )
 
-        return await client.get_task_push_notification_config(request)
+        logger.info("Getting the only push config for task %s", task_id)
+        return configs[0]
 
     async def list_push_configs(
         self,

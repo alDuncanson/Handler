@@ -27,6 +27,7 @@ from a2a_handler.service import (
     A2AService,
     ExtendedCardNotSupportedError,
     MAX_INLINE_FILE_BYTES,
+    PushConfigAmbiguousError,
     PushConfigNotFoundError,
     StreamEvent,
     TASK_STATE_LABELS,
@@ -925,17 +926,22 @@ class _FakePushConfigClient:
 
 
 class _FakePushConfigListDeleteClient:
-    """Replays list pages and records delete requests."""
+    """Replays list pages and records get/delete requests."""
 
     def __init__(self, pages: list[ListTaskPushNotificationConfigsResponse]) -> None:
         self.pages = pages
         self.list_requests: list[Any] = []
+        self.get_requests: list[Any] = []
         self.delete_requests: list[Any] = []
 
     async def list_task_push_notification_configs(self, request):
         self.list_requests.append(request)
         index = min(len(self.list_requests) - 1, len(self.pages) - 1)
         return self.pages[index]
+
+    async def get_task_push_notification_config(self, request):
+        self.get_requests.append(request)
+        raise AssertionError("get must not be called with an empty config id")
 
     async def delete_task_push_notification_config(self, request):
         self.delete_requests.append(request)
@@ -1037,6 +1043,47 @@ class TestA2AServicePushConfigListDelete:
         service = self._service_with(_FakePushConfigListDeleteClient([]))
         with pytest.raises(InputValidationError):
             await service.delete_push_config("task-1", "cfg?bad")
+
+    async def test_get_push_config_without_id_returns_the_only_config(self):
+        only = make_push_config(task_id="task-1", config_id="cfg-1")
+        fake_client = _FakePushConfigListDeleteClient(
+            [ListTaskPushNotificationConfigsResponse(configs=[only])]
+        )
+        service = self._service_with(fake_client)
+
+        result = await service.get_push_config("task-1")
+
+        assert result == only
+        assert fake_client.get_requests == []
+
+    async def test_get_push_config_without_id_errors_when_several_exist(self):
+        fake_client = _FakePushConfigListDeleteClient(
+            [
+                ListTaskPushNotificationConfigsResponse(
+                    configs=[
+                        make_push_config(task_id="task-1", config_id="cfg-1"),
+                        make_push_config(task_id="task-1", config_id="cfg-2"),
+                    ]
+                )
+            ]
+        )
+        service = self._service_with(fake_client)
+
+        with pytest.raises(PushConfigAmbiguousError, match="cfg-1"):
+            await service.get_push_config("task-1")
+
+        assert fake_client.get_requests == []
+
+    async def test_get_push_config_without_id_errors_when_none_exist(self):
+        fake_client = _FakePushConfigListDeleteClient(
+            [ListTaskPushNotificationConfigsResponse()]
+        )
+        service = self._service_with(fake_client)
+
+        with pytest.raises(PushConfigNotFoundError):
+            await service.get_push_config("task-1")
+
+        assert fake_client.get_requests == []
 
 
 class _FakeGetPushConfigClient:
@@ -1406,7 +1453,7 @@ class TestA2AServiceOAuthAndCards:
         assert service.supports_push_notifications is True
 
     async def test_get_push_config_passes_task_and_config_id_to_client(self) -> None:
-        """Push config lookup should preserve both the task ID and optional config ID."""
+        """An explicit config ID is sent as-is and never rewritten to empty."""
         expected = make_push_config(
             task_id="task-123",
             url="https://example.com/webhook",

@@ -638,7 +638,9 @@ def create_mcp_server() -> FastMCP:
         Args:
             agent_url: Base URL of the A2A agent
             task_id: ID of the task
-            config_id: Optional specific config ID to retrieve
+            config_id: Optional specific config ID. When omitted, the
+                task's only config is returned; several configs require
+                this ID so an empty string is never sent to the agent.
             bearer_token: Optional bearer token for authentication
             api_key: Optional API key for authentication
 
