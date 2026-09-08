@@ -103,3 +103,56 @@ async def test_messages_panel_round_trips_mtls_credentials(tmp_path) -> None:
         assert restored.key_path == str(key_path)
         assert restored.ca_cert_path == str(ca_path)
         assert restored.custom_headers == {"X-Client": "workstation"}
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_round_trips_basic_credentials() -> None:
+    """Resolved HTTP basic defaults should survive a panel round-trip."""
+    from a2a_handler.auth import create_basic_auth
+
+    credentials = create_basic_auth("alice", "hunter2-p4ss")
+
+    app = _MessagesPanelHarness()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.set_auth_credentials(credentials)
+
+        restored = panel.get_auth_credentials()
+
+        assert restored is not None
+        assert restored.auth_type == AuthType.BASIC
+        assert restored.username == "alice"
+        assert restored.value == "hunter2-p4ss"
+
+
+@pytest.mark.asyncio
+async def test_messages_panel_round_trips_oidc_credentials() -> None:
+    """Resolved OIDC defaults should survive a panel round-trip."""
+    from a2a_handler.auth import create_oidc_auth
+
+    credentials = create_oidc_auth(
+        "https://auth.example.com",
+        "client-id",
+        "client-secret",
+        scopes=["openid", "profile"],
+    )
+
+    app = _MessagesPanelHarness()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        panel = app.query_one(TabbedMessagesPanel)
+        panel.set_auth_credentials(credentials)
+
+        restored = panel.get_auth_credentials()
+
+        assert restored is not None
+        assert restored.auth_type == AuthType.OIDC
+        assert restored.issuer_url == "https://auth.example.com"
+        assert restored.client_id == "client-id"
+        assert restored.client_secret == "client-secret"
+        assert restored.scopes == ["openid", "profile"]

@@ -1,12 +1,13 @@
 """Authentication support for A2A protocol.
 
 Handles credential storage and HTTP authentication header generation.
-Supports API key, HTTP bearer, mTLS (mutual TLS), and OAuth2 client credentials
-authentication schemes.
+Supports API key, HTTP bearer, HTTP basic, mTLS (mutual TLS), OAuth2 client
+credentials, and OpenID Connect authentication schemes.
 """
 
 from __future__ import annotations
 
+import base64
 import ssl
 import time
 from dataclasses import dataclass, field
@@ -30,9 +31,18 @@ class AuthType(str, Enum):
     """Supported authentication types."""
 
     API_KEY = "api_key"
+    BASIC = "basic"
     BEARER = "bearer"
     MTLS = "mtls"
     OAUTH2 = "oauth2"
+    OIDC = "oidc"
+
+
+#: Auth types whose access token is fetched from a token endpoint and cached.
+TOKEN_FETCHING_AUTH_TYPES = {AuthType.OAUTH2, AuthType.OIDC}
+
+#: Path of the OpenID Connect discovery document below the issuer URL.
+OIDC_DISCOVERY_PATH = "/.well-known/openid-configuration"
 
 
 @dataclass
@@ -45,13 +55,15 @@ class AuthCredentials:
     auth_type: AuthType
     value: str = ""
     header_name: str | None = None  # For API key: custom header name
+    username: str | None = None  # For HTTP basic: username (value is password)
     cert_path: str | None = None  # For mTLS: client certificate path
     key_path: str | None = None  # For mTLS: client private key path
     ca_cert_path: str | None = None  # For mTLS: CA certificate path
-    token_url: str | None = None  # For OAuth2: token endpoint
-    client_id: str | None = None  # For OAuth2: client ID
-    client_secret: str | None = None  # For OAuth2: client secret
-    scopes: list[str] | None = None  # For OAuth2: optional scopes
+    token_url: str | None = None  # For OAuth2/OIDC: token endpoint
+    issuer_url: str | None = None  # For OIDC: issuer to discover endpoints from
+    client_id: str | None = None  # For OAuth2/OIDC: client ID
+    client_secret: str | None = None  # For OAuth2/OIDC: client secret
+    scopes: list[str] | None = None  # For OAuth2/OIDC: optional scopes
     custom_headers: dict[str, str] | None = None  # Additional headers for any auth type
     _token_expires_at: float | None = field(default=None, repr=False)
 
@@ -64,8 +76,9 @@ class AuthCredentials:
             "key_path": self.key_path,
             "ca_cert_path": self.ca_cert_path,
             "token_url": self.token_url,
+            "issuer_url": self.issuer_url,
         }
-        for secret_field in ("value", "client_id", "client_secret"):
+        for secret_field in ("value", "username", "client_id", "client_secret"):
             val = getattr(self, secret_field)
             redacted[secret_field] = "***" if val else None
         if self.custom_headers:
@@ -83,8 +96,12 @@ class AuthCredentials:
             headers.update(self.custom_headers)
         if self.auth_type == AuthType.BEARER and self.value:
             headers["Authorization"] = f"Bearer {self.value}"
-        elif self.auth_type == AuthType.OAUTH2 and self.value:
+        elif self.auth_type in TOKEN_FETCHING_AUTH_TYPES and self.value:
             headers["Authorization"] = f"Bearer {self.value}"
+        elif self.auth_type == AuthType.BASIC and self.username is not None:
+            userpass = f"{self.username}:{self.value}".encode()
+            encoded = base64.b64encode(userpass).decode("ascii")
+            headers["Authorization"] = f"Basic {encoded}"
         elif self.auth_type == AuthType.API_KEY:
             header = self.header_name or "X-API-Key"
             headers[header] = self.value
@@ -122,8 +139,39 @@ class AuthCredentials:
         self.value = ""
         self._token_expires_at = None
 
+    async def discover_oidc_token_endpoint(self) -> str:
+        """Resolve the token endpoint from the OIDC discovery document.
+
+        Fetches ``<issuer>/.well-known/openid-configuration`` and caches the
+        advertised ``token_endpoint`` on ``token_url``.
+        """
+        if self.auth_type != AuthType.OIDC:
+            raise ValueError("OIDC discovery is only valid for OIDC credentials")
+        if self.token_url:
+            return self.token_url
+        if not self.issuer_url:
+            raise ValueError("issuer_url is required for OIDC discovery")
+        validate_token_url(self.issuer_url)
+
+        discovery_url = self.issuer_url.rstrip("/") + OIDC_DISCOVERY_PATH
+        async with httpx.AsyncClient(trust_env=False) as discovery_client:
+            response = await discovery_client.get(discovery_url)
+        response.raise_for_status()
+        document = response.json()
+        token_endpoint = document.get("token_endpoint")
+        if not isinstance(token_endpoint, str) or not token_endpoint:
+            raise ValueError(
+                f"OIDC discovery document at {discovery_url} has no token_endpoint"
+            )
+        validate_token_url(token_endpoint)
+        self.token_url = token_endpoint
+        return token_endpoint
+
     async def fetch_oauth2_token(self) -> str:
-        """Fetch an access token using OAuth2 client credentials grant.
+        """Fetch an access token using the client credentials grant.
+
+        Valid for OAuth2 and OIDC credentials; OIDC resolves its token
+        endpoint through the issuer's discovery document first.
 
         Uses a short-lived HTTP client so that agent auth headers and custom
         headers on the main client are never sent to the token endpoint.
@@ -131,8 +179,10 @@ class AuthCredentials:
         Updates self.value with the new token and returns it.
         Parses ``expires_in`` from the token response to track expiry.
         """
-        if self.auth_type != AuthType.OAUTH2:
-            raise ValueError("Token fetch is only valid for OAuth2 credentials")
+        if self.auth_type not in TOKEN_FETCHING_AUTH_TYPES:
+            raise ValueError("Token fetch is only valid for OAuth2 or OIDC credentials")
+        if self.auth_type == AuthType.OIDC:
+            await self.discover_oidc_token_endpoint()
         if not self.token_url or not self.client_id or not self.client_secret:
             raise ValueError("token_url, client_id, and client_secret are required")
         validate_token_url(self.token_url)
@@ -168,6 +218,10 @@ class AuthCredentials:
             "value": self.value,
             "header_name": self.header_name,
         }
+        if self.username is not None:
+            data["username"] = self.username
+        if self.issuer_url:
+            data["issuer_url"] = self.issuer_url
         if self.cert_path:
             data["cert_path"] = self.cert_path
         if self.key_path:
@@ -197,6 +251,8 @@ class AuthCredentials:
             auth_type=AuthType(data["auth_type"]),
             value=data.get("value") or "",
             header_name=data.get("header_name"),
+            username=data.get("username"),
+            issuer_url=data.get("issuer_url"),
             cert_path=data.get("cert_path"),
             key_path=data.get("key_path"),
             ca_cert_path=data.get("ca_cert_path"),
@@ -224,6 +280,15 @@ def parse_header_string(header: str) -> tuple[str, str]:
 def create_bearer_auth(token: str) -> AuthCredentials:
     """Create bearer token authentication."""
     return AuthCredentials(auth_type=AuthType.BEARER, value=token)
+
+
+def create_basic_auth(username: str, password: str) -> AuthCredentials:
+    """Create HTTP basic authentication."""
+    return AuthCredentials(
+        auth_type=AuthType.BASIC,
+        username=username,
+        value=password,
+    )
 
 
 def create_api_key_auth(
@@ -282,6 +347,28 @@ def create_oauth2_auth(
         auth_type=AuthType.OAUTH2,
         value=access_token,
         token_url=token_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=scopes,
+    )
+
+
+def create_oidc_auth(
+    issuer_url: str,
+    client_id: str,
+    client_secret: str,
+    scopes: list[str] | None = None,
+    access_token: str = "",
+) -> AuthCredentials:
+    """Create OpenID Connect authentication.
+
+    The token endpoint is discovered from the issuer's
+    ``/.well-known/openid-configuration`` document on first token fetch.
+    """
+    return AuthCredentials(
+        auth_type=AuthType.OIDC,
+        value=access_token,
+        issuer_url=issuer_url,
         client_id=client_id,
         client_secret=client_secret,
         scopes=scopes,
