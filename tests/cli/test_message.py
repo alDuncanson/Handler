@@ -120,7 +120,13 @@ class TestMessageSend:
 
             assert result.exit_code == 0
             mock_service.send.assert_called_once_with(
-                "Hello", "ctx-456", None, attachments=None
+                "Hello",
+                "ctx-456",
+                None,
+                attachments=None,
+                accepted_output_modes=None,
+                history_length=None,
+                return_immediately=False,
             )
 
     def test_message_send_with_continue_flag(self, runner):
@@ -163,7 +169,13 @@ class TestMessageSend:
 
             assert result.exit_code == 0
             mock_service.send.assert_called_once_with(
-                "Hello", "saved-ctx", None, attachments=None
+                "Hello",
+                "saved-ctx",
+                None,
+                attachments=None,
+                accepted_output_modes=None,
+                history_length=None,
+                return_immediately=False,
             )
 
     def test_message_send_with_bearer_auth(self, runner):
@@ -292,8 +304,80 @@ class TestMessageSend:
 
             assert result.exit_code == 0
             mock_service.send.assert_called_once_with(
-                "Hello from json", "ctx-9", None, attachments=None
+                "Hello from json",
+                "ctx-9",
+                None,
+                attachments=None,
+                accepted_output_modes=None,
+                history_length=None,
+                return_immediately=False,
             )
+
+    def test_message_send_with_send_configuration_flags(self, runner):
+        """--accept, --history-length, and --no-wait reach the service."""
+        mock_task = _make_task(TaskState.TASK_STATE_SUBMITTED, text=None)
+
+        with (
+            patch("a2a_handler.cli.message.build_http_client") as mock_client,
+            patch("a2a_handler.cli.message.A2AService") as mock_service_cls,
+            patch("a2a_handler.cli.message.update_session"),
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.send.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(
+                message,
+                [
+                    "send",
+                    "--url",
+                    "http://localhost:8000",
+                    "--text",
+                    "Long job",
+                    "--accept",
+                    "text/plain",
+                    "--accept",
+                    "image/png",
+                    "--history-length",
+                    "5",
+                    "--no-wait",
+                ],
+            )
+
+            assert result.exit_code == 0
+            mock_service.send.assert_called_once_with(
+                "Long job",
+                None,
+                None,
+                attachments=None,
+                accepted_output_modes=("text/plain", "image/png"),
+                history_length=5,
+                return_immediately=True,
+            )
+            # The submitted task's id must be visible so the caller can poll.
+            assert "task-123" in result.output
+
+    def test_message_send_rejects_no_wait_with_stream(self, runner):
+        """--no-wait and --stream conflict and fail before any network call."""
+        result = runner.invoke(
+            message,
+            [
+                "send",
+                "--url",
+                "http://localhost:8000",
+                "--text",
+                "hi",
+                "--no-wait",
+                "--stream",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "no-wait" in result.output
 
     def test_message_send_with_file_attachment(self, runner, tmp_path):
         """--file attaches an inline raw part alongside the text part."""
