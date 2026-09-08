@@ -54,6 +54,8 @@ from a2a_handler.common.input_validation import (
     InputValidationError,
     reject_control_chars,
     validate_agent_url,
+    validate_history_length,
+    validate_page_size,
     validate_resource_id,
     validate_webhook_url,
 )
@@ -64,13 +66,23 @@ logger = get_logger(__name__)
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
 
-# Tasks fetched per ListTasks request when the caller does not choose a page
-# size. Servers reject a zero (i.e. unset) page size outright.
-DEFAULT_LIST_TASKS_PAGE_SIZE = 50
-
 # Hard bound on pagination so a server minting a fresh continuation token on
 # every response cannot spin list_all_tasks forever.
 MAX_LIST_TASKS_PAGES = 1000
+
+
+@dataclass(frozen=True, slots=True)
+class TaskListing:
+    """Every task a full listing produced, plus whether it was cut short.
+
+    ``truncated`` is True when a pagination defense (page cap or a
+    non-progressing server) stopped the crawl before the server ran out of
+    continuation tokens; the tasks list is then incomplete.
+    """
+
+    tasks: list[Task]
+    truncated: bool = False
+
 
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
@@ -867,6 +879,8 @@ class A2AService:
 
         Returns the raw A2A Task object.
         """
+        validate_history_length(history_length)
+
         client = await self._get_or_create_client()
 
         request = GetTaskRequest(id=task_id)
@@ -902,9 +916,10 @@ class A2AService:
             context_id: Only return tasks in this context
             status: Only return tasks in this ``TaskState``
             page_size: Maximum tasks per page (server may return fewer);
-                defaults to ``DEFAULT_LIST_TASKS_PAGE_SIZE``
+                left unset the server chooses its own default
             page_token: Continuation token from a previous page's
-                ``next_page_token``
+                ``next_page_token``. Opaque server data; it is sent back
+                verbatim, not validated as user input.
             history_length: Number of history messages to include per task
             include_artifacts: Whether to include task artifacts
 
@@ -913,26 +928,21 @@ class A2AService:
         """
         if context_id:
             validate_resource_id(context_id, "context_id")
-        if page_token:
-            reject_control_chars(page_token, "page_token")
-        if page_size is not None and page_size < 1:
-            raise InputValidationError(
-                code="invalid_page_size",
-                message="page_size must be at least 1",
-                suggestion="Omit page_size to use the default",
-                details={"field": "page_size"},
-            )
+        validate_page_size(page_size)
+        validate_history_length(history_length)
 
         client = await self._get_or_create_client()
 
-        # Servers commonly reject a zero page size and some treat an unset
-        # field as zero, so always send an explicit one.
+        # page_size and history_length carry explicit presence, so they are
+        # only set when the caller chose a value; unset means the server's
+        # default applies.
         request = ListTasksRequest(
             context_id=context_id or "",
-            page_size=page_size or DEFAULT_LIST_TASKS_PAGE_SIZE,
             page_token=page_token or "",
             include_artifacts=include_artifacts,
         )
+        if page_size is not None:
+            request.page_size = page_size
         if status is not None:
             request.status = cast("TaskState", status)
         if history_length is not None:
@@ -954,19 +964,23 @@ class A2AService:
         page_size: int | None = None,
         history_length: int | None = None,
         include_artifacts: bool = False,
-    ) -> list[Task]:
+    ) -> TaskListing:
         """List tasks across every page, following continuation tokens.
 
-        Defenses against misbehaving servers: tasks are deduplicated by ID (a
-        replayed page adds nothing), a token identical to the one just sent
-        stops the loop (requesting again could only repeat), and pagination
-        is capped at ``MAX_LIST_TASKS_PAGES`` so a server minting fresh
-        tokens forever cannot spin the client.
+        Defenses against misbehaving servers: tasks are deduplicated by ID,
+        the loop stops as soon as a page contributes nothing new while still
+        offering a continuation token (which subsumes replayed pages and
+        token cycles of any length), and pagination is capped at
+        ``MAX_LIST_TASKS_PAGES`` so a server minting fresh tokens forever
+        cannot spin the client. A listing cut short by either defense is
+        marked ``truncated`` so consumers are not handed silently
+        incomplete data.
         """
         tasks: list[Task] = []
         seen_task_ids: set[str] = set()
         page_token: str | None = None
         pages_fetched = 0
+        truncated = False
 
         while True:
             response = await self.list_tasks(
@@ -978,32 +992,44 @@ class A2AService:
                 include_artifacts=include_artifacts,
             )
             pages_fetched += 1
+            new_tasks = 0
             for task in response.tasks:
                 if task.id and task.id in seen_task_ids:
                     continue
                 if task.id:
                     seen_task_ids.add(task.id)
                 tasks.append(task)
+                new_tasks += 1
 
             next_token = response.next_page_token
             if not next_token:
+                break
+            if response.tasks and new_tasks == 0:
+                logger.warning(
+                    "Server offered page token %r but the page held nothing "
+                    "new; stopping pagination",
+                    next_token,
+                )
+                truncated = True
                 break
             if next_token == (page_token or ""):
                 logger.warning(
                     "Server repeated page token %r; stopping pagination",
                     next_token,
                 )
+                truncated = True
                 break
             if pages_fetched >= MAX_LIST_TASKS_PAGES:
                 logger.warning(
-                    "Stopping after %d pages; the task listing may be incomplete",
+                    "Stopping after %d pages; the task listing is incomplete",
                     pages_fetched,
                 )
+                truncated = True
                 break
             page_token = next_token
 
         logger.info("Listed %d task(s) across %d page(s)", len(tasks), pages_fetched)
-        return tasks
+        return TaskListing(tasks=tasks, truncated=truncated)
 
     async def resubscribe(self, task_id: str) -> AsyncIterator[StreamEvent]:
         """Resubscribe to a task's event stream.

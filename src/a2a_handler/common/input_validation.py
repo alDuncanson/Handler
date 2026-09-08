@@ -61,6 +61,56 @@ def validate_resource_id(value: str, field_name: str) -> str:
     return value
 
 
+# The A2A spec bounds a ListTasks page size to [1, 100]; a server rejects
+# anything outside it, so catch it locally instead of paying a round trip.
+# https://a2a-protocol.org/latest/specification/#314-list-tasks
+MAX_LIST_TASKS_PAGE_SIZE = 100
+
+
+def validate_page_size(page_size: int | None, label: str = "page_size") -> None:
+    """Reject an out-of-range page size before it reaches the wire.
+
+    ``label`` names the input in the message so a CLI caller can show the
+    flag the user typed; ``details.field`` stays the machine name either way.
+    """
+    if page_size is None:
+        return
+    if page_size < 1:
+        raise InputValidationError(
+            code="invalid_page_size",
+            message=f"{label} must be at least 1",
+            suggestion=f"Omit {label} to use the server's default page size",
+            details={"field": "page_size"},
+        )
+    if page_size > MAX_LIST_TASKS_PAGE_SIZE:
+        raise InputValidationError(
+            code="invalid_page_size",
+            message=f"{label} must be at most {MAX_LIST_TASKS_PAGE_SIZE}",
+            suggestion=(
+                f"Use a page size up to {MAX_LIST_TASKS_PAGE_SIZE}; every page "
+                "is fetched regardless, so a smaller one loses nothing"
+            ),
+            details={"field": "page_size", "max": MAX_LIST_TASKS_PAGE_SIZE},
+        )
+
+
+def validate_history_length(
+    history_length: int | None, label: str = "history_length"
+) -> None:
+    """Reject a negative history length before it reaches the wire.
+
+    ``label`` names the input in the message; ``details.field`` stays the
+    machine name, as in :func:`validate_page_size`.
+    """
+    if history_length is not None and history_length < 0:
+        raise InputValidationError(
+            code="invalid_history_length",
+            message=f"{label} must not be negative",
+            suggestion=f"Omit {label} to use the server's default",
+            details={"field": "history_length"},
+        )
+
+
 def validate_webhook_url(url: str) -> str:
     """Validate webhook callback URLs used for push notifications."""
     reject_control_chars(url, "webhook_url")

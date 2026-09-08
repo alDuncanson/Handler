@@ -688,9 +688,10 @@ class TestA2AServiceListTasks:
         fake_client = _FakeListTasksClient(pages)
         service = self._service_with(fake_client)
 
-        tasks = await service.list_all_tasks(page_size=1)
+        listing = await service.list_all_tasks(page_size=1)
 
-        assert [item.id for item in tasks] == ["task-1", "task-2"]
+        assert [item.id for item in listing.tasks] == ["task-1", "task-2"]
+        assert listing.truncated is False
         assert len(fake_client.requests) == 2
         assert fake_client.requests[1].page_token == "page-2"
 
@@ -702,12 +703,13 @@ class TestA2AServiceListTasks:
         fake_client = _FakeListTasksClient([page, page])
         service = self._service_with(fake_client)
 
-        tasks = await service.list_all_tasks()
+        listing = await service.list_all_tasks()
 
         # First call, then one follow-up with the token; the replayed page
         # stops the loop and its tasks are deduplicated, not double-counted.
         assert len(fake_client.requests) == 2
-        assert [item.id for item in tasks] == ["task-1"]
+        assert [item.id for item in listing.tasks] == ["task-1"]
+        assert listing.truncated is True
 
     async def test_list_all_tasks_is_capped_against_fresh_token_loops(
         self, monkeypatch
@@ -725,10 +727,11 @@ class TestA2AServiceListTasks:
         fake_client = _FakeListTasksClient(pages)
         service = self._service_with(fake_client)
 
-        tasks = await service.list_all_tasks()
+        listing = await service.list_all_tasks()
 
         assert len(fake_client.requests) == 3
-        assert [item.id for item in tasks] == ["task-0", "task-1", "task-2"]
+        assert [item.id for item in listing.tasks] == ["task-0", "task-1", "task-2"]
+        assert listing.truncated is True
 
     async def test_list_tasks_rejects_non_positive_page_size(self):
         service = self._service_with(_FakeListTasksClient([]))
@@ -738,6 +741,72 @@ class TestA2AServiceListTasks:
         assert exc_info.value.code == "invalid_page_size"
         with pytest.raises(InputValidationError):
             await service.list_tasks(page_size=-5)
+
+    async def test_list_tasks_rejects_page_size_above_the_spec_maximum(self):
+        # The spec caps a page at 100; catching it locally saves a round trip
+        # that could only come back as an InvalidParams error.
+        service = self._service_with(_FakeListTasksClient([]))
+        with pytest.raises(InputValidationError) as exc_info:
+            await service.list_tasks(page_size=101)
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "invalid_page_size"
+        assert "at most 100" in exc_info.value.message
+
+    async def test_list_tasks_accepts_the_maximum_page_size(self):
+        fake_client = _FakeListTasksClient([ListTasksResponse(tasks=[])])
+        service = self._service_with(fake_client)
+
+        await service.list_tasks(page_size=100)
+
+        assert fake_client.requests[0].page_size == 100
+
+    async def test_list_tasks_rejects_negative_history_length(self):
+        service = self._service_with(_FakeListTasksClient([]))
+        with pytest.raises(InputValidationError) as exc_info:
+            await service.list_tasks(history_length=-1)
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "invalid_history_length"
+
+    async def test_list_tasks_leaves_unset_paging_fields_off_the_wire(self):
+        # page_size and history_length carry explicit presence, so omitting
+        # them must send nothing at all rather than a zero the server would
+        # have to interpret.
+        page = ListTasksResponse(tasks=[])
+        fake_client = _FakeListTasksClient([page])
+        service = self._service_with(fake_client)
+
+        await service.list_tasks()
+
+        request = fake_client.requests[0]
+        assert request.HasField("page_size") is False
+        assert request.HasField("history_length") is False
+
+    async def test_list_all_tasks_stops_on_token_cycle_that_never_repeats(self):
+        # A server alternating between two tokens never hands back the token
+        # just sent, so the repeated-token guard alone would loop until the
+        # page cap. No page contributes a new task, which is what stops it.
+        pages = [
+            ListTasksResponse(
+                tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")],
+                next_page_token="token-a",
+            ),
+            ListTasksResponse(
+                tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")],
+                next_page_token="token-b",
+            ),
+            ListTasksResponse(
+                tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")],
+                next_page_token="token-a",
+            ),
+        ]
+        fake_client = _FakeListTasksClient(pages)
+        service = self._service_with(fake_client)
+
+        listing = await service.list_all_tasks()
+
+        assert len(fake_client.requests) == 2
+        assert [item.id for item in listing.tasks] == ["task-1"]
+        assert listing.truncated is True
 
 
 class _FakeStreamingClient:
