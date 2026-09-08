@@ -180,6 +180,15 @@ async def test_send_message_rejects_invalid_agent_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_message_rejects_empty_message() -> None:
+    server = create_mcp_server()
+    send_message = _tool_fn(server, "send_message")
+
+    with pytest.raises(ValueError, match="missing_message_text"):
+        await send_message(agent_url="http://localhost:8000", message="")
+
+
+@pytest.mark.asyncio
 async def test_send_message_success() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "send_message")

@@ -8,7 +8,7 @@ from collections.abc import Generator
 from typing import Any
 
 import httpx
-from a2a.types import AgentCard, Message as A2AMessage, Role, Task, TaskState
+from a2a.types import AgentCard, Message as A2AMessage, Part, Role, Task, TaskState
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -31,8 +31,10 @@ from a2a_handler.servers import (
 )
 from a2a_handler.service import (
     A2AService,
+    attachment_part_from_spec,
     card_protocol_version,
     extract_text_from_message_parts,
+    part_file,
     response_task_id,
     response_state,
     state_label,
@@ -59,6 +61,15 @@ logger = get_logger(__name__)
 # How long to let an agent acknowledge a cancel before stopping locally.
 CANCEL_GRACE_SECONDS = 2.0
 CANCEL_POLL_SECONDS = 0.05
+
+
+def _attachment_label(part: Part) -> str:
+    """Return a short composer label for a queued attachment part."""
+    info = part_file(part)
+    name = info.get("name") or info.get("uri") or "attachment"
+    if "num_bytes" in info:
+        return f"{name} ({info['num_bytes']} bytes)"
+    return str(name)
 
 
 class ServerTab(Container):
@@ -99,6 +110,7 @@ class ServerTab(Container):
         self._log_lines: list[str] = []
         self._active_turn: AgentTurn | None = None
         self._send_worker: Worker[None] | None = None
+        self._pending_attachments: list[Part] = []
 
     def compose(self) -> ComposeResult:
         yield ServerView()
@@ -423,7 +435,20 @@ class ServerTab(Container):
         if warning:
             messages_panel.add_system_message(warning)
 
+    def _clear_pending_attachments(self) -> None:
+        """Drop queued attachments and their composer indicator together.
+
+        The queue must never outlive the connection it was staged for: a
+        stale part would otherwise ride the next message invisibly, possibly
+        to a different server.
+        """
+        self._pending_attachments = []
+        server_view = self._try_get_server_view()
+        if server_view is not None:
+            server_view.input_panel().show_attachments([])
+
     def _show_disconnected_state(self) -> None:
+        self._clear_pending_attachments()
         server_view = self._get_server_view()
         server_view.connection_bar().show_disconnected_badges()
         server_view.agent_card_panel().update_card(None)
@@ -481,6 +506,7 @@ class ServerTab(Container):
         agent_card = self.state.agent_card
         assert agent_card is not None
 
+        self._clear_pending_attachments()
         server_view = self._get_server_view()
         await server_view.reset_session()
         server_view.agent_card_panel().update_card(agent_card)
@@ -641,6 +667,53 @@ class ServerTab(Container):
             return
         self._send_worker = self._send_message()
 
+    @on(Button.Pressed, "#attach-btn")
+    def _handle_attach_pressed(self) -> None:
+        self.prompt_attach_file()
+
+    def prompt_attach_file(self) -> None:
+        """Ask for a path or URL and queue it for the next message."""
+        if not self.is_connected:
+            return
+        # Imported here: a module-level import is circular through
+        # tui.commands.palette, which imports the server tab widgets.
+        from a2a_handler.tui.commands.screens import TextPromptScreen
+
+        self.app.push_screen(
+            TextPromptScreen(
+                "Attach File",
+                "Local paths are sent inline; http(s) URLs are sent by reference.",
+                placeholder="./report.pdf or https://example.com/report.pdf",
+                confirm_label="Attach",
+            ),
+            callback=self._handle_attach_result,
+        )
+
+    def _handle_attach_result(self, spec: str | None) -> None:
+        """Queue an attachment from the prompt, or explain why it can't be."""
+        if not spec:
+            return
+        server_view = self._try_get_server_view()
+        if server_view is None:
+            return
+        # The connection can drop while the prompt is up; a part queued then
+        # would ride the first message after a reconnect.
+        if not self.is_connected:
+            return
+        try:
+            part = attachment_part_from_spec(spec)
+        except InputValidationError as error:
+            detail = error.message
+            if error.suggestion:
+                detail = f"{detail}. {error.suggestion}"
+            server_view.messages_panel().add_system_message(f"Attach failed: {detail}")
+            return
+        self._pending_attachments.append(part)
+        server_view.input_panel().show_attachments(
+            [_attachment_label(queued) for queued in self._pending_attachments]
+        )
+        server_view.input_panel().focus_input()
+
     @on(Button.Pressed, "#cancel-btn")
     async def _handle_cancel_pressed(self) -> None:
         await self.cancel_active_turn()
@@ -701,19 +774,29 @@ class ServerTab(Container):
         ):
             return
 
-        input_panel = server_view.input_panel()
-        message_text = input_panel.get_message()
-        if not message_text:
-            return
-
         messages_panel = server_view.messages_panel()
-        messages_panel.add_message("user", message_text)
 
+        # Validate credentials before draining the composer: a validation
+        # error must not discard the typed text or the queued attachments,
+        # nor render a user bubble for a message that never went out.
         try:
             credentials = messages_panel.get_auth_credentials()
         except InputValidationError as error:
             messages_panel.add_system_message(f"Error: {error.message}")
             return
+
+        input_panel = server_view.input_panel()
+        message_text = input_panel.get_message()
+        attachments = list(self._pending_attachments)
+        if not message_text and not attachments:
+            return
+        self._clear_pending_attachments()
+
+        display_lines = [message_text] if message_text else []
+        display_lines.extend(
+            f"[attached: {_attachment_label(part)}]" for part in attachments
+        )
+        messages_panel.add_message("user", "\n".join(display_lines))
 
         if credentials is not None:
             self._agent_service.set_credentials(credentials)
@@ -726,6 +809,7 @@ class ServerTab(Container):
             text=message_text,
             context_id=self.state.current_context_id,
             task_id=self.state.current_task_id,
+            attachments=attachments or None,
         )
         self._active_turn = turn
         live = messages_panel.begin_agent_stream()

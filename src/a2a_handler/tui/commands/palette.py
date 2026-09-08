@@ -36,6 +36,11 @@ def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
             "Clear the current context and task while staying connected",
             app.action_start_fresh_conversation,
         )
+        yield SystemCommand(
+            "Attach File",
+            "Queue a file path or URL to send with the next message",
+            app.action_attach_file,
+        )
 
     saved_session_target = (
         active.get_saved_session_target() if active is not None else None

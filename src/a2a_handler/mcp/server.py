@@ -268,6 +268,8 @@ def create_mcp_server() -> FastMCP:
             - needs_auth: Whether authentication is required
         """
         logger.info("Sending message to %s", agent_url)
+        if not message:
+            raise ValueError("missing_message_text: message must be a non-empty string")
         try:
             validate_agent_url(agent_url)
             if context_id:
