@@ -138,13 +138,15 @@ def task_get(
 @click.option("--context-id", help="Only list tasks in this context")
 @click.option(
     "--status",
-    type=click.Choice(TASK_STATE_LABELS),
-    help="Only list tasks in this state",
+    help=(
+        "Only list tasks in this state "
+        f"(one of: {', '.join(TASK_STATE_LABELS)}; hyphens also accepted)"
+    ),
 )
 @click.option(
     "--page-size",
     type=int,
-    help="Tasks per request page (all pages are still fetched)",
+    help="Tasks per request page, default 50 (all pages are still fetched)",
 )
 @click.option(
     "--history-length", "-n", type=int, help="History messages to include per task"
@@ -190,6 +192,13 @@ def task_list(
             validate_resource_id(context_id, "context_id")
         if status:
             status_value = task_state_from_label(status)
+        if page_size is not None and page_size < 1:
+            raise InputValidationError(
+                code="invalid_page_size",
+                message="--page-size must be at least 1",
+                suggestion="Omit --page-size to use the default of 50",
+                details={"field": "page_size"},
+            )
     except InputValidationError as error:
         handle_validation_error(error, output)
         raise click.Abort() from error

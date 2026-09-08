@@ -610,9 +610,19 @@ class TestTaskStateLabels:
         assert isinstance(exc_info.value, InputValidationError)
         assert exc_info.value.code == "invalid_task_state"
 
+    def test_unspecified_is_rejected(self):
+        # TASK_STATE_UNSPECIFIED is the proto default; accepting it would
+        # silently drop the status filter and return every task.
+        with pytest.raises(InputValidationError):
+            task_state_from_label("unspecified")
+
 
 class _FakeListTasksClient:
-    """Replays one ListTasksResponse per call, recording each request."""
+    """Replays one ListTasksResponse per call, recording each request.
+
+    Raises IndexError past the scripted pages so a regression that issues
+    extra requests fails loudly instead of replaying the last page.
+    """
 
     def __init__(self, pages: list[ListTasksResponse]) -> None:
         self.pages = pages
@@ -620,8 +630,7 @@ class _FakeListTasksClient:
 
     async def list_tasks(self, request):
         self.requests.append(request)
-        index = min(len(self.requests) - 1, len(self.pages) - 1)
-        return self.pages[index]
+        return self.pages[len(self.requests) - 1]
 
 
 @pytest.mark.asyncio
@@ -685,19 +694,50 @@ class TestA2AServiceListTasks:
         assert len(fake_client.requests) == 2
         assert fake_client.requests[1].page_token == "page-2"
 
-    async def test_list_all_tasks_stops_on_repeated_token(self):
+    async def test_list_all_tasks_stops_on_repeated_token_without_duplicates(self):
         page = ListTasksResponse(
             tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id="task-1")],
             next_page_token="same-token",
         )
-        fake_client = _FakeListTasksClient([page])
+        fake_client = _FakeListTasksClient([page, page])
         service = self._service_with(fake_client)
 
         tasks = await service.list_all_tasks()
 
-        # First call, then one follow-up with the token; the repeat stops it.
+        # First call, then one follow-up with the token; the replayed page
+        # stops the loop and its tasks are deduplicated, not double-counted.
         assert len(fake_client.requests) == 2
-        assert len(tasks) == 2
+        assert [item.id for item in tasks] == ["task-1"]
+
+    async def test_list_all_tasks_is_capped_against_fresh_token_loops(
+        self, monkeypatch
+    ):
+        # A server minting a new token every page never repeats one; the
+        # page cap is what stops it.
+        monkeypatch.setattr("a2a_handler.service.MAX_LIST_TASKS_PAGES", 3)
+        pages = [
+            ListTasksResponse(
+                tasks=[_make_task(TaskState.TASK_STATE_COMPLETED, task_id=f"task-{n}")],
+                next_page_token=f"token-{n}",
+            )
+            for n in range(10)
+        ]
+        fake_client = _FakeListTasksClient(pages)
+        service = self._service_with(fake_client)
+
+        tasks = await service.list_all_tasks()
+
+        assert len(fake_client.requests) == 3
+        assert [item.id for item in tasks] == ["task-0", "task-1", "task-2"]
+
+    async def test_list_tasks_rejects_non_positive_page_size(self):
+        service = self._service_with(_FakeListTasksClient([]))
+        with pytest.raises(InputValidationError) as exc_info:
+            await service.list_tasks(page_size=0)
+        assert isinstance(exc_info.value, InputValidationError)
+        assert exc_info.value.code == "invalid_page_size"
+        with pytest.raises(InputValidationError):
+            await service.list_tasks(page_size=-5)
 
 
 class _FakeStreamingClient:

@@ -433,6 +433,13 @@ def create_mcp_server() -> FastMCP:
                 validate_resource_id(context_id, "context_id")
             if status:
                 status_value = task_state_from_label(status)
+            if page_size is not None and page_size < 1:
+                raise InputValidationError(
+                    code="invalid_page_size",
+                    message="page_size must be at least 1",
+                    suggestion="Omit page_size to use the default of 50",
+                    details={"field": "page_size"},
+                )
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
             if api_key:

@@ -386,6 +386,26 @@ async def test_list_tasks_rejects_unknown_status() -> None:
         await fn(agent_url="http://localhost:8000", status="sleeping")
 
 
+@pytest.mark.asyncio
+async def test_list_tasks_rejects_unspecified_status() -> None:
+    # "unspecified" would map to the proto default and silently drop the
+    # filter; it must error like any unknown label.
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    with pytest.raises(ValueError, match="invalid_task_state"):
+        await fn(agent_url="http://localhost:8000", status="unspecified")
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_rejects_non_positive_page_size() -> None:
+    server = create_mcp_server()
+    fn = _tool_fn(server, "list_tasks")
+
+    with pytest.raises(ValueError, match="invalid_page_size"):
+        await fn(agent_url="http://localhost:8000", page_size=0)
+
+
 # ---------------------------------------------------------------------------
 # cancel_task
 # ---------------------------------------------------------------------------

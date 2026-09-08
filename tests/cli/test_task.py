@@ -472,6 +472,34 @@ class TestTaskList:
             ["list", "--url", "http://localhost:8000", "--status", "sleeping"],
         )
         assert result.exit_code != 0
+        assert "Unknown task state" in result.output
+
+    def test_task_list_accepts_hyphenated_status(self, runner):
+        """The natural kebab-case spelling works on the CLI."""
+        result, mock_service = self._invoke_list(
+            runner,
+            [
+                "--url",
+                "http://localhost:8000",
+                "--status",
+                "input-required",
+            ],
+            [],
+        )
+        assert result.exit_code == 0
+        assert (
+            mock_service.list_all_tasks.call_args.kwargs["status"]
+            == TaskState.TASK_STATE_INPUT_REQUIRED
+        )
+
+    def test_task_list_rejects_non_positive_page_size(self, runner):
+        """A page size below 1 fails before any network call."""
+        result = runner.invoke(
+            task,
+            ["list", "--url", "http://localhost:8000", "--page-size", "0"],
+        )
+        assert result.exit_code != 0
+        assert "at least 1" in result.output
 
     def test_task_list_rejects_invalid_context_id(self, runner):
         """A malformed context ID fails before any network call."""

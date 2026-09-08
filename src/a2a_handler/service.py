@@ -68,6 +68,10 @@ LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
 # size. Servers reject a zero (i.e. unset) page size outright.
 DEFAULT_LIST_TASKS_PAGE_SIZE = 50
 
+# Hard bound on pagination so a server minting a fresh continuation token on
+# every response cannot spin list_all_tasks forever.
+MAX_LIST_TASKS_PAGES = 1000
+
 TERMINAL_TASK_STATES = {
     TaskState.TASK_STATE_COMPLETED,
     TaskState.TASK_STATE_CANCELED,
@@ -138,18 +142,19 @@ def task_state_from_label(label: str) -> int:
     """Return the ``TaskState`` value for a compact label like ``completed``.
 
     Accepts hyphens or underscores (``input-required`` and ``input_required``
-    both work).
+    both work). Only the real states in ``TASK_STATE_LABELS`` are accepted:
+    ``unspecified`` maps to the proto default and would silently drop a
+    filter, so it is rejected like any unknown label.
     """
     normalized = label.strip().lower().replace("-", "_")
-    try:
-        return TaskState.Value(f"TASK_STATE_{normalized.upper()}")
-    except ValueError:
+    if normalized not in TASK_STATE_LABELS:
         raise InputValidationError(
             code="invalid_task_state",
             message=f"Unknown task state: {label}",
             suggestion=f"Use one of: {', '.join(TASK_STATE_LABELS)}",
             details={"field": "status"},
-        ) from None
+        )
+    return TaskState.Value(f"TASK_STATE_{normalized.upper()}")
 
 
 def role_label(role: int | None) -> str:
@@ -910,11 +915,18 @@ class A2AService:
             validate_resource_id(context_id, "context_id")
         if page_token:
             reject_control_chars(page_token, "page_token")
+        if page_size is not None and page_size < 1:
+            raise InputValidationError(
+                code="invalid_page_size",
+                message="page_size must be at least 1",
+                suggestion="Omit page_size to use the default",
+                details={"field": "page_size"},
+            )
 
         client = await self._get_or_create_client()
 
-        # An unset proto3 int is indistinguishable from 0, and servers reject a
-        # zero page size, so always send an explicit one.
+        # Servers commonly reject a zero page size and some treat an unset
+        # field as zero, so always send an explicit one.
         request = ListTasksRequest(
             context_id=context_id or "",
             page_size=page_size or DEFAULT_LIST_TASKS_PAGE_SIZE,
@@ -929,7 +941,7 @@ class A2AService:
         logger.info(
             "Listing tasks (context_id=%s, status=%s, page_token=%s)",
             context_id,
-            state_label(status) if status else "any",
+            state_label(status) if status is not None else "any",
             page_token or "",
         )
 
@@ -945,12 +957,16 @@ class A2AService:
     ) -> list[Task]:
         """List tasks across every page, following continuation tokens.
 
-        A repeated token stops the loop, so a server that keeps returning the
-        same page cannot spin this forever.
+        Defenses against misbehaving servers: tasks are deduplicated by ID (a
+        replayed page adds nothing), a token identical to the one just sent
+        stops the loop (requesting again could only repeat), and pagination
+        is capped at ``MAX_LIST_TASKS_PAGES`` so a server minting fresh
+        tokens forever cannot spin the client.
         """
         tasks: list[Task] = []
+        seen_task_ids: set[str] = set()
         page_token: str | None = None
-        seen_tokens: set[str] = set()
+        pages_fetched = 0
 
         while True:
             response = await self.list_tasks(
@@ -961,15 +977,32 @@ class A2AService:
                 history_length=history_length,
                 include_artifacts=include_artifacts,
             )
-            tasks.extend(response.tasks)
-            page_token = response.next_page_token
-            if not page_token or page_token in seen_tokens:
-                break
-            seen_tokens.add(page_token)
+            pages_fetched += 1
+            for task in response.tasks:
+                if task.id and task.id in seen_task_ids:
+                    continue
+                if task.id:
+                    seen_task_ids.add(task.id)
+                tasks.append(task)
 
-        logger.info(
-            "Listed %d task(s) across %d page(s)", len(tasks), len(seen_tokens) + 1
-        )
+            next_token = response.next_page_token
+            if not next_token:
+                break
+            if next_token == (page_token or ""):
+                logger.warning(
+                    "Server repeated page token %r; stopping pagination",
+                    next_token,
+                )
+                break
+            if pages_fetched >= MAX_LIST_TASKS_PAGES:
+                logger.warning(
+                    "Stopping after %d pages; the task listing may be incomplete",
+                    pages_fetched,
+                )
+                break
+            page_token = next_token
+
+        logger.info("Listed %d task(s) across %d page(s)", len(tasks), pages_fetched)
         return tasks
 
     async def resubscribe(self, task_id: str) -> AsyncIterator[StreamEvent]:
