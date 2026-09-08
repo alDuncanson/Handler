@@ -1459,6 +1459,7 @@ async def test_connect_transitions_server_to_live_view_and_updates_tab_title() -
                 "badge-source",
                 "badge-auth",
                 "badge-protocol",
+                "badge-transport",
             ]
             mock_build_http_client.assert_called_once_with(credentials=None)
             mock_service_cls.assert_called_once_with(
@@ -2710,3 +2711,45 @@ async def test_cancel_before_any_text_says_so_plainly() -> None:
             texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert not any("no text in response" in t for t in texts), texts
             assert any("stopped before the agent replied" in t for t in texts), texts
+
+
+@pytest.mark.asyncio
+async def test_connect_shows_negotiated_transport_badge() -> None:
+    """The connection bar shows the transport binding the client negotiated."""
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    new_http_client = AsyncMock()
+    mock_card = make_agent_card(name="Demo Agent", protocol_binding="HTTP+JSON")
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch(
+            "a2a_handler.tui.server.tab.build_http_client",
+            return_value=new_http_client,
+        ),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = mock_card
+        mock_service.negotiated_transport = "HTTP+JSON"
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            transport_badge = workspace.query_one("#badge-transport", Static)
+            assert not transport_badge.has_class("hidden")
+            assert "HTTP+JSON" in str(transport_badge.content)
