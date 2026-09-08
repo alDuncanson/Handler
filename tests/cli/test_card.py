@@ -9,7 +9,7 @@ from unittest.mock import patch as mock_patch
 
 import pytest
 from click.testing import CliRunner
-from a2a.types import AgentCard, AgentSkill
+from a2a.types import AgentCard, AgentExtension, AgentSkill
 
 from a2a_handler.cli import cli
 from a2a_handler.cli.card import card, _format_agent_card, _format_validation_result
@@ -414,3 +414,36 @@ class TestFormatValidationResult:
         call_args = output.json.call_args[0][0]
         assert call_args["valid"] is False
         assert len(call_args["issues"]) == 1
+
+    def test_card_get_shows_declared_extensions(self, runner):
+        """Extensions the card declares are visible in the output."""
+
+        mock_card = make_agent_card(
+            name="Extended Agent",
+            extensions=[
+                AgentExtension(
+                    uri="https://ext.example.com/traceability/v1",
+                    description="Traceability",
+                    required=True,
+                )
+            ],
+        )
+
+        with (
+            patch("a2a_handler.cli.card.build_http_client") as mock_client,
+            patch("a2a_handler.cli.card.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+
+            mock_service = AsyncMock()
+            mock_service.get_card.return_value = mock_card
+            mock_service_cls.return_value = mock_service
+
+            result = runner.invoke(card, ["get", "--url", "http://localhost:8000"])
+
+            assert result.exit_code == 0
+            assert "https://ext.example.com/traceability/v1" in result.output
+            assert '"required": true' in result.output
