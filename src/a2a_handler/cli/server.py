@@ -707,13 +707,21 @@ def server_run() -> None:
 @server_run.command("push")
 @click.option("--host", default="127.0.0.1", help="Host to bind to", show_default=True)
 @click.option("--port", default=9000, help="Port to bind to", show_default=True)
-def server_push(host: str, port: int) -> None:
+@click.option(
+    "--token",
+    help=(
+        "Reject deliveries whose X-A2A-Notification-Token header does not "
+        "match; use the same value as --push-token when sending"
+    ),
+)
+def server_push(host: str, port: int, token: str | None) -> None:
     """Start a local webhook server for receiving push notifications.
 
     \b
     Examples:
       $ handler server run push
       $ handler server run push --port 9001
+      $ handler server run push --token my-webhook-secret
     """
     log.info("Starting webhook server on %s:%d", host, port)
-    run_webhook_server(host, port)
+    run_webhook_server(host, port, token=token)
