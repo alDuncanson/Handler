@@ -1,5 +1,6 @@
 """Tests for top-level CLI commands."""
 
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -234,3 +235,26 @@ def test_update_errors_when_no_supported_installer_is_available(
 
     assert result.exit_code == 1
     assert "Could not find uv or pipx" in result.output
+
+
+def test_default_log_level_surfaces_warnings(runner: CliRunner) -> None:
+    """Warnings (a card routing elsewhere, a required extension not requested)
+    must be visible without --verbose."""
+    result = runner.invoke(cli, ["version"])
+
+    assert result.exit_code == 0
+    assert logging.getLogger().getEffectiveLevel() == logging.WARNING
+
+
+def test_quiet_keeps_warnings_hidden(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["--quiet", "version"])
+
+    assert result.exit_code == 0
+    assert logging.getLogger().getEffectiveLevel() == logging.ERROR
+
+
+def test_verbose_and_debug_lower_the_level(runner: CliRunner) -> None:
+    assert runner.invoke(cli, ["-v", "version"]).exit_code == 0
+    assert logging.getLogger().getEffectiveLevel() == logging.INFO
+    assert runner.invoke(cli, ["-d", "version"]).exit_code == 0
+    assert logging.getLogger().getEffectiveLevel() == logging.DEBUG
