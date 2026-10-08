@@ -10,6 +10,8 @@ directly.
 """
 
 import mimetypes
+import copy
+import json
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +19,12 @@ from typing import Any, AsyncIterator, Iterable, Sequence, Union, cast
 from urllib.parse import urlparse
 
 import httpx
-from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
+from a2a.client import Client, ClientConfig, ClientFactory
+
+# ``parse_agent_card`` is the parse (with its v0.3 compatibility shims) that the
+# SDK's own resolver applies. Handler fetches the card itself so it can keep
+# the served JSON, which the resolver discards.
+from a2a.client.card_resolver import parse_agent_card
 from a2a.client.errors import A2AClientError, AgentCardResolutionError
 from a2a.helpers import (
     get_data_parts,
@@ -290,20 +297,55 @@ def required_extension_uris(card: AgentCard) -> list[str]:
     ]
 
 
-def card_protocol_version(card: AgentCard) -> str:
-    """Return the protocol version(s) advertised by a card's interfaces.
+UNKNOWN_PROTOCOL_VERSION = "unknown"
 
-    In A2A v1.0 the protocol version lives on each supported interface rather
-    than at the top level of the card.
+
+def card_protocol_version(
+    card: AgentCard | None,
+    raw_card: dict[str, Any] | None = None,
+) -> str:
+    """Return the protocol version(s) a card advertises.
+
+    A2A v1.0 puts the protocol version on each supported interface; v0.3 put
+    a single ``protocolVersion`` at the top level. The SDK parser migrates a
+    v0.3 top-level version onto ``supportedInterfaces``, but skips that when
+    the card already advertises interfaces of its own, and the v1.0
+    ``AgentCard`` has no top-level field to fall back on, so a card that
+    mixes the two shapes loses its version in parsing. The served JSON is
+    consulted second to answer for those cards.
     """
-    versions = sorted(
-        {
-            interface.protocol_version
-            for interface in card.supported_interfaces
-            if interface.protocol_version
-        }
-    )
-    return ", ".join(versions) if versions else "unknown"
+    if card is not None:
+        versions = sorted(
+            {
+                interface.protocol_version
+                for interface in card.supported_interfaces
+                if interface.protocol_version
+            }
+        )
+        if versions:
+            return ", ".join(versions)
+
+    if raw_card:
+        interfaces = raw_card.get("supportedInterfaces") or raw_card.get(
+            "supported_interfaces"
+        )
+        raw_versions: set[str] = set()
+        if isinstance(interfaces, list):
+            for interface in interfaces:
+                if not isinstance(interface, dict):
+                    continue
+                version = interface.get("protocolVersion") or interface.get(
+                    "protocol_version"
+                )
+                if isinstance(version, str) and version:
+                    raw_versions.add(version)
+        if raw_versions:
+            return ", ".join(sorted(raw_versions))
+        top_level = raw_card.get("protocolVersion") or raw_card.get("protocol_version")
+        if isinstance(top_level, str) and top_level:
+            return top_level
+
+    return UNKNOWN_PROTOCOL_VERSION
 
 
 def part_kind(part: Part) -> str:
@@ -735,6 +777,7 @@ class A2AService:
         self.extensions: tuple[str, ...] = tuple(requested_extensions)
         self._cached_client: Client | None = None
         self._cached_agent_card: AgentCard | None = None
+        self._cached_raw_card: dict[str, Any] | None = None
         self._applied_auth_headers: set[str] = set()
 
         if self.extensions:
@@ -812,25 +855,95 @@ class A2AService:
         self._cached_client = None
         logger.debug("Cleared authentication headers")
 
+    async def _fetch_card(self, card_path: str) -> tuple[dict[str, Any], AgentCard]:
+        """GET and parse the card at ``card_path`` below the agent URL.
+
+        Returns the JSON as served next to the parsed card. Error handling
+        mirrors the SDK resolver's messages so callers see familiar
+        ``AgentCardResolutionError``s, and parsing happens here so that an
+        invalid document at one path still lets the caller try the other.
+        """
+        target_url = f"{self.agent_url.rstrip('/')}/{card_path.lstrip('/')}"
+        try:
+            response = await self.http_client.get(target_url)
+            response.raise_for_status()
+            card_data = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise AgentCardResolutionError(
+                f"Failed to fetch agent card from {target_url} "
+                f"(HTTP {exc.response.status_code}): {exc}",
+                status_code=exc.response.status_code,
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise AgentCardResolutionError(
+                f"Failed to parse JSON for agent card from {target_url}: {exc}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise AgentCardResolutionError(
+                f"Network communication error fetching agent card from "
+                f"{target_url}: {exc}"
+            ) from exc
+        if not isinstance(card_data, dict):
+            raise AgentCardResolutionError(
+                f"Agent card from {target_url} is not a JSON object"
+            )
+        try:
+            # The SDK parse pops v0.3 fields off the dict it is given while
+            # migrating them, so it gets a copy and the served JSON survives.
+            # Its compatibility shims raise plain TypeError/AttributeError on
+            # malformed cards, not only ParseError, so everything is wrapped.
+            card = parse_agent_card(copy.deepcopy(card_data))
+        except Exception as exc:  # noqa: BLE001
+            raise AgentCardResolutionError(
+                f"Failed to validate agent card structure from {target_url}: {exc}"
+            ) from exc
+        logger.info("Successfully fetched agent card data from %s", target_url)
+        return card_data, card
+
+    @staticmethod
+    def _preferred_card_error(
+        primary: AgentCardResolutionError, legacy: AgentCardResolutionError
+    ) -> AgentCardResolutionError:
+        """Pick the error to report when both well-known paths failed.
+
+        The standard path is the one worth naming, unless only the legacy
+        path said the agent wants credentials: an older agent that serves
+        just ``agent.json`` behind auth should read as 401/403, not 404.
+        """
+        auth_statuses = {401, 403}
+        primary_status = getattr(primary, "status_code", None)
+        legacy_status = getattr(legacy, "status_code", None)
+        if legacy_status in auth_statuses and primary_status not in auth_statuses:
+            return legacy
+        return primary
+
     async def _load_agent_card(self) -> AgentCard:
-        """Fetch and cache the agent card without mutating auth state."""
+        """Fetch and cache the agent card without mutating auth state.
+
+        The served JSON is kept next to the parsed card: the SDK parse drops
+        fields the v1.0 ``AgentCard`` has no home for, and the protocol
+        version of a mixed-shape card is one of them.
+        """
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
-            card_resolver = A2ACardResolver(self.http_client, self.agent_url)
             try:
-                self._cached_agent_card = await card_resolver.get_agent_card()
-            except (AgentCardResolutionError, httpx.HTTPStatusError):
+                raw_card, card = await self._fetch_card(AGENT_CARD_WELL_KNOWN_PATH)
+            except AgentCardResolutionError as primary_error:
                 logger.info(
-                    "Agent card not found at %s, trying %s",
+                    "Agent card not usable at %s, trying %s",
                     AGENT_CARD_WELL_KNOWN_PATH,
                     LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
                 )
-                fallback_resolver = A2ACardResolver(
-                    self.http_client,
-                    self.agent_url,
-                    agent_card_path=LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-                )
-                self._cached_agent_card = await fallback_resolver.get_agent_card()
+                try:
+                    raw_card, card = await self._fetch_card(
+                        LEGACY_AGENT_CARD_WELL_KNOWN_PATH
+                    )
+                except AgentCardResolutionError as legacy_error:
+                    raise self._preferred_card_error(
+                        primary_error, legacy_error
+                    ) from legacy_error
+            self._cached_agent_card = card
+            self._cached_raw_card = raw_card
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
             missing = self.unrequested_required_extensions(self._cached_agent_card)
             if missing:
@@ -840,6 +953,11 @@ class A2AService:
                     ", ".join(missing),
                 )
         return self._cached_agent_card
+
+    @property
+    def raw_card(self) -> dict[str, Any] | None:
+        """The agent card as served, once fetched; None before."""
+        return self._cached_raw_card
 
     def unrequested_required_extensions(self, card: AgentCard) -> list[str]:
         """Return required extension URIs the client is not requesting.
@@ -863,6 +981,15 @@ class A2AService:
         """
         await self.ensure_oauth2_token()
         return await self._load_agent_card()
+
+    @property
+    def protocol_version(self) -> str:
+        """The protocol version the fetched card advertises, or ``unknown``.
+
+        Reads the served JSON as well as the parsed card, so a card that
+        mixes v0.3 and v1.0 shapes still reports its version.
+        """
+        return card_protocol_version(self._cached_agent_card, self._cached_raw_card)
 
     @property
     def supports_extended_card(self) -> bool:

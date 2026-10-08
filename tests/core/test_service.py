@@ -1,5 +1,6 @@
 """Tests for the A2A service layer module."""
 
+import copy
 from unittest.mock import AsyncMock
 
 import httpx
@@ -22,6 +23,8 @@ from typing import Any, cast
 
 from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
+from a2a.client.card_resolver import parse_agent_card
+from a2a.client.errors import AgentCardResolutionError
 from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
 from a2a_handler.service import (
     A2AService,
@@ -36,6 +39,7 @@ from a2a_handler.service import (
     card_extensions,
     build_data_part,
     build_file_part,
+    card_protocol_version,
     build_url_part,
     extract_text,
     extract_text_from_task,
@@ -50,6 +54,7 @@ from a2a_handler.service import (
     supported_transport_bindings,
     task_state_from_label,
     to_json_dict,
+    UNKNOWN_PROTOCOL_VERSION,
 )
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -834,6 +839,177 @@ class _FakeStreamingClient:
             yield event
 
 
+class TestCardProtocolVersion:
+    """The served JSON answers when the parsed card lost the version."""
+
+    def test_reads_interface_versions_from_the_parsed_card(self):
+        card = make_agent_card(protocol_version="1.0")
+        assert card_protocol_version(card) == "1.0"
+
+    def test_mixed_shape_card_falls_back_to_the_top_level_version(self):
+        """A v0.3 protocolVersion beside versionless interfaces: the SDK
+        drops the top-level field and migrates nothing, so only the raw JSON
+        still knows the version. This is what a deployed ADK agent serves."""
+        raw = {
+            "name": "Mixed",
+            "protocolVersion": "0.3",
+            "url": "https://agent.example.com/a2a/",
+            "preferredTransport": "JSONRPC",
+            "supportedInterfaces": [
+                {"url": "https://agent.example.com/a2a/", "protocolBinding": "JSONRPC"}
+            ],
+            "capabilities": {"streaming": False},
+        }
+        # The SDK parse mutates the dict it is handed; give it a copy.
+        card = parse_agent_card(copy.deepcopy(raw))
+        assert not card.supported_interfaces[0].protocol_version
+
+        assert card_protocol_version(card) == UNKNOWN_PROTOCOL_VERSION
+        assert card_protocol_version(card, raw) == "0.3"
+
+    def test_raw_interface_versions_win_over_the_top_level_one(self):
+        raw = {
+            "protocolVersion": "0.3",
+            "supportedInterfaces": [
+                {
+                    "url": "https://a",
+                    "protocolBinding": "JSONRPC",
+                    "protocolVersion": "1.0",
+                }
+            ],
+        }
+        assert card_protocol_version(None, raw) == "1.0"
+
+    def test_nothing_known_is_unknown(self):
+        assert card_protocol_version(None, None) == UNKNOWN_PROTOCOL_VERSION
+        assert card_protocol_version(None, {"name": "x"}) == UNKNOWN_PROTOCOL_VERSION
+
+
+@pytest.mark.asyncio
+class TestServiceKeepsServedCard:
+    async def test_protocol_version_comes_from_the_served_json(self):
+        raw = {
+            "name": "Mixed",
+            "protocolVersion": "0.3",
+            "url": "http://example.com/",
+            "preferredTransport": "JSONRPC",
+            "supportedInterfaces": [
+                {"url": "http://example.com/", "protocolBinding": "JSONRPC"}
+            ],
+            "capabilities": {},
+        }
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=raw)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            assert service.protocol_version == UNKNOWN_PROTOCOL_VERSION
+
+            card = await service.get_card()
+
+        assert card.name == "Mixed"
+        assert service.protocol_version == "0.3"
+
+    async def test_failure_reports_the_standard_path_not_the_legacy_one(self):
+        """Both paths fail: the error must name the URL the user should look
+        at, not the legacy agent.json fallback."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert "agent-card.json" in str(exc_info.value)
+        assert "HTTP 403" in str(exc_info.value)
+        assert getattr(exc_info.value, "status_code", None) == 403
+
+    async def test_invalid_standard_card_falls_back_to_the_legacy_path(self):
+        """Parsing happens per path, so a broken agent-card.json does not
+        hide a valid agent.json (the SDK resolver behaved this way too)."""
+        legacy = make_agent_card(name="Legacy", url="http://example.com/")
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("agent-card.json"):
+                return httpx.Response(200, json={"name": ["x"]})
+            return httpx.Response(200, json=to_json_dict(legacy))
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            card = await service.get_card()
+
+        assert card.name == "Legacy"
+        assert service.raw_card == to_json_dict(legacy)
+
+    async def test_auth_error_on_the_legacy_path_is_the_one_reported(self):
+        """An older agent serving only agent.json behind auth must read as
+        401, not as the standard path's 404."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("agent-card.json"):
+                return httpx.Response(404)
+            return httpx.Response(401)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert getattr(exc_info.value, "status_code", None) == 401
+        assert "agent.json" in str(exc_info.value)
+
+    async def test_malformed_card_from_the_parse_shims_is_wrapped(self):
+        """The SDK parse raises plain TypeError on some malformed cards; the
+        caller still gets an AgentCardResolutionError naming the path."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"name": "x", "skills": None})
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert "agent-card.json" in str(exc_info.value)
+        assert "structure" in str(exc_info.value)
+
+    async def test_non_object_card_is_rejected(self):
+        def serve(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=[1, 2, 3])
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError, match="not a JSON object"):
+                await service.get_card()
+
+
 @pytest.mark.asyncio
 class TestA2AServiceSendConfiguration:
     """Tests for SendMessageConfiguration on outgoing requests."""
@@ -1326,13 +1502,6 @@ class TestA2AServiceOAuthAndCards:
             credentials._token_expires_at = None
             return credentials.value
 
-        class _Resolver:
-            def __init__(self, _http_client, _agent_url, agent_card_path=None) -> None:
-                self.agent_card_path = agent_card_path
-
-            async def get_agent_card(self):
-                return card
-
         class _Factory:
             def __init__(self, _config) -> None:
                 pass
@@ -1341,10 +1510,14 @@ class TestA2AServiceOAuthAndCards:
                 return object()
 
         credentials.fetch_oauth2_token = _fetch_token  # type: ignore[method-assign]
-        monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
         monkeypatch.setattr("a2a_handler.service.ClientFactory", _Factory)
 
-        async with httpx.AsyncClient() as http_client:
+        def serve_card(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=to_json_dict(card))
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve_card)
+        ) as http_client:
             service = A2AService(
                 http_client=http_client,
                 agent_url="http://example.com",
@@ -1370,25 +1543,15 @@ class TestA2AServiceOAuthAndCards:
         )
         seen_paths: list[str] = []
 
-        class _Resolver:
-            def __init__(self, _http_client, _agent_url, agent_card_path=None) -> None:
-                self.agent_card_path = agent_card_path or AGENT_CARD_WELL_KNOWN_PATH
-                seen_paths.append(self.agent_card_path)
+        def serve(request: httpx.Request) -> httpx.Response:
+            seen_paths.append(request.url.path)
+            if request.url.path == AGENT_CARD_WELL_KNOWN_PATH:
+                return httpx.Response(404)
+            return httpx.Response(200, json=to_json_dict(card))
 
-            async def get_agent_card(self):
-                if self.agent_card_path == AGENT_CARD_WELL_KNOWN_PATH:
-                    raise httpx.HTTPStatusError(
-                        "missing",
-                        request=httpx.Request(
-                            "GET", "http://example.com/.well-known/agent-card.json"
-                        ),
-                        response=httpx.Response(404),
-                    )
-                return card
-
-        monkeypatch.setattr("a2a_handler.service.A2ACardResolver", _Resolver)
-
-        async with httpx.AsyncClient() as http_client:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
             service = A2AService(
                 http_client=http_client, agent_url="http://example.com"
             )
@@ -1396,8 +1559,8 @@ class TestA2AServiceOAuthAndCards:
             first = await service.get_card()
             second = await service.get_card()
 
-        assert first is card
-        assert second is card
+        assert first == card
+        assert second is first
         assert seen_paths == [
             AGENT_CARD_WELL_KNOWN_PATH,
             LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
