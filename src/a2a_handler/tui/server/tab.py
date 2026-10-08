@@ -32,6 +32,7 @@ from a2a_handler.servers import (
 from a2a_handler.service import (
     A2AService,
     attachment_part_from_spec,
+    UNKNOWN_PROTOCOL_VERSION,
     card_protocol_version,
     extract_text_from_message_parts,
     part_file,
@@ -1007,11 +1008,16 @@ class ServerTab(Container):
             negotiated = self._agent_service.negotiated_transport
             if isinstance(negotiated, str):
                 transport_label = negotiated
+            # The displayed card answers first (it may be the extended one).
             # The service also saw the served JSON, which answers for cards
             # whose version the parsed card lost.
-            served_version = self._agent_service.protocol_version
-            if isinstance(served_version, str):
-                protocol_version = served_version
+            if protocol_version == UNKNOWN_PROTOCOL_VERSION:
+                served_version = self._agent_service.protocol_version
+                if isinstance(served_version, str):
+                    protocol_version = served_version
+        if protocol_version == UNKNOWN_PROTOCOL_VERSION:
+            # Hide the badge rather than show "A2A vunknown".
+            protocol_version = ""
 
         server_view.connection_bar().set_connected_status(
             agent_name=self.state.agent_card.name,

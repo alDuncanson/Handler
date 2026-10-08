@@ -935,6 +935,67 @@ class TestServiceKeepsServedCard:
         assert "HTTP 403" in str(exc_info.value)
         assert getattr(exc_info.value, "status_code", None) == 403
 
+    async def test_invalid_standard_card_falls_back_to_the_legacy_path(self):
+        """Parsing happens per path, so a broken agent-card.json does not
+        hide a valid agent.json (the SDK resolver behaved this way too)."""
+        legacy = make_agent_card(name="Legacy", url="http://example.com/")
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("agent-card.json"):
+                return httpx.Response(200, json={"name": ["x"]})
+            return httpx.Response(200, json=to_json_dict(legacy))
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            card = await service.get_card()
+
+        assert card.name == "Legacy"
+        assert service.raw_card == to_json_dict(legacy)
+
+    async def test_auth_error_on_the_legacy_path_is_the_one_reported(self):
+        """An older agent serving only agent.json behind auth must read as
+        401, not as the standard path's 404."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("agent-card.json"):
+                return httpx.Response(404)
+            return httpx.Response(401)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert getattr(exc_info.value, "status_code", None) == 401
+        assert "agent.json" in str(exc_info.value)
+
+    async def test_malformed_card_from_the_parse_shims_is_wrapped(self):
+        """The SDK parse raises plain TypeError on some malformed cards; the
+        caller still gets an AgentCardResolutionError naming the path."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"name": "x", "skills": None})
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert "agent-card.json" in str(exc_info.value)
+        assert "structure" in str(exc_info.value)
+
     async def test_non_object_card_is_rejected(self):
         def serve(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=[1, 2, 3])

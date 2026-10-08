@@ -2801,3 +2801,47 @@ async def test_connect_warns_about_unrequested_required_extensions() -> None:
             assert workspace.is_connected
             chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("urn:required-ext" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("card_version", "served_version", "expected"),
+    [
+        ("1.0", "unknown", "A2A v1.0"),  # the displayed card answers first
+        ("", "0.3", "A2A v0.3"),  # the served JSON answers for mixed cards
+        ("", "unknown", None),  # nothing known: hide, do not show "vunknown"
+    ],
+)
+async def test_protocol_badge_prefers_the_card_then_the_served_json(
+    card_version: str, served_version: str, expected: str | None
+) -> None:
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    card = make_agent_card(name="Demo Agent", protocol_version=card_version)
+    catalog_patch, client_patch, service_patch = _connected_workspace_patches(
+        repo_connection, card, AsyncMock()
+    )
+    with catalog_patch, client_patch, service_patch as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = card
+        mock_service.protocol_version = served_version
+        mock_service.negotiated_transport = "JSONRPC"
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            badge = workspace.query_one("#badge-protocol", Static)
+            if expected is None:
+                assert badge.has_class("hidden")
+            else:
+                assert not badge.has_class("hidden")
+                assert str(badge.content) == expected

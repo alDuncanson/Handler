@@ -10,14 +10,17 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from a2a.client import A2ACardResolver
 from a2a.client.errors import AgentCardResolutionError
 from a2a.types import AgentCard
-from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from google.protobuf.json_format import ParseDict, ParseError
 
 from a2a_handler.common import get_logger
-from a2a_handler.service import LEGACY_AGENT_CARD_WELL_KNOWN_PATH
+from a2a_handler.common.input_validation import InputValidationError
+from a2a_handler.service import (
+    UNKNOWN_PROTOCOL_VERSION,
+    A2AService,
+    card_protocol_version,
+)
 
 logger = get_logger(__name__)
 
@@ -60,40 +63,28 @@ class ValidationResult:
 
     @property
     def protocol_version(self) -> str:
-        """Get the protocol version if available.
+        """The protocol version the card advertises, or ``Unknown``.
 
-        In A2A v1.0 the protocol version lives on each supported interface
-        rather than at the top level of the card. Fall back to the legacy
-        top-level ``protocolVersion`` for v0.3-shaped raw data.
+        Delegates to the service's reading, which consults the served JSON
+        for cards whose version the parsed card lost.
         """
-        if self.agent_card and self.agent_card.supported_interfaces:
-            versions = sorted(
-                {
-                    interface.protocol_version
-                    for interface in self.agent_card.supported_interfaces
-                    if interface.protocol_version
-                }
-            )
-            if versions:
-                return ", ".join(versions)
-        if self.raw_data:
-            interfaces = self.raw_data.get("supportedInterfaces") or self.raw_data.get(
-                "supported_interfaces"
-            )
-            if isinstance(interfaces, list):
-                versions = sorted(
-                    {
-                        interface.get("protocolVersion")
-                        or interface.get("protocol_version")
-                        for interface in interfaces
-                        if isinstance(interface, dict)
-                    }
-                    - {None}
-                )
-                if versions:
-                    return ", ".join(versions)
-            return self.raw_data.get("protocolVersion", "Unknown")
-        return "Unknown"
+        version = card_protocol_version(self.agent_card, self.raw_data)
+        return "Unknown" if version == UNKNOWN_PROTOCOL_VERSION else version
+
+
+def _caused_by_request_error(error: BaseException) -> bool:
+    """Whether a network failure sits anywhere in the error's cause chain.
+
+    The service reports the standard path's error even when the legacy
+    path failed too, chaining one onto the other, so the httpx error can
+    be more than one link down.
+    """
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, httpx.RequestError):
+            return True
+        cause = cause.__cause__
+    return False
 
 
 async def validate_agent_card_from_url(
@@ -116,73 +107,49 @@ async def validate_agent_card_from_url(
         http_client = httpx.AsyncClient(timeout=30)
 
     try:
-        resolver = A2ACardResolver(http_client, agent_url)
-        try:
-            agent_card = await resolver.get_agent_card()
-        except (AgentCardResolutionError, httpx.HTTPStatusError):
-            logger.info(
-                "Agent card not found at %s, trying %s",
-                AGENT_CARD_WELL_KNOWN_PATH,
-                LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-            )
-            fallback_resolver = A2ACardResolver(
-                http_client,
-                agent_url,
-                agent_card_path=LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-            )
-            agent_card = await fallback_resolver.get_agent_card()
-
+        service = A2AService(http_client, agent_url)
+        agent_card = await service.get_card()
         logger.info("Agent card validation successful for %s", agent_card.name)
         return ValidationResult(
             valid=True,
             source=agent_url,
             source_type=ValidationSource.URL,
             agent_card=agent_card,
+            raw_data=service.raw_card,
+        )
+
+    except InputValidationError as e:
+        return ValidationResult(
+            valid=False,
+            source=agent_url,
+            source_type=ValidationSource.URL,
+            issues=[
+                ValidationIssue(
+                    field_name="agent_url",
+                    message=e.message,
+                    issue_type="validation_error",
+                )
+            ],
         )
 
     except AgentCardResolutionError as e:
         logger.warning("Agent card resolution failed: %s", e)
         status_code = getattr(e, "status_code", None)
-        issue_type = "http_error" if status_code else "validation_error"
+        if status_code:
+            field_name, issue_type = "http", "http_error"
+        elif _caused_by_request_error(e):
+            field_name, issue_type = "connection", "connection_error"
+        else:
+            field_name, issue_type = "agent_card", "validation_error"
         return ValidationResult(
             valid=False,
             source=agent_url,
             source_type=ValidationSource.URL,
             issues=[
                 ValidationIssue(
-                    field_name="agent_card",
+                    field_name=field_name,
                     message=str(e),
                     issue_type=issue_type,
-                )
-            ],
-        )
-
-    except httpx.HTTPStatusError as e:
-        logger.error("HTTP error fetching agent card: %s", e)
-        return ValidationResult(
-            valid=False,
-            source=agent_url,
-            source_type=ValidationSource.URL,
-            issues=[
-                ValidationIssue(
-                    field_name="http",
-                    message=f"HTTP {e.response.status_code}: {e.response.text[:200]}",
-                    issue_type="http_error",
-                )
-            ],
-        )
-
-    except httpx.RequestError as e:
-        logger.error("Request error fetching agent card: %s", e)
-        return ValidationResult(
-            valid=False,
-            source=agent_url,
-            source_type=ValidationSource.URL,
-            issues=[
-                ValidationIssue(
-                    field_name="connection",
-                    message=str(e),
-                    issue_type="connection_error",
                 )
             ],
         )

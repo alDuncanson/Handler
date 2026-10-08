@@ -61,7 +61,6 @@ from a2a.extensions.common import HTTP_EXTENSION_HEADER
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
 from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
 from google.protobuf import json_format
-from google.protobuf.json_format import ParseError
 
 from a2a_handler.auth import (
     TOKEN_FETCHING_AUTH_TYPES,
@@ -856,12 +855,13 @@ class A2AService:
         self._cached_client = None
         logger.debug("Cleared authentication headers")
 
-    async def _fetch_raw_card(self, card_path: str) -> dict[str, Any]:
-        """GET the card at ``card_path`` below the agent URL, as served.
+    async def _fetch_card(self, card_path: str) -> tuple[dict[str, Any], AgentCard]:
+        """GET and parse the card at ``card_path`` below the agent URL.
 
-        Mirrors the SDK resolver's error handling so callers see the same
-        ``AgentCardResolutionError`` messages, but returns the JSON rather
-        than only the parsed card.
+        Returns the JSON as served next to the parsed card. Error handling
+        mirrors the SDK resolver's messages so callers see familiar
+        ``AgentCardResolutionError``s, and parsing happens here so that an
+        invalid document at one path still lets the caller try the other.
         """
         target_url = f"{self.agent_url.rstrip('/')}/{card_path.lstrip('/')}"
         try:
@@ -887,8 +887,35 @@ class A2AService:
             raise AgentCardResolutionError(
                 f"Agent card from {target_url} is not a JSON object"
             )
+        try:
+            # The SDK parse pops v0.3 fields off the dict it is given while
+            # migrating them, so it gets a copy and the served JSON survives.
+            # Its compatibility shims raise plain TypeError/AttributeError on
+            # malformed cards, not only ParseError, so everything is wrapped.
+            card = parse_agent_card(copy.deepcopy(card_data))
+        except Exception as exc:  # noqa: BLE001
+            raise AgentCardResolutionError(
+                f"Failed to validate agent card structure from {target_url}: {exc}"
+            ) from exc
         logger.info("Successfully fetched agent card data from %s", target_url)
-        return card_data
+        return card_data, card
+
+    @staticmethod
+    def _preferred_card_error(
+        primary: AgentCardResolutionError, legacy: AgentCardResolutionError
+    ) -> AgentCardResolutionError:
+        """Pick the error to report when both well-known paths failed.
+
+        The standard path is the one worth naming, unless only the legacy
+        path said the agent wants credentials: an older agent that serves
+        just ``agent.json`` behind auth should read as 401/403, not 404.
+        """
+        auth_statuses = {401, 403}
+        primary_status = getattr(primary, "status_code", None)
+        legacy_status = getattr(legacy, "status_code", None)
+        if legacy_status in auth_statuses and primary_status not in auth_statuses:
+            return legacy
+        return primary
 
     async def _load_agent_card(self) -> AgentCard:
         """Fetch and cache the agent card without mutating auth state.
@@ -900,30 +927,22 @@ class A2AService:
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
             try:
-                raw_card = await self._fetch_raw_card(AGENT_CARD_WELL_KNOWN_PATH)
+                raw_card, card = await self._fetch_card(AGENT_CARD_WELL_KNOWN_PATH)
             except AgentCardResolutionError as primary_error:
                 logger.info(
-                    "Agent card not found at %s, trying %s",
+                    "Agent card not usable at %s, trying %s",
                     AGENT_CARD_WELL_KNOWN_PATH,
                     LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
                 )
                 try:
-                    raw_card = await self._fetch_raw_card(
+                    raw_card, card = await self._fetch_card(
                         LEGACY_AGENT_CARD_WELL_KNOWN_PATH
                     )
                 except AgentCardResolutionError as legacy_error:
-                    # The standard path is the one worth reporting; the legacy
-                    # path failing too is expected for any current agent.
-                    raise primary_error from legacy_error
-            try:
-                # The SDK parse pops v0.3 fields off the dict it is given while
-                # migrating them, so it gets a copy and the served JSON survives.
-                self._cached_agent_card = parse_agent_card(copy.deepcopy(raw_card))
-            except ParseError as exc:
-                raise AgentCardResolutionError(
-                    f"Failed to validate agent card structure from "
-                    f"{self.agent_url}: {exc}"
-                ) from exc
+                    raise self._preferred_card_error(
+                        primary_error, legacy_error
+                    ) from legacy_error
+            self._cached_agent_card = card
             self._cached_raw_card = raw_card
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
             missing = self.unrequested_required_extensions(self._cached_agent_card)
@@ -934,6 +953,11 @@ class A2AService:
                     ", ".join(missing),
                 )
         return self._cached_agent_card
+
+    @property
+    def raw_card(self) -> dict[str, Any] | None:
+        """The agent card as served, once fetched; None before."""
+        return self._cached_raw_card
 
     def unrequested_required_extensions(self, card: AgentCard) -> list[str]:
         """Return required extension URIs the client is not requesting.
