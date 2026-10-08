@@ -636,6 +636,9 @@ def notification_get(
 ) -> None:
     """Get the push notification configuration for a task.
 
+    Without --config-id the task's single config is used; a task with
+    several configs needs one named (list them with `notification list`).
+
     \b
     Examples:
       $ handler task notification get task-123 --server my_agent
