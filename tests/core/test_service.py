@@ -1,5 +1,6 @@
 """Tests for the A2A service layer module."""
 
+import json
 from unittest.mock import AsyncMock
 
 import httpx
@@ -36,6 +37,7 @@ from a2a_handler.service import (
     card_extensions,
     build_data_part,
     build_file_part,
+    credential_origin,
     build_url_part,
     extract_text,
     extract_text_from_task,
@@ -835,6 +837,210 @@ class _FakeStreamingClient:
 
 
 @pytest.mark.asyncio
+class TestCredentialOriginScoping:
+    """Credentials must only ever reach the origin the user configured."""
+
+    def _recording_client(self, seen: dict[str, dict[str, str]]) -> httpx.AsyncClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen[str(request.url)] = dict(request.headers)
+            return httpx.Response(200, json={})
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async def test_auth_headers_stay_on_the_configured_origin(self):
+        seen: dict[str, dict[str, str]] = {}
+        credentials = create_bearer_auth("secret-token")
+        credentials.custom_headers = {"X-Tenant": "acme"}
+        async with self._recording_client(seen) as http_client:
+            A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com/a2a",
+                credentials=credentials,
+            )
+
+            await http_client.get(
+                "https://agent.example.com/a2a/.well-known/agent-card.json"
+            )
+            await http_client.post("https://evil.example.net/a2a/", json={})
+            await http_client.post("http://agent.example.com/a2a/", json={})
+
+        same_origin = seen["https://agent.example.com/a2a/.well-known/agent-card.json"]
+        assert same_origin["authorization"] == "Bearer secret-token"
+        assert same_origin["x-tenant"] == "acme"
+
+        other_host = seen["https://evil.example.net/a2a/"]
+        assert "authorization" not in other_host
+        assert "x-tenant" not in other_host
+
+        other_scheme = seen["http://agent.example.com/a2a/"]
+        assert "authorization" not in other_scheme
+
+    async def test_loopback_aliases_and_default_ports_share_an_origin(self):
+        seen: dict[str, dict[str, str]] = {}
+        async with self._recording_client(seen) as http_client:
+            A2AService(
+                http_client=http_client,
+                agent_url="http://localhost:8300",
+                credentials=create_bearer_auth("secret-token"),
+            )
+            await http_client.post("http://127.0.0.1:8300/", json={})
+
+        assert seen["http://127.0.0.1:8300/"]["authorization"] == "Bearer secret-token"
+
+        assert credential_origin("https://a.example.com") == credential_origin(
+            "https://a.example.com:443/path"
+        )
+        assert credential_origin("http://[::1]:8300") == credential_origin(
+            "http://localhost:8300"
+        )
+        assert credential_origin("http://a.example.com") != credential_origin(
+            "https://a.example.com"
+        )
+
+    async def test_headers_applied_later_are_scoped_too(self):
+        """A token fetched or set after construction gets the same bound."""
+        seen: dict[str, dict[str, str]] = {}
+        async with self._recording_client(seen) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="https://agent.example.com"
+            )
+            service.set_credentials(create_bearer_auth("late-token"))
+            await http_client.get("https://agent.example.com/x")
+            await http_client.get("https://other.example.com/x")
+
+        assert (
+            seen["https://agent.example.com/x"]["authorization"] == "Bearer late-token"
+        )
+        assert "authorization" not in seen["https://other.example.com/x"]
+
+    @staticmethod
+    def _foreign_agent(seen: dict[str, dict[str, str]], *, streaming: bool):
+        """A card at the configured origin whose interface lives elsewhere."""
+        card = make_agent_card(
+            url="https://elsewhere.example.net/rpc", streaming=streaming
+        )
+        task = {
+            "id": "t1",
+            "contextId": "c1",
+            "status": {"state": "TASK_STATE_COMPLETED"},
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen[str(request.url)] = dict(request.headers)
+            if request.method == "GET":
+                return httpx.Response(200, json=to_json_dict(card))
+            request_id = json.loads(request.content)["id"]
+            result = {"jsonrpc": "2.0", "id": request_id, "result": {"task": task}}
+            if streaming:
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    content=f"data: {json.dumps(result)}\n\n".encode(),
+                )
+            return httpx.Response(200, json=result)
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async def test_send_over_a_foreign_card_url_withholds_credentials(self, caplog):
+        """The whole SDK path, not just a bare client.get: the card fetch at the
+        configured origin carries the token, the RPC the card redirected does
+        not, and the user is told once."""
+        seen: dict[str, dict[str, str]] = {}
+        async with self._foreign_agent(seen, streaming=False) as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com",
+                credentials=create_bearer_auth("secret-token"),
+                enable_streaming=False,
+            )
+            with caplog.at_level("WARNING"):
+                response = await service.send("hi")
+                await service.send("again")
+
+        assert response_task_id(response) == "t1"
+        card_fetch = seen["https://agent.example.com/.well-known/agent-card.json"]
+        assert card_fetch["authorization"] == "Bearer secret-token"
+        rpc = seen["https://elsewhere.example.net/rpc"]
+        assert "authorization" not in rpc
+        warnings = [r for r in caplog.records if "different origin" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "Authorization withheld" in warnings[0].getMessage()
+        assert "secret-token" not in caplog.text
+
+    async def test_stream_over_a_foreign_card_url_withholds_credentials(self):
+        """Streaming goes through httpx_sse and client.stream; the hook must
+        cover that path as well as plain requests."""
+        seen: dict[str, dict[str, str]] = {}
+        async with self._foreign_agent(seen, streaming=True) as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com",
+                credentials=create_bearer_auth("secret-token"),
+                enable_streaming=True,
+            )
+            events = [event async for event in service.stream("hi")]
+
+        assert events and events[-1].task_id == "t1"
+        assert "authorization" not in seen["https://elsewhere.example.net/rpc"]
+
+    async def test_no_warning_when_the_card_stays_home(self, caplog):
+        seen: dict[str, dict[str, str]] = {}
+        card = make_agent_card(url="https://agent.example.com/rpc", streaming=False)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen[str(request.url)] = dict(request.headers)
+            if request.method == "GET":
+                return httpx.Response(200, json=to_json_dict(card))
+            request_id = json.loads(request.content)["id"]
+            task = {
+                "id": "t1",
+                "contextId": "c1",
+                "status": {"state": "TASK_STATE_COMPLETED"},
+            }
+            return httpx.Response(
+                200, json={"jsonrpc": "2.0", "id": request_id, "result": {"task": task}}
+            )
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com",
+                credentials=create_bearer_auth("secret-token"),
+                enable_streaming=False,
+            )
+            with caplog.at_level("WARNING"):
+                await service.send("hi")
+
+        assert (
+            seen["https://agent.example.com/rpc"]["authorization"]
+            == "Bearer secret-token"
+        )
+        assert "different origin" not in caplog.text
+
+    def test_every_name_for_this_machine_is_one_origin(self):
+        local = credential_origin("http://localhost:8300")
+        for alias in (
+            "127.0.0.1",
+            "127.0.0.2",
+            "[::1]",
+            "[0:0:0:0:0:0:0:1]",
+            "0.0.0.0",
+        ):
+            assert credential_origin(f"http://{alias}:8300") == local, alias
+        assert credential_origin("http://10.0.0.1:8300") != local
+
+    def test_unparseable_ports_do_not_raise(self):
+        assert credential_origin("https://a.example.com:99999/x") == (
+            "https",
+            "a.example.com",
+            443,
+        )
+        assert credential_origin("http://localhost:abc") == ("http", "local", 80)
+
+
+@pytest.mark.asyncio
 class TestA2AServiceSendConfiguration:
     """Tests for SendMessageConfiguration on outgoing requests."""
 
@@ -1228,8 +1434,9 @@ class TestA2AServiceAuthHeaders:
             return httpx.Response(200, json={"ok": True})
 
         transport = httpx.MockTransport(handler)
+        # Requests go to the configured origin; credentials never leave it.
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver.local"
+            transport=transport, base_url="http://example.com"
         ) as http_client:
             service = A2AService(
                 http_client=http_client, agent_url="http://example.com"
@@ -1443,8 +1650,10 @@ class TestA2AServiceOAuthAndCards:
             return httpx.Response(200, json={"ok": True})
 
         transport = httpx.MockTransport(handler)
+        # Send to the configured origin, so only clear_credentials() can be
+        # the reason the header is absent.
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver.local"
+            transport=transport, base_url="http://example.com"
         ) as http_client:
             service = A2AService(
                 http_client=http_client, agent_url="http://example.com"
