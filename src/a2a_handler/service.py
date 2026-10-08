@@ -112,6 +112,14 @@ class PushConfigNotFoundError(A2AClientError):
     """
 
 
+class PushConfigAmbiguousError(A2AClientError):
+    """Raised when a task has several push configs and none was named.
+
+    ``GetTaskPushNotificationConfig`` needs a config ID; Handler can fill
+    one in when the task has exactly one config, but not choose among many.
+    """
+
+
 class ExtendedCardNotSupportedError(A2AClientError):
     """Raised when an extended agent card is requested but not on offer.
 
@@ -1400,22 +1408,52 @@ class A2AService:
     ) -> TaskPushNotificationConfig:
         """Get push notification configuration for a task.
 
+        The protocol requires a config ID. When none is given, the task's
+        configs are listed and the single one is used, so the common case of
+        one webhook per task needs no ID; several configs is an error that
+        names them rather than a server-side validation failure.
+
         Args:
             task_id: ID of the task
             config_id: Optional specific config ID to retrieve
 
         Returns:
             The push notification configuration
+
+        Raises:
+            PushConfigNotFoundError: If no ID was given and the task has no
+                push notification config.
+            PushConfigAmbiguousError: If no ID was given and the task has
+                more than one.
         """
+        validate_resource_id(task_id, "task_id")
+        if not config_id:
+            config_id = await self._only_push_config_id(task_id)
+
         client = await self._get_or_create_client()
 
         request = GetTaskPushNotificationConfigRequest(
             task_id=task_id,
-            id=config_id or "",
+            id=config_id,
         )
-        logger.info("Getting push config for task %s", task_id)
+        logger.info("Getting push config %s for task %s", config_id, task_id)
 
         return await client.get_task_push_notification_config(request)
+
+    async def _only_push_config_id(self, task_id: str) -> str:
+        """Return the ID of the task's single push config, or explain why not."""
+        configs = await self.list_all_push_configs(task_id)
+        if not configs:
+            raise PushConfigNotFoundError(
+                f"Task {task_id} has no push notification config"
+            )
+        if len(configs) > 1:
+            ids = ", ".join(config.id for config in configs)
+            raise PushConfigAmbiguousError(
+                f"Task {task_id} has {len(configs)} push notification configs; "
+                f"pass a config ID to choose one ({ids})"
+            )
+        return configs[0].id
 
     async def list_push_configs(
         self,
