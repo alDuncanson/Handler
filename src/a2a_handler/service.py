@@ -10,6 +10,7 @@ directly.
 """
 
 import mimetypes
+import ipaddress
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,35 +173,44 @@ def negotiate_transport_binding(
     return None
 
 
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _is_local_host(host: str) -> bool:
+    """Whether ``host`` names this machine: localhost, loopback, or unspecified.
+
+    A local agent's card routinely advertises ``127.0.0.1`` or ``0.0.0.0``
+    (whatever it was bound to) while the user typed ``localhost``; they are
+    the same machine, so they are one origin for credential purposes.
+    """
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
 
 
 def credential_origin(url: str) -> tuple[str, str, int | None]:
     """Return the origin credentials for ``url`` are allowed to reach.
 
     An origin is scheme, host, and port. Default ports are filled in so
-    ``https://a`` and ``https://a:443`` compare equal, and the loopback
-    aliases collapse to one host so ``localhost`` and ``127.0.0.1`` do too:
-    a local agent's card routinely advertises one while the user typed the
-    other, and the two are the same machine.
+    ``https://a`` and ``https://a:443`` compare equal, and every way of
+    naming this machine collapses to one host. A port that does not parse
+    counts as unset rather than raising, since the URL may have come from
+    an agent card.
     """
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
     host = (parsed.hostname or "").lower()
-    if host in _LOOPBACK_HOSTS:
-        host = "loopback"
-    port = parsed.port or _DEFAULT_PORTS.get(scheme)
-    return scheme, host, port
-
-
-def negotiated_interface_url(card: AgentCard, client_bindings: Iterable[str]) -> str:
-    """Return the URL of the interface the SDK will pick, or an empty string."""
-    client_set = set(client_bindings)
-    for interface in card.supported_interfaces:
-        if interface.protocol_binding in client_set:
-            return interface.url
-    return ""
+    if _is_local_host(host):
+        host = "local"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    return scheme, host, port or _DEFAULT_PORTS.get(scheme)
 
 
 def _grpc_channel_factory(url: str) -> Any:
@@ -786,6 +796,9 @@ class A2AService:
         """Register the request hook that keeps credentials on their origin."""
         hooks = getattr(self.http_client, "event_hooks", None)
         if not isinstance(hooks, dict):
+            # Only a stand-in client (tests) lacks httpx's hook table; a real
+            # httpx.AsyncClient always has one.
+            logger.debug("HTTP client has no event hooks; credential scoping is off")
             return
         request_hooks = list(hooks.get("request", []))
         if self._strip_credentials_for_foreign_origins in request_hooks:
@@ -809,12 +822,24 @@ class A2AService:
         )
         for name in stripped:
             del request.headers[name]
-        if stripped and origin not in self._foreign_origins_warned:
-            self._foreign_origins_warned.add(origin)
+        if origin in self._foreign_origins_warned:
+            return
+        self._foreign_origins_warned.add(origin)
+        target = request.url.copy_with(query=None, fragment=None)
+        if stripped:
             logger.warning(
-                "Not sending %s to %s: credentials for %s are only sent to that origin",
+                "The agent card routed this request to %s, a different origin "
+                "than the configured %s; %s withheld, since credentials are only "
+                "sent to the configured origin",
+                target,
+                self.agent_url,
                 ", ".join(stripped),
-                request.url.copy_with(query=None, fragment=None),
+            )
+        else:
+            logger.warning(
+                "The agent card routed this request to %s, a different origin "
+                "than the configured %s",
+                target,
                 self.agent_url,
             )
 
@@ -1007,33 +1032,8 @@ class A2AService:
                 self.negotiated_transport,
                 agent_card.name,
             )
-            self._warn_if_interface_leaves_origin(agent_card, bindings)
 
         return self._cached_client
-
-    def _warn_if_interface_leaves_origin(
-        self, agent_card: AgentCard, bindings: list[str]
-    ) -> None:
-        """Say so when the card routes requests away from the configured URL."""
-        interface_url = negotiated_interface_url(agent_card, bindings)
-        if not interface_url:
-            return
-        if credential_origin(interface_url) == self._credential_origin:
-            return
-        if self._applied_auth_headers:
-            logger.warning(
-                "Agent card for %s sends requests to %s, a different origin than "
-                "the configured URL; credentials will not be sent there",
-                self.agent_url,
-                interface_url,
-            )
-        else:
-            logger.warning(
-                "Agent card for %s sends requests to %s, a different origin than "
-                "the configured URL",
-                self.agent_url,
-                interface_url,
-            )
 
     @staticmethod
     def _transport_negotiation_error(
