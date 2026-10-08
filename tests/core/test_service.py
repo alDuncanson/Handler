@@ -27,6 +27,7 @@ from a2a_handler.service import (
     A2AService,
     ExtendedCardNotSupportedError,
     MAX_INLINE_FILE_BYTES,
+    PushConfigAmbiguousError,
     PushConfigNotFoundError,
     StreamEvent,
     TASK_STATE_LABELS,
@@ -1049,6 +1050,23 @@ class _FakeGetPushConfigClient:
         return self.result
 
 
+class _FakeLookupPushConfigClient(_FakeGetPushConfigClient):
+    """Also answers list calls, so a missing config ID can be looked up."""
+
+    def __init__(
+        self,
+        result: TaskPushNotificationConfig,
+        configs: list[TaskPushNotificationConfig],
+    ) -> None:
+        super().__init__(result)
+        self.configs = configs
+        self.list_calls = 0
+
+    async def list_task_push_notification_configs(self, params):
+        self.list_calls += 1
+        return ListTaskPushNotificationConfigsResponse(configs=self.configs)
+
+
 @pytest.mark.asyncio
 class TestA2AServiceStreamingCompatibility:
     async def test_stream_emits_task_event(self):
@@ -1434,6 +1452,63 @@ class TestA2AServiceOAuthAndCards:
         assert fake_client.params is not None
         assert fake_client.params.task_id == "task-123"
         assert fake_client.params.id == "config-456"
+
+    def _lookup_service(self, fake_client: _FakeLookupPushConfigClient) -> A2AService:
+        service = A2AService(
+            http_client=cast(httpx.AsyncClient, AsyncMock()),
+            agent_url="http://example.com",
+        )
+
+        async def _get_client():
+            return fake_client
+
+        service._get_or_create_client = _get_client  # type: ignore[method-assign]
+        return service
+
+    async def test_get_push_config_uses_the_only_config_when_no_id_given(self):
+        """Issue #121: an omitted config ID must not go out as an empty string."""
+        only = make_push_config(task_id="task-123", config_id="cfg-1", url="u")
+        fake_client = _FakeLookupPushConfigClient(only, [only])
+        service = self._lookup_service(fake_client)
+
+        result = await service.get_push_config("task-123")
+
+        assert result == only
+        assert fake_client.list_calls == 1
+        assert fake_client.params is not None
+        assert fake_client.params.id == "cfg-1"
+
+    async def test_get_push_config_skips_the_lookup_when_an_id_is_given(self):
+        only = make_push_config(task_id="task-123", config_id="cfg-1", url="u")
+        fake_client = _FakeLookupPushConfigClient(only, [only])
+        service = self._lookup_service(fake_client)
+
+        await service.get_push_config("task-123", "cfg-1")
+
+        assert fake_client.list_calls == 0
+
+    async def test_get_push_config_without_id_fails_clearly_when_none_exist(self):
+        fake_client = _FakeLookupPushConfigClient(make_push_config(), [])
+        service = self._lookup_service(fake_client)
+
+        with pytest.raises(PushConfigNotFoundError, match="has no push notification"):
+            await service.get_push_config("task-123")
+
+        assert fake_client.params is None
+
+    async def test_get_push_config_without_id_refuses_to_guess_among_several(self):
+        configs = [
+            make_push_config(task_id="task-123", config_id="cfg-1", url="u1"),
+            make_push_config(task_id="task-123", config_id="cfg-2", url="u2"),
+        ]
+        fake_client = _FakeLookupPushConfigClient(configs[0], configs)
+        service = self._lookup_service(fake_client)
+
+        with pytest.raises(PushConfigAmbiguousError) as exc_info:
+            await service.get_push_config("task-123")
+
+        assert "cfg-1, cfg-2" in str(exc_info.value)
+        assert fake_client.params is None
 
     async def test_clear_credentials_removes_auth_header_from_requests(self):
         """Test clearing credentials removes auth header from outgoing requests."""
