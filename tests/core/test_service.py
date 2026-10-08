@@ -36,6 +36,7 @@ from a2a_handler.service import (
     card_extensions,
     build_data_part,
     build_file_part,
+    part_data,
     build_url_part,
     extract_text,
     extract_text_from_task,
@@ -898,6 +899,58 @@ class TestA2AServiceSendConfiguration:
 
         configuration = fake_client.requests[0].configuration
         assert list(configuration.accepted_output_modes) == ["text/plain"]
+
+    async def test_send_forwards_attachments_to_the_client(self):
+        """Regression: the request the SDK sends must carry the attachments.
+
+        ``_build_user_message`` always honoured them, but ``send`` once built
+        its request without passing them along, so files and data never left
+        the client.
+        """
+        fake_client = self._fake_client()
+        service = self._service_with(fake_client)
+
+        await service.send(
+            "review this",
+            attachments=[
+                attachment_part_from_spec("https://example.com/report.pdf"),
+                build_data_part({"k": "v"}),
+            ],
+        )
+
+        parts = fake_client.requests[0].message.parts
+        assert [part.WhichOneof("content") for part in parts] == [
+            "text",
+            "url",
+            "data",
+        ]
+        assert parts[1].url == "https://example.com/report.pdf"
+        assert part_data(parts[2]) == {"k": "v"}
+
+    def test_part_data_restores_integral_numbers(self):
+        """A Struct stores every number as a double; show ints as ints."""
+        part = build_data_part(
+            {"n": 2, "f": 2.5, "flag": True, "nested": {"xs": [1, 1.0, 0.5]}}
+        )
+
+        assert part_data(part) == {
+            "n": 2,
+            "f": 2.5,
+            "flag": True,
+            "nested": {"xs": [1, 1, 0.5]},
+        }
+
+    async def test_stream_forwards_attachments_to_the_client(self):
+        fake_client = self._fake_client()
+        service = self._service_with(fake_client)
+
+        async for _event in service.stream(
+            "", attachments=[build_data_part({"k": "v"})]
+        ):
+            pass
+
+        parts = fake_client.requests[0].message.parts
+        assert [part.WhichOneof("content") for part in parts] == ["data"]
 
     async def test_push_config_rides_on_every_message(self):
         fake_client = self._fake_client()

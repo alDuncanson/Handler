@@ -323,9 +323,27 @@ def part_text(part: Part) -> str:
 
 
 def part_data(part: Part) -> Any:
-    """Return the decoded Python value carried by a data part."""
+    """Return the decoded Python value carried by a data part.
+
+    Structured data crosses the wire as a protobuf ``Struct``, which stores
+    every number as a double, so an agent's ``3`` would otherwise render as
+    ``3.0``. Integral floats are restored to ints for display.
+    """
     decoded = get_data_parts([part])
-    return decoded[0] if decoded else {}
+    return _restore_integral_numbers(decoded[0]) if decoded else {}
+
+
+def _restore_integral_numbers(value: Any) -> Any:
+    """Recursively turn floats with no fractional part back into ints."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _restore_integral_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_integral_numbers(item) for item in value]
+    return value
 
 
 def part_file(part: Part) -> dict[str, Any]:
@@ -1116,6 +1134,7 @@ class A2AService:
             accepted_output_modes,
             history_length,
             return_immediately,
+            attachments=attachments,
         )
 
         last_task: Task | None = None
@@ -1178,6 +1197,7 @@ class A2AService:
             accepted_output_modes,
             history_length,
             return_immediately,
+            attachments=attachments,
         )
 
         async for event in _translate_stream(client.send_message(request)):
