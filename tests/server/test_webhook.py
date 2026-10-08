@@ -9,6 +9,7 @@ from a2a_handler.webhook import (
     PushNotification,
     PushNotificationStore,
     create_webhook_application,
+    summarize_push_payload,
 )
 
 
@@ -207,3 +208,85 @@ class TestWebhookApplication:
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+
+
+class TestSummarizePushPayload:
+    """A v1.0 agent posts a StreamResponse; a v0.3 agent posts the task."""
+
+    def test_v1_status_update(self):
+        payload = {
+            "statusUpdate": {
+                "taskId": "task-1",
+                "status": {"state": "TASK_STATE_COMPLETED"},
+            }
+        }
+        assert summarize_push_payload(payload) == ("task-1", "completed")
+
+    def test_v1_task(self):
+        payload = {"task": {"id": "task-2", "status": {"state": "TASK_STATE_WORKING"}}}
+        assert summarize_push_payload(payload) == ("task-2", "working")
+
+    def test_v1_artifact_update_has_no_state(self):
+        payload = {"artifactUpdate": {"taskId": "task-3", "artifact": {}}}
+        assert summarize_push_payload(payload) == ("task-3", None)
+
+    def test_v03_task_at_top_level(self):
+        payload = {"id": "task-4", "status": {"state": "completed"}}
+        assert summarize_push_payload(payload) == ("task-4", "completed")
+
+    def test_unrecognised_shape(self):
+        assert summarize_push_payload({"hello": "world"}) == (None, None)
+
+
+class TestWebhookV1Payloads:
+    @pytest.fixture
+    def client(self):
+        return TestClient(create_webhook_application())
+
+    def test_status_update_is_stored_with_task_id_and_state(self, client):
+        client.post("/notifications/clear")
+        payload = {
+            "statusUpdate": {
+                "taskId": "task-v1",
+                "status": {"state": "TASK_STATE_INPUT_REQUIRED"},
+            }
+        }
+
+        response = client.post("/webhook", json=payload)
+
+        assert response.status_code == 200
+        stored = client.get("/notifications").json()["notifications"][-1]
+        assert stored["task_id"] == "task-v1"
+        assert stored["state"] == "input_required"
+
+
+class TestWebhookTokenRequirement:
+    @pytest.fixture
+    def client(self):
+        return TestClient(create_webhook_application(expected_token="s3cret"))
+
+    def test_matching_token_is_accepted(self, client):
+        response = client.post(
+            "/webhook",
+            json={"task": {"id": "t"}},
+            headers={"x-a2a-notification-token": "s3cret"},
+        )
+        assert response.status_code == 200
+
+    def test_missing_token_is_rejected(self, client):
+        client.post("/notifications/clear")
+        response = client.post("/webhook", json={"task": {"id": "t"}})
+
+        assert response.status_code == 401
+        assert client.get("/notifications").json()["count"] == 0
+
+    def test_wrong_token_is_rejected(self, client):
+        response = client.post(
+            "/webhook",
+            json={"task": {"id": "t"}},
+            headers={"x-a2a-notification-token": "nope"},
+        )
+        assert response.status_code == 401
+
+    def test_validation_get_needs_no_token(self, client):
+        assert client.get("/webhook").status_code == 200
