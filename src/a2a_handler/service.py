@@ -172,6 +172,37 @@ def negotiate_transport_binding(
     return None
 
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def credential_origin(url: str) -> tuple[str, str, int | None]:
+    """Return the origin credentials for ``url`` are allowed to reach.
+
+    An origin is scheme, host, and port. Default ports are filled in so
+    ``https://a`` and ``https://a:443`` compare equal, and the loopback
+    aliases collapse to one host so ``localhost`` and ``127.0.0.1`` do too:
+    a local agent's card routinely advertises one while the user typed the
+    other, and the two are the same machine.
+    """
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    if host in _LOOPBACK_HOSTS:
+        host = "loopback"
+    port = parsed.port or _DEFAULT_PORTS.get(scheme)
+    return scheme, host, port
+
+
+def negotiated_interface_url(card: AgentCard, client_bindings: Iterable[str]) -> str:
+    """Return the URL of the interface the SDK will pick, or an empty string."""
+    client_set = set(client_bindings)
+    for interface in card.supported_interfaces:
+        if interface.protocol_binding in client_set:
+            return interface.url
+    return ""
+
+
 def _grpc_channel_factory(url: str) -> Any:
     """Create a gRPC channel for an agent interface URL."""
     # Only reachable when the optional grpc extra is installed.
@@ -736,6 +767,13 @@ class A2AService:
         self._cached_client: Client | None = None
         self._cached_agent_card: AgentCard | None = None
         self._applied_auth_headers: set[str] = set()
+        # Credentials are bound to the origin the user configured. An agent
+        # card can advertise any URL for its interfaces, and the SDK sends
+        # requests there; without this bound a card could redirect bearer
+        # tokens, API keys, or passwords to a third-party host.
+        self._credential_origin = credential_origin(agent_url)
+        self._foreign_origins_warned: set[tuple[str, str, int | None]] = set()
+        self._install_credential_scope_hook()
 
         if self.extensions:
             self.http_client.headers[HTTP_EXTENSION_HEADER] = ", ".join(self.extensions)
@@ -743,6 +781,42 @@ class A2AService:
 
         if credentials:
             self.set_credentials(credentials)
+
+    def _install_credential_scope_hook(self) -> None:
+        """Register the request hook that keeps credentials on their origin."""
+        hooks = getattr(self.http_client, "event_hooks", None)
+        if not isinstance(hooks, dict):
+            return
+        request_hooks = list(hooks.get("request", []))
+        if self._strip_credentials_for_foreign_origins in request_hooks:
+            return
+        request_hooks.append(self._strip_credentials_for_foreign_origins)
+        self.http_client.event_hooks = {**hooks, "request": request_hooks}
+
+    async def _strip_credentials_for_foreign_origins(
+        self, request: httpx.Request
+    ) -> None:
+        """Drop auth headers from any request leaving the configured origin.
+
+        Registered as an httpx request hook, so it covers every call the SDK
+        makes through the shared client, whichever URL the agent card named.
+        """
+        origin = credential_origin(str(request.url))
+        if origin == self._credential_origin:
+            return
+        stripped = sorted(
+            name for name in self._applied_auth_headers if name in request.headers
+        )
+        for name in stripped:
+            del request.headers[name]
+        if stripped and origin not in self._foreign_origins_warned:
+            self._foreign_origins_warned.add(origin)
+            logger.warning(
+                "Not sending %s to %s: credentials for %s are only sent to that origin",
+                ", ".join(stripped),
+                request.url.copy_with(query=None, fragment=None),
+                self.agent_url,
+            )
 
     def set_credentials(self, credentials: AuthCredentials) -> None:
         """Set or update authentication credentials.
@@ -933,8 +1007,33 @@ class A2AService:
                 self.negotiated_transport,
                 agent_card.name,
             )
+            self._warn_if_interface_leaves_origin(agent_card, bindings)
 
         return self._cached_client
+
+    def _warn_if_interface_leaves_origin(
+        self, agent_card: AgentCard, bindings: list[str]
+    ) -> None:
+        """Say so when the card routes requests away from the configured URL."""
+        interface_url = negotiated_interface_url(agent_card, bindings)
+        if not interface_url:
+            return
+        if credential_origin(interface_url) == self._credential_origin:
+            return
+        if self._applied_auth_headers:
+            logger.warning(
+                "Agent card for %s sends requests to %s, a different origin than "
+                "the configured URL; credentials will not be sent there",
+                self.agent_url,
+                interface_url,
+            )
+        else:
+            logger.warning(
+                "Agent card for %s sends requests to %s, a different origin than "
+                "the configured URL",
+                self.agent_url,
+                interface_url,
+            )
 
     @staticmethod
     def _transport_negotiation_error(

@@ -36,6 +36,7 @@ from a2a_handler.service import (
     card_extensions,
     build_data_part,
     build_file_part,
+    credential_origin,
     build_url_part,
     extract_text,
     extract_text_from_task,
@@ -835,6 +836,116 @@ class _FakeStreamingClient:
 
 
 @pytest.mark.asyncio
+class TestCredentialOriginScoping:
+    """Credentials must only ever reach the origin the user configured."""
+
+    def _recording_client(self, seen: dict[str, dict[str, str]]) -> httpx.AsyncClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen[str(request.url)] = dict(request.headers)
+            return httpx.Response(200, json={})
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async def test_auth_headers_stay_on_the_configured_origin(self):
+        seen: dict[str, dict[str, str]] = {}
+        credentials = create_bearer_auth("secret-token")
+        credentials.custom_headers = {"X-Tenant": "acme"}
+        async with self._recording_client(seen) as http_client:
+            A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com/a2a",
+                credentials=credentials,
+            )
+
+            await http_client.get(
+                "https://agent.example.com/a2a/.well-known/agent-card.json"
+            )
+            await http_client.post("https://evil.example.net/a2a/", json={})
+            await http_client.post("http://agent.example.com/a2a/", json={})
+
+        same_origin = seen["https://agent.example.com/a2a/.well-known/agent-card.json"]
+        assert same_origin["authorization"] == "Bearer secret-token"
+        assert same_origin["x-tenant"] == "acme"
+
+        other_host = seen["https://evil.example.net/a2a/"]
+        assert "authorization" not in other_host
+        assert "x-tenant" not in other_host
+
+        other_scheme = seen["http://agent.example.com/a2a/"]
+        assert "authorization" not in other_scheme
+
+    async def test_loopback_aliases_and_default_ports_share_an_origin(self):
+        seen: dict[str, dict[str, str]] = {}
+        async with self._recording_client(seen) as http_client:
+            A2AService(
+                http_client=http_client,
+                agent_url="http://localhost:8300",
+                credentials=create_bearer_auth("secret-token"),
+            )
+            await http_client.post("http://127.0.0.1:8300/", json={})
+
+        assert seen["http://127.0.0.1:8300/"]["authorization"] == "Bearer secret-token"
+
+        assert credential_origin("https://a.example.com") == credential_origin(
+            "https://a.example.com:443/path"
+        )
+        assert credential_origin("http://[::1]:8300") == credential_origin(
+            "http://localhost:8300"
+        )
+        assert credential_origin("http://a.example.com") != credential_origin(
+            "https://a.example.com"
+        )
+
+    async def test_headers_applied_later_are_scoped_too(self):
+        """A token fetched or set after construction gets the same bound."""
+        seen: dict[str, dict[str, str]] = {}
+        async with self._recording_client(seen) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="https://agent.example.com"
+            )
+            service.set_credentials(create_bearer_auth("late-token"))
+            await http_client.get("https://agent.example.com/x")
+            await http_client.get("https://other.example.com/x")
+
+        assert (
+            seen["https://agent.example.com/x"]["authorization"] == "Bearer late-token"
+        )
+        assert "authorization" not in seen["https://other.example.com/x"]
+
+    async def test_warns_when_the_card_routes_to_another_origin(self, caplog):
+        card = make_agent_card(url="https://elsewhere.example.net/rpc")
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com",
+                credentials=create_bearer_auth("secret-token"),
+            )
+            service._cached_agent_card = card
+
+            with caplog.at_level("WARNING"):
+                await service._get_or_create_client()
+
+        assert "different origin" in caplog.text
+        assert "credentials will not be sent there" in caplog.text
+        assert "secret-token" not in caplog.text
+
+    async def test_no_warning_when_the_card_stays_home(self, caplog):
+        card = make_agent_card(url="https://agent.example.com/rpc")
+        async with httpx.AsyncClient() as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="https://agent.example.com",
+                credentials=create_bearer_auth("secret-token"),
+            )
+            service._cached_agent_card = card
+
+            with caplog.at_level("WARNING"):
+                await service._get_or_create_client()
+
+        assert "different origin" not in caplog.text
+
+
+@pytest.mark.asyncio
 class TestA2AServiceSendConfiguration:
     """Tests for SendMessageConfiguration on outgoing requests."""
 
@@ -1228,8 +1339,9 @@ class TestA2AServiceAuthHeaders:
             return httpx.Response(200, json={"ok": True})
 
         transport = httpx.MockTransport(handler)
+        # Requests go to the configured origin; credentials never leave it.
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver.local"
+            transport=transport, base_url="http://example.com"
         ) as http_client:
             service = A2AService(
                 http_client=http_client, agent_url="http://example.com"
