@@ -1,6 +1,6 @@
 ---
 title: "Messages, tasks, and sessions"
-description: "Send messages, stream responses, manage tasks, and reuse saved conversation state from the Handler CLI."
+description: "Send text, files, and structured data, stream responses, list and manage tasks, configure push notifications, and reuse saved conversation state from the Handler CLI."
 ---
 
 # Use the CLI for A2A workflows
@@ -11,6 +11,10 @@ streaming commands when you need structured event output for automation or
 agent-driven workflows. Commands without a custom text formatter may still emit
 JSON in the default mode.
 
+Warnings print to stderr by default, so you see when an agent requires an
+extension you did not request or when its card routes requests somewhere
+unexpected. Add `-v` for informational logs or `-d` for debug logs.
+
 ## Inspect an agent card first
 
 Fetch the card for a configured server:
@@ -18,6 +22,17 @@ Fetch the card for a configured server:
 ```bash
 handler card get --server demo
 ```
+
+Some agents offer an extended card to authenticated clients that reveals
+skills or interfaces the public card omits. Fetch it when the public card
+advertises `extendedAgentCard`:
+
+```bash
+handler card get --server demo --extended
+```
+
+If the agent does not offer one, or advertises one but has none configured,
+Handler says so in one clear message instead of a raw protocol error.
 
 Validate the configured server's card:
 
@@ -48,6 +63,86 @@ You can target a URL directly instead of a configured server:
 handler message send --url http://localhost:8000 --text "Hello"
 ```
 
+## Send files and structured data
+
+Messages are not limited to text. Attach files with `--file` and structured
+data with `--data`; both options are repeatable and work on `message send` and
+`message stream`.
+
+A local path is read and sent inline as a file part, with the media type
+sniffed from the file:
+
+```bash
+handler message send --server demo --text "Review this" --file ./report.pdf
+```
+
+An `http(s)` URL is sent by reference, so the agent fetches it:
+
+```bash
+handler message send --server demo --text "Review this" --file https://example.com/report.pdf
+```
+
+Inline files are limited to 10 MiB; larger files are refused before anything
+is read, with a pointer at the URL form.
+
+Attach a JSON value as a data part:
+
+```bash
+handler message send --server demo --data '{"kind": "deployment", "replicas": 3}'
+```
+
+`--text` is optional when at least one part is attached.
+
+When an agent replies with non-text parts, the text output summarizes them
+rather than dumping bytes into the terminal. A file part renders as
+`[file: pixel.png, image/png, inline bytes, 70 bytes]` (or with its URI when
+sent by reference), and a data part renders as a fenced JSON block. Whole
+numbers in data parts render as integers even though the protocol carries
+every number as a double. Use `--output json` to get the full parts, including
+inline bytes as base64.
+
+## Shape the request
+
+The CLI exposes the `SendMessageConfiguration` fields the protocol attaches to
+a message.
+
+Tell the agent which media types you can render:
+
+```bash
+handler message send --server demo --text "Summarize" --accept text/plain --accept application/json
+```
+
+Ask for recent history on the task the agent returns:
+
+```bash
+handler message send --server demo --text "Continue" --history-length 10
+```
+
+Return as soon as the agent acknowledges with a task instead of waiting for it
+to finish. The submitted task is printed with its ID so you can poll it with
+`task get` or attach with `task resubscribe`:
+
+```bash
+handler message send --server demo --text "Long job" --no-wait
+```
+
+`--no-wait` and `--stream` are mutually exclusive.
+
+## Request A2A extensions
+
+Agents can declare extensions on their card. Ask for one on a single call with
+`-e/--extension` (repeatable):
+
+```bash
+handler message send --server demo --text "Hello" -e https://example.com/extensions/traceability/v1
+```
+
+Handler sends the URIs in the `A2A-Extensions` header on every request. To
+request an extension on every call to a server, list it in the server's
+configuration instead; see [Servers](./servers). If an agent marks an
+extension as required and you did not request it, Handler warns, since the
+agent may refuse or degrade the request.
+
 ## Stream the response
 
 Stream task events and response text from a configured server:
@@ -72,6 +167,12 @@ Use newline-delimited JSON when you want structured stream events:
 ```bash
 handler --output ndjson message stream --server demo --text "Summarize your capabilities"
 ```
+
+Handler negotiates the transport from the agent card: it speaks JSON-RPC and
+HTTP+JSON out of the box, and gRPC when installed with the `grpc` extra
+(`uv tool install 'a2a-handler[grpc]'`). The card's preference order decides.
+When the agent offers no binding this install speaks, the error names what the
+agent offers and what Handler can do about it.
 
 If you need to tune networking behavior, Handler exposes global timeout flags
 and matching environment variables. Values are seconds, or `none` to disable a
@@ -107,6 +208,9 @@ Continue using Handler's saved context and task IDs:
 handler message send --server demo --text "Continue that task" --continue
 ```
 
+This is also how you answer an agent that paused in `input-required`: the
+saved task is still open, so `--continue` sends your reply on it.
+
 Inspect the saved session for a configured server:
 
 ```bash
@@ -136,6 +240,42 @@ handler --output json message send \
 ```
 
 You can also override saved auth with `--bearer-env` or `--api-key-env`.
+Custom headers and credentials are only sent to the origin of the agent URL
+you configured; see [Authentication](./authentication).
+
+## List an agent's tasks
+
+List every task the agent holds, following pagination to the end:
+
+```bash
+handler task list --server demo
+```
+
+Text output is one line per task with its state and context. Narrow the
+listing by context or state:
+
+```bash
+handler task list --server demo --context-id ctx-123
+```
+
+```bash
+handler task list --server demo --status input-required
+```
+
+States are `submitted`, `working`, `completed`, `failed`, `canceled`,
+`input_required`, `rejected`, and `auth_required`; hyphens are accepted too.
+
+Tune what each page carries. All pages are always fetched, so `--page-size`
+only changes the number of round trips; the protocol caps it at 100:
+
+```bash
+handler task list --server demo --page-size 20 --history-length 5 --include-artifacts
+```
+
+Handler stops a listing that is not making progress (a server repeating a page
+token, or more than 1000 pages) rather than looping forever. When that happens
+the result is marked truncated: text output says so, `--output json` carries a
+`truncated` field, and `--output ndjson` emits a final `truncated` record.
 
 ## Work with tasks directly
 
@@ -164,7 +304,8 @@ handler task resubscribe --server demo --task task-123
 ```
 
 `resubscribe` is useful when a task uses streaming events and you need to attach
-again after a dropped server connection.
+again after a dropped server connection, or to follow a task you started with
+`--no-wait`.
 
 ## Configure push notifications for tasks
 
@@ -178,10 +319,38 @@ handler task notification set \
   --token local-secret
 ```
 
-Inspect the current push config later:
+You can also attach the webhook when you send the message, so the agent has it
+from the first event:
+
+```bash
+handler message send \
+  --server demo \
+  --text "Long job" \
+  --no-wait \
+  --push-url http://127.0.0.1:9000/webhook \
+  --push-token local-secret
+```
+
+Inspect the current push config later. The protocol needs a config ID; when a
+task has exactly one config, Handler looks it up for you:
 
 ```bash
 handler task notification get --server demo --task task-123
+```
+
+A task with several configs needs one named with `--config-id`. List them,
+with tokens redacted:
+
+```bash
+handler task notification list --server demo --task task-123
+```
+
+Remove a config. Handler checks it exists first, so a mistyped ID fails
+loudly instead of being silently accepted by a server that treats deletes as
+idempotent:
+
+```bash
+handler task notification remove --server demo --task task-123 --config-id cfg-123
 ```
 
 For a local receiver you can run the bundled webhook server described in

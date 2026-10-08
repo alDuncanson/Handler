@@ -27,13 +27,41 @@ By default it binds to `127.0.0.1:9000` and exposes these endpoints:
 - `GET /notifications` lists received notifications
 - `POST /notifications/clear` clears stored notifications
 
+## Require a notification token
+
+Agents send the token from the push config in the `X-A2A-Notification-Token`
+header. Make the receiver reject any delivery that does not carry it:
+
+```bash
+handler server run push --token local-secret
+```
+
+Use the same value as `--push-token` or `task notification set --token`. This
+matters most when you bind the receiver beyond loopback with `--host`; without
+`--token`, any POST is accepted.
+
+## What a delivery looks like
+
+An A2A v1.0 agent posts the event it just produced, wrapped the way the
+streaming API wraps it: a `statusUpdate`, `artifactUpdate`, `task`, or
+`message` object. Handler reads the task ID and state out of any of those and
+also understands the older v0.3 shape with `id` and `status` at the top level.
+Each received notification is printed with its task ID and state, and the
+`GET /notifications` listing returns `task_id`, `state`, and the raw payload.
+
 ## End-to-end push notification test
 
-1. Start the webhook receiver with `handler server run push`.
-2. Start or connect to an agent.
-3. Send a message that creates a long-running task.
-4. Point that task at `http://127.0.0.1:9000/webhook` with `handler task notification set`.
-5. Inspect received events at `http://127.0.0.1:9000/notifications`.
+1. Start the webhook receiver with `handler server run push --token local-secret`.
+2. Send a message that creates a long-running task, pointing it at the receiver:
 
-This is a simple way to verify that an agent's push flow works before wiring it
-into a real webhook consumer.
+   ```bash
+   handler message send --server demo --text "Long job" --no-wait \
+     --push-url http://127.0.0.1:9000/webhook --push-token local-secret
+   ```
+
+3. Inspect received events at `http://127.0.0.1:9000/notifications`, or watch
+   them print in the receiver's terminal.
+
+You can also attach the webhook to an existing task with
+`handler task notification set`. This is a simple way to verify that an
+agent's push flow works before wiring it into a real webhook consumer.

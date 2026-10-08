@@ -23,6 +23,10 @@ interactively, JSON for scripts, and NDJSON for streaming event consumers.
 | `--pool-timeout SECONDS/none` | HTTP connection pool timeout. Env: `HANDLER_POOL_TIMEOUT`. |
 | `--stream-read-timeout SECONDS/none` | HTTP read timeout for streaming calls. Defaults to `none`. Env: `HANDLER_STREAM_READ_TIMEOUT`. |
 
+Without `-v` or `-d`, Handler prints warnings and errors on stderr. Warnings
+cover a card that routes requests to a different origin than the one you
+configured and an agent that requires an extension you did not request.
+
 ## Machine-readable metadata
 
 Use these commands when generating wrappers, validating agent plans, or building
@@ -58,7 +62,14 @@ handler card get --server my-agent
 handler card get --url http://localhost:8000
 ```
 
-Options: `--url`, `-s, --server`, `-b, --bearer-env`, `-k, --api-key-env`.
+Fetch the extended card an agent offers to authenticated clients:
+
+```bash
+handler card get --server my-agent --extended
+```
+
+Options: `--url`, `-s, --server`, `--extended`, `-b, --bearer-env`,
+`-k, --api-key-env`.
 
 ### `handler card validate`
 
@@ -86,9 +97,21 @@ handler message send --server my-agent --text "Hello"
 handler --output json message send --server my-agent --text "Hello"
 ```
 
-Options: `--url`, `-s, --server`, `-t, --text`, `--stream`, `--json`,
-`--context-id`, `--task-id`, `-C, --continue`, `--push-url`, `--push-token`,
-`-b, --bearer-env`, `-k, --api-key-env`, `-H, --header`.
+Attach a file (a local path is sent inline, an `http(s)` URL by reference)
+and structured data:
+
+```bash
+handler message send --server my-agent --text "Review this" --file ./report.pdf --data '{"k": "v"}'
+```
+
+Options: `--url`, `-s, --server`, `-t, --text`, `-f, --file`, `--data`,
+`--stream`, `--json`, `--context-id`, `--task-id`, `-C, --continue`,
+`--accept`, `--history-length`, `--no-wait`, `--push-url`, `--push-token`,
+`-e, --extension`, `-b, --bearer-env`, `-k, --api-key-env`, `-H, --header`.
+
+`--file`, `--data`, `--accept`, `--extension`, and `--header` are repeatable.
+`--text` is optional when a file or data part is attached. `--no-wait` and
+`--stream` are mutually exclusive.
 
 ### `handler message stream`
 
@@ -102,11 +125,33 @@ handler message stream --server my-agent --text "Run the workflow"
 handler --output ndjson message stream --server my-agent --text "Run the workflow"
 ```
 
-Options match `message send`, except `--text` is required and streaming is
-always enabled.
+Options match `message send` except that `--stream` and `--no-wait` do not
+apply; streaming is always enabled.
 
-Every `task` command accepts the task ID positionally or with `--task`. The two
-forms are equivalent; passing two different IDs is an error.
+Every `task` command that takes a task ID accepts it positionally or with
+`--task`. The two forms are equivalent; passing two different IDs is an error.
+
+### `handler task list`
+
+List the agent's tasks, following pagination to the end.
+
+```bash
+handler task list --server my-agent
+```
+
+```bash
+handler task list --server my-agent --status input-required --context-id ctx-123
+```
+
+Options: `--url`, `-s, --server`, `--context-id`, `--status`, `--page-size`,
+`-n, --history-length`, `--include-artifacts`, `-b, --bearer-env`,
+`-k, --api-key-env`.
+
+`--status` takes `submitted`, `working`, `completed`, `failed`, `canceled`,
+`input_required`, `rejected`, or `auth_required`, with hyphens accepted.
+`--page-size` must be between 1 and 100; every page is fetched regardless.
+A listing cut short by a misbehaving server is marked truncated in all three
+output formats.
 
 ### `handler task get`
 
@@ -141,10 +186,16 @@ handler task resubscribe task-123 --server my-agent
 
 ### `handler task notification get`
 
-Get the push notification configuration for a task.
+Get the push notification configuration for a task. Without `--config-id`,
+the task's single config is used; a task with several configs needs one
+named.
 
 ```bash
 handler task notification get task-123 --server my-agent
+```
+
+```bash
+handler task notification get task-123 --server my-agent --config-id cfg-123
 ```
 
 Options: `[TASK_ID]`, `--url`, `-s, --server`, `--task`, `-c, --config-id`, `-b, --bearer-env`, `-k, --api-key-env`.
@@ -162,6 +213,30 @@ handler task notification set task-123 \
 
 Options: `--url`, `-s, --server`, `--task`, `--webhook-url`, `-t, --token`,
 `-b, --bearer-env`, `-k, --api-key-env`.
+
+### `handler task notification list`
+
+List a task's push notification configs, following pagination to the end.
+Tokens are redacted in the output.
+
+```bash
+handler task notification list task-123 --server my-agent
+```
+
+Options: `[TASK_ID]`, `--url`, `-s, --server`, `--task`, `--page-size`,
+`-b, --bearer-env`, `-k, --api-key-env`.
+
+### `handler task notification remove`
+
+Remove a push notification config from a task. The config is listed first,
+so an ID that does not exist fails clearly.
+
+```bash
+handler task notification remove task-123 --server my-agent --config-id cfg-123
+```
+
+Options: `[TASK_ID]`, `--url`, `-s, --server`, `--task`, `-c, --config-id`
+(required), `-b, --bearer-env`, `-k, --api-key-env`.
 
 ## Session commands
 
@@ -209,9 +284,13 @@ handler server add demo --url http://localhost:8000
 handler server add prod --url https://agent.example.com --repository
 ```
 
-Options include `--url`, `--bearer-env`, `--api-key-env`, `--api-key-header`,
-`--cert`, `--key`, `--oauth2-token-url`, `--oauth2-client-id-env`,
-`--oauth2-client-secret-env`, `--oauth2-scope`, `--global`, and `--repository`.
+Options include `--url`, `--bearer-env`, `--basic-username`,
+`--basic-password-env`, `--api-key-env`, `--api-key-header`, `--cert`,
+`--key`, `--oauth2-token-url`, `--oauth2-client-id-env`,
+`--oauth2-client-secret-env`, `--oauth2-scope`, `--oidc-issuer-url`,
+`--oidc-client-id-env`, `--oidc-client-secret-env`, `--oidc-scope`,
+`--global`, and `--repository`. See [Authentication](../guides/authentication)
+for the flags each scheme needs.
 
 ### `handler server list`
 
@@ -265,12 +344,22 @@ Start a local webhook server for push notifications.
 handler server run push
 ```
 
+Require the notification token the agent was given, and reject deliveries
+without it:
+
+```bash
+handler server run push --port 9001 --token local-secret
+```
+
+Options: `--host`, `--port`, `--token`.
+
 ## Interface and integration commands
 
 ### `handler mcp`
 
-Run a local MCP server exposing A2A protocol operations. Supports `stdio`,
-`sse`, and `streamable-http`.
+Run a local MCP server exposing thirteen A2A tools for cards, messages,
+tasks, push notifications, and sessions. Supports `stdio`, `sse`, and
+`streamable-http`; see [MCP server](../guides/mcp) for the tool list.
 
 ```bash
 handler mcp
