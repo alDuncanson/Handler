@@ -412,17 +412,22 @@ class TabbedMessagesPanel(Container):
         self.add_message("system", content)
 
     def begin_agent_stream(self) -> StreamingMessage:
-        """Mount a live agent reply and return it for incremental updates."""
+        """Mount a live agent reply and return it for incremental updates.
+
+        The widget carries no fixed id: removal is asynchronous, so a reply
+        begun right after the previous turn settled would otherwise collide
+        with the one still being torn down and crash the send worker.
+        """
         self.end_agent_stream()
         chat_container = self._get_chat_container()
-        streaming = StreamingMessage(id="streaming-message")
+        streaming = StreamingMessage()
         chat_container.mount(streaming)
         chat_container.scroll_end(animate=False)
         return streaming
 
     def end_agent_stream(self) -> None:
         """Remove the live agent reply, if one is mounted."""
-        for widget in self.query("#streaming-message"):
+        for widget in self.query(StreamingMessage):
             widget.remove()
 
     def scroll_chat_to_end(self) -> None:

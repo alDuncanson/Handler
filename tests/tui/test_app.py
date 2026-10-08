@@ -2490,7 +2490,7 @@ async def test_streaming_updates_render_before_the_turn_finishes() -> None:
             await pilot.pause()
 
             # Mid-turn: a live reply is mounted and shows the agent's progress.
-            live = workspace.query_one("#streaming-message", StreamingMessage)
+            live = workspace.query_one(StreamingMessage)
             assert "Looking things up" in live.body_text
             label = workspace.query_one("#send-loading-label", Static)
             assert "working" in str(label.content)
@@ -2502,7 +2502,7 @@ async def test_streaming_updates_render_before_the_turn_finishes() -> None:
             await pilot.pause()
 
             # After the turn: live widget gone, final message rendered.
-            assert not workspace.query("#streaming-message")
+            assert not workspace.query(StreamingMessage)
             assert workspace.query_one("#cancel-btn", Button).has_class("hidden")
             texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("All set" in text for text in texts)
@@ -2634,7 +2634,7 @@ async def test_cancel_button_stops_the_turn_and_asks_the_agent() -> None:
             mock_service.cancel_task.assert_awaited_once_with("task-cancel")
             # The UI is usable again rather than stuck waiting.
             assert workspace.query_one("#message-input", Input).disabled is False
-            assert not workspace.query("#streaming-message")
+            assert not workspace.query(StreamingMessage)
             texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("canceled" in text.lower() for text in texts)
 
@@ -2801,3 +2801,31 @@ async def test_connect_warns_about_unrequested_required_extensions() -> None:
             assert workspace.is_connected
             chat_texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
             assert any("urn:required-ext" in text for text in chat_texts)
+
+
+@pytest.mark.asyncio
+async def test_a_reply_begun_before_the_last_one_is_torn_down_does_not_collide() -> (
+    None
+):
+    """Regression: the live reply widget had a fixed id, and removal is
+    asynchronous, so the second message of a session sent promptly after the
+    first settled raised DuplicateIds inside the send worker and the turn
+    never finished."""
+    app = HandlerTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        workspace = app.query_one(ServerTabs).get_active_server()
+        assert workspace is not None
+        panel = workspace.query_one(TabbedMessagesPanel)
+
+        first = panel.begin_agent_stream()
+        first.append_output("first")
+        second = panel.begin_agent_stream()
+        second.append_output("second")
+        await pilot.pause()
+        await pilot.pause()
+
+        live = list(workspace.query(StreamingMessage))
+        assert len(live) == 1
+        assert live[0] is second
+        assert "second" in live[0].body_text
