@@ -21,6 +21,13 @@ def test_validate_agent_url_rejects_invalid_scheme() -> None:
         validate_agent_url("ftp://localhost")
 
 
+def test_input_validation_error_str_is_its_message() -> None:
+    with pytest.raises(InputValidationError) as exc_info:
+        validate_agent_url("ftp://localhost")
+
+    assert str(exc_info.value) == "agent_url must be a valid http(s) URL"
+
+
 def test_validate_resource_id_rejects_query_chars() -> None:
     with pytest.raises(InputValidationError):
         validate_resource_id("task-123?fields=id", "task_id")

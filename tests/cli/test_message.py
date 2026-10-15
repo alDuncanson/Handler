@@ -673,6 +673,23 @@ class TestMessageSend:
         assert result.exit_code == 1
         assert "agent_url must be a valid http(s) URL" in result.output
 
+    def test_message_send_rejects_reserved_header_with_reason(self, runner):
+        result = runner.invoke(
+            message,
+            [
+                "send",
+                "--url",
+                "http://localhost:8000",
+                "--text",
+                "Hello",
+                "-H",
+                "Authorization: Bearer x",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "reserved header 'Authorization'" in result.output
+
     def test_message_send_requires_url_or_server(self, runner):
         """Test message send fails without --url or --server."""
         result = runner.invoke(message, ["send", "--text", "Hello"])
