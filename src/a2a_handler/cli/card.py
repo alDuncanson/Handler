@@ -172,6 +172,7 @@ def card_validate(
                 source=resolved_url,
                 source_type=ValidationSource.URL,
                 agent_card=agent_card,
+                raw_data=service.raw_card,
             )
 
         _format_validation_result(result, output)
