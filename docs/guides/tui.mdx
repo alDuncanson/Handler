@@ -1,6 +1,6 @@
 ---
 title: "TUI and web UI"
-description: "Use Handler's interactive terminal interface to connect to A2A servers, manage auth, inspect cards, and send messages."
+description: "Use Handler's interactive terminal interface to connect to A2A servers, stream replies, attach files, manage auth, and inspect cards and tasks."
 ---
 
 # Use the interactive UI
@@ -44,12 +44,55 @@ handler tui --bearer-env HANDLER_TOKEN
 
 ## What you can do with the TUI
 
-- switching between multiple A2A servers in tabs
-- inspecting agent cards and supported capabilities
-- sending messages and inspecting task responses
-- editing auth, custom headers, and server details interactively
-- keeping recent sessions close at hand while testing agents repeatedly
-- viewing logs without leaving the interface
+- switch between multiple A2A servers in tabs
+- inspect agent cards, including the extended card an agent offers to
+  authenticated clients
+- send messages and watch the reply stream in as the agent works
+- attach files and structured data to a message
+- stop a running task, and answer an agent that pauses for input
+- browse tasks and artifacts, with previews of file and data parts
+- edit auth, custom headers, and server details interactively
+- keep recent sessions close at hand while testing agents repeatedly
+- view logs without leaving the interface
+
+## Connecting
+
+Pick a configured or recent server from the picker, or choose the URL entry
+and type one, then press CONNECT. Once connected, the bar above the chat
+shows badges for the connection: the agent's name and version, where the
+server definition came from, the auth scheme in use, the A2A protocol version
+the card advertises, and the transport Handler negotiated (`JSONRPC`,
+`HTTP+JSON`, or `GRPC`).
+
+If the card advertises an extended card, the TUI fetches it on connect and
+shows it in the card panel with a note. If the card marks an extension as
+required that the connection does not request, a system message says so.
+
+## Sending and streaming
+
+Type in the composer and press Enter or SEND. The reply renders as it
+arrives; once the turn settles it becomes a normal message with the task's
+state, IDs, and artifacts underneath.
+
+A STOP control appears while a turn is in flight. It sends a real cancel to
+the agent and waits briefly for it to acknowledge, so the transcript keeps
+whatever the agent said up to that point. If the agent cannot cancel, the TUI
+says so plainly.
+
+When the agent pauses in `input-required`, the composer comes back with the
+placeholder "The agent is waiting for your reply..." and your next message
+continues the same task. An agent that pauses for authentication points you
+at the Auth tab instead.
+
+## Attaching files and data
+
+Press ATTACH (or run "Attach File" from the command palette) and enter a
+local path or an `http(s)` URL. A local file is sent inline, a URL by
+reference. Queued attachments show above the composer and go out with the
+next message. The same 10 MiB inline limit as the CLI applies.
+
+Received file and data parts are listed in the Tasks and Artifacts tabs with
+their name, media type, and a preview.
 
 ## Footer shortcuts
 
@@ -59,27 +102,45 @@ The footer shows the shortcuts that are always worth keeping close:
 - `Ctrl+Q` quits the application
 - `?` opens the keybindings panel
 
+More are listed in that panel, including `Ctrl+N` for a new server tab,
+`Ctrl+W` to close one, `Ctrl+B` and `Ctrl+T` to move between tabs, and
+`Ctrl+M` to maximize the focused panel.
+
 ## Connecting with configured servers
 
 If you already defined servers in `servers.toml`, the TUI can open them
 directly from the picker or from the command line with `--server`.
 
-This is usually the easiest way to work with mTLS or OAuth2 because the server
-definition already knows the URL and auth shape. See [Servers](./servers) and
-[Authentication](./authentication).
+This is usually the easiest way to work with mTLS, OAuth2, or OpenID Connect
+because the server definition already knows the URL and auth shape. See
+[Servers](./servers) and [Authentication](./authentication).
 
 ## Auth in the UI
 
-The auth panel supports the same major flows as the CLI:
+The Auth tab supports the same schemes as the CLI:
 
 - bearer tokens
 - API keys
-- custom headers
+- HTTP Basic
 - mTLS certificate paths
 - OAuth2 client credentials
+- OpenID Connect
+
+Custom headers have their own tab. Credentials entered here are only sent to
+the origin of the URL you connected to, as described in
+[Authentication](./authentication).
 
 That makes the TUI useful for debugging an agent before you save the same setup
-as server configuration.
+as server configuration. The command palette's "Save connections" writes the
+connected servers to your configuration.
+
+## Sessions
+
+Handler remembers the context and task of each server you talked to. Recent
+sessions appear in the picker, and reconnecting one resumes the saved
+conversation. Use "Start fresh conversation" from the command palette to drop
+the saved context for the active server, or "Forget Saved Session" to remove
+it entirely.
 
 ## Browser-hosted mode
 

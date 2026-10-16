@@ -6,7 +6,7 @@ description: "Expose Handler's A2A capabilities through a local MCP server for A
 # Expose A2A tools through MCP
 
 Handler can expose A2A protocol operations through an MCP server so other tools
-can call the same card, message, task, session, and auth operations.
+can call the same card, message, task, and session operations.
 
 ## Configure your agent harness
 
@@ -65,13 +65,24 @@ need a networked MCP endpoint.
 
 ## What the MCP server exposes
 
-The server provides tools across five areas:
+The server provides thirteen tools:
 
-- card lookup and validation
-- message sending
-- task inspection, cancellation, and push config
-- saved session inspection and cleanup
-- credential storage and removal
+| Area | Tools |
+| --- | --- |
+| Cards | `get_agent_card` (public or extended card), `validate_agent_card` |
+| Messages | `send_message` (with session, task, and auth support) |
+| Tasks | `get_task`, `list_tasks`, `cancel_task` |
+| Push notifications | `set_task_notification`, `get_task_notification`, `list_task_notifications`, `delete_task_notification` |
+| Sessions | `list_sessions`, `get_session_info`, `clear_session_data` |
+
+Every tool that talks to an agent takes the agent URL plus optional auth
+arguments: `bearer_token`, `api_key`, `cert_path`, `key_path`,
+`ca_cert_path`, and `custom_headers`. Credentials are bound to the origin of
+that URL, exactly as in the CLI.
+
+`list_tasks` follows pagination to the end and returns the tasks with a
+`count` and a `truncated` flag. `get_task_notification` looks up the task's
+single config when no `config_id` is given.
 
 That makes it useful as a bridge layer between MCP clients and A2A agents.
 

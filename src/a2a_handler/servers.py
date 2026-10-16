@@ -1,7 +1,10 @@
 """Server definition loading and auth resolution.
 
-Servers are defined in ``$XDG_CONFIG_HOME/handler/servers.toml`` and optionally
-in a repository-local ``.handler/servers.toml`` file at the git root.
+Servers are defined in ``servers.toml`` under the platform's per-user config
+directory (``platformdirs.user_config_dir("handler")``: for example
+``~/Library/Application Support/handler`` on macOS and
+``$XDG_CONFIG_HOME/handler`` on Linux) and optionally in a repository-local
+``.handler/servers.toml`` file at the repository root.
 """
 
 from __future__ import annotations
