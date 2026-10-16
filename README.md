@@ -12,9 +12,24 @@ client for software engineers building, testing, and operating agentic systems.
 It provides an interactive TUI, a scriptable CLI with structured output, and an
 MCP server that lets other agents integrate with A2A services directly. Handler
 also supports global and repo-scoped A2A server configuration with bearer,
-API key, mTLS, and OAuth2 client credentials auth.
+API key, HTTP Basic, mTLS, OAuth2 client credentials, and OpenID Connect auth.
 
 ![Handler TUI connected to an A2A agent, showing the agent card and a completed assistant response](https://raw.githubusercontent.com/alDuncanson/Handler/73915875903b60dad6e4e404aa7ed91b6d94559f/assets/tui.png)
+
+## Features
+
+- Streams replies as they arrive, in the TUI and the CLI, and can stop a
+  running task or answer an agent that pauses for input
+- Sends text, files (inline or by URL), and structured data, and shows the
+  file and data parts agents send back
+- Lists, inspects, cancels, and resubscribes to tasks, and manages push
+  notification configs with a bundled local webhook receiver
+- Speaks JSON-RPC and HTTP+JSON out of the box, gRPC with the `grpc` extra,
+  and lets the agent card pick the transport
+- Requests A2A extensions and fetches the extended card an agent offers to
+  authenticated clients
+- Keeps credentials on the origin you configured, never on a host an agent
+  card happens to name
 
 ## Install
 
@@ -54,6 +69,18 @@ Send a message from the CLI:
 
 ```bash
 handler message send --url URL --text "hello"
+```
+
+Stream the reply, with a file attached:
+
+```bash
+handler message stream --url URL --text "Review this" --file ./report.pdf
+```
+
+List the agent's tasks:
+
+```bash
+handler task list --url URL
 ```
 
 Open the full documentation:

@@ -38,7 +38,7 @@ def mcp(transport: TransportType) -> None:
     \b
     Card Tools:
     - validate_agent_card: Validate an agent card from URL or file
-    - get_agent_card: Retrieve an agent's full card details
+    - get_agent_card: Retrieve an agent's public or extended card
 
     \b
     Message Tools:
@@ -47,9 +47,15 @@ def mcp(transport: TransportType) -> None:
     \b
     Task Tools:
     - get_task: Get task status and details
+    - list_tasks: List an agent's tasks, following pagination to the end
     - cancel_task: Cancel a running task
-    - set_task_notification: Configure push notification webhooks
-    - get_task_notification: Get push notification config
+
+    \b
+    Push Notification Tools:
+    - set_task_notification: Configure a push notification webhook
+    - get_task_notification: Get a task's push notification config
+    - list_task_notifications: List every push notification config for a task
+    - delete_task_notification: Delete a push notification config
 
     \b
     Session Tools:
@@ -57,10 +63,9 @@ def mcp(transport: TransportType) -> None:
     - get_session_info: Get session for a specific agent
     - clear_session_data: Clear saved session state
 
-    \b
-    Auth Tools:
-    - set_agent_credentials: Save bearer token or API key
-    - clear_agent_credentials: Remove saved credentials
+    Every tool that talks to an agent accepts bearer_token, api_key, mTLS
+    paths, and custom_headers; credentials are only sent to the origin of
+    the given agent URL.
 
     Example configuration for Claude Desktop (claude_desktop_config.json):
 

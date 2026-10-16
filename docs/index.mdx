@@ -14,9 +14,11 @@ and an MCP server so other agents can call A2A services through Handler.
 Use Handler when you need to:
 
 - inspect and validate agent cards before debugging deeper protocol issues
-- send messages, stream events, and manage tasks from shell scripts or CI
-- configure global or repo-scoped A2A servers with bearer, API key, mTLS,
-  or OAuth2 client credentials auth
+- send text, files, and structured data, stream events, and list and manage
+  tasks from shell scripts or CI
+- receive task push notifications with a local webhook receiver
+- configure global or repo-scoped A2A servers with bearer, API key, HTTP
+  Basic, mTLS, OAuth2 client credentials, or OpenID Connect auth
 - expose A2A operations as MCP tools for agent harnesses such as Amp or Pi
 
 ## Install
@@ -57,6 +59,12 @@ Send a message from the CLI:
 
 ```bash
 handler message send --url http://localhost:8000 --text "hello"
+```
+
+Stream the reply, with a file attached:
+
+```bash
+handler message stream --url http://localhost:8000 --text "Review this" --file ./report.pdf
 ```
 
 Open the full documentation:

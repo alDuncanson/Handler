@@ -12,7 +12,9 @@ developer platforms.
 ## Recommended production pattern
 
 Use repo-scoped server configuration for shared server shape and
-environment variables for secrets:
+environment variables for secrets. Agents behind Google Cloud IAM take a
+short-lived identity token as a bearer token; agents behind an OAuth2 or
+OpenID Connect gateway take client credentials:
 
 ```toml
 version = 1
@@ -49,7 +51,9 @@ handler card get --server apigee-gke-agent
 ```
 
 This catches invalid TOML, missing environment variables, auth file problems,
-and agent-card issues before you debug task execution.
+and agent-card issues before you debug task execution. Warnings print by
+default, so a card that routes requests to an unexpected origin or requires an
+extension you did not request shows up here too.
 
 ## Use structured output in automation
 
@@ -93,8 +97,13 @@ events do not abort long tasks.
 
 - Use configured servers instead of hard-coded URLs in scripts.
 - Store secrets in environment variables, not TOML files.
-- Prefer OAuth2 client credentials, bearer tokens, API keys, or mTLS according
-  to your gateway policy.
+- Prefer OAuth2 client credentials, OpenID Connect, bearer tokens, API keys,
+  HTTP Basic, or mTLS according to your gateway policy.
+- Configure the URL you actually want traffic to reach. Credentials are only
+  sent to that origin, so a card that advertises an internal hostname cannot
+  carry them elsewhere; Handler warns when that happens.
+- Install the `grpc` extra (`a2a-handler[grpc]`) for agents that only offer
+  gRPC; JSON-RPC and HTTP+JSON are built in.
 - Validate agent cards and server configuration during onboarding and CI checks.
 - Use `--output json` or `--output ndjson` when another system consumes results.
 - Use `handler task resubscribe` for recoverable streaming interruptions.

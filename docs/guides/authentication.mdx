@@ -1,19 +1,26 @@
 ---
 title: "Authentication"
-description: "Configure bearer, API key, mTLS, and OAuth2 client credentials authentication for Handler servers."
+description: "Configure bearer, API key, HTTP Basic, mTLS, OAuth2 client credentials, and OpenID Connect authentication for Handler servers, and learn how Handler keeps credentials where they belong."
 ---
 
 # Configure server authentication
 
-Handler supports four auth types for configured servers:
+Handler supports six auth types for configured servers:
 
 - bearer tokens
 - API keys
+- HTTP Basic
 - mTLS client certificates
 - OAuth2 client credentials
+- OpenID Connect (client credentials with issuer discovery)
 
 Add a server from the CLI with the matching auth flags, or define the auth block
-manually in `servers.toml`.
+manually in `servers.toml`. The TUI's Auth tab offers the same six schemes
+for a connection you have not saved yet.
+
+Secrets always come from environment variables. The TOML file and
+`handler server show` carry only the variable's name (and, for HTTP Basic, the
+username), never the value.
 
 ## Bearer tokens
 
@@ -39,6 +46,17 @@ env = "HANDLER_DEMO_TOKEN"
 For one-off local setups you can also use a literal `value`, but environment
 variables are safer for anything shared.
 
+For a single call, `--bearer-env` on most commands overrides whatever the
+server definition says:
+
+```bash
+handler card get --url https://agent.example.com --bearer-env HANDLER_DEMO_TOKEN
+```
+
+This is also how to reach an agent behind Google Cloud IAM: put the output of
+`gcloud auth print-identity-token` in an environment variable and pass it as
+the bearer token.
+
 ## API keys
 
 CLI:
@@ -49,7 +67,8 @@ handler server add demo \
   --api-key-env HANDLER_DEMO_API_KEY
 ```
 
-Handler sends API keys in `X-API-Key` by default.
+Handler sends API keys in `X-API-Key` by default. Change the header with
+`--api-key-header`.
 
 TOML with the default header:
 
@@ -73,6 +92,34 @@ type = "api_key"
 env = "HANDLER_DEMO_API_KEY"
 header = "Authorization"
 ```
+
+`--api-key-env` on most commands overrides saved auth for a single call.
+
+## HTTP Basic
+
+CLI:
+
+```bash
+handler server add demo \
+  --url https://agent.example.com \
+  --basic-username alice \
+  --basic-password-env HANDLER_DEMO_PASSWORD
+```
+
+TOML:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "basic"
+username = "alice"
+env = "HANDLER_DEMO_PASSWORD"
+```
+
+Handler sends the pair as an `Authorization: Basic` header. The username is
+shown by `handler server show`; the password never is.
 
 ## mTLS
 
@@ -98,8 +145,8 @@ key = "/path/to/client.key"
 ca_cert = "/path/to/ca.crt"
 ```
 
-Handler checks that the certificate and key files exist before use, and
-verifies private key permissions.
+Handler checks that the certificate and key files exist before use, expands
+`~` in paths, and refuses a private key that is readable by group or others.
 
 ## OAuth2 client credentials
 
@@ -131,5 +178,76 @@ scopes = ["read", "write"]
 
 Handler fetches the access token with the OAuth2 client credentials grant,
 applies it as a bearer token on requests, and refreshes it when it expires.
+The token request goes out on its own short-lived HTTP client, so no agent
+header is ever sent to the token endpoint.
 
-Use an HTTPS token endpoint so client credentials are protected in transit.
+Use an HTTPS token endpoint so client credentials are protected in transit;
+Handler rejects a plain `http://` token URL unless it points at loopback.
+
+## OpenID Connect
+
+OpenID Connect builds on the OAuth2 client credentials flow: you give Handler
+the issuer, and it discovers the token endpoint from the issuer's
+`/.well-known/openid-configuration` document on the first token fetch.
+
+CLI:
+
+```bash
+handler server add demo \
+  --url https://agent.example.com \
+  --oidc-issuer-url https://login.example.com \
+  --oidc-client-id-env HANDLER_CLIENT_ID \
+  --oidc-client-secret-env HANDLER_CLIENT_SECRET \
+  --oidc-scope agent
+```
+
+TOML:
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+
+[servers.demo.auth]
+type = "oidc"
+issuer_url = "https://login.example.com"
+client_id_env = "HANDLER_CLIENT_ID"
+client_secret_env = "HANDLER_CLIENT_SECRET"
+scopes = ["agent"]
+```
+
+The same HTTPS rule applies to the issuer URL.
+
+The interactive OAuth2 flows (authorization code and device code) are not
+supported yet.
+
+## Where credentials go
+
+An agent card names the URL its interfaces live at, and Handler sends protocol
+requests there. Credentials, however, are bound to the origin of the agent URL
+you configured: the scheme, host, and port you typed or saved. A request that
+leaves that origin goes out without the `Authorization` header, API key, or
+custom headers, and Handler warns once per origin that it held them back.
+
+Two spellings of the same place count as one origin, so a local agent whose
+card says `http://127.0.0.1:8300/` still gets its token when you connected to
+`http://localhost:8300`, and `https://agent.example.com` matches
+`https://agent.example.com:443`.
+
+Handler also warns at connect time when the card's chosen interface sits on a
+different origin than the configured URL, with or without credentials, since
+talking to a host you did not name is worth knowing about.
+
+## Check what Handler resolved
+
+Validate every configured server and whether its credentials resolve from the
+environment:
+
+```bash
+handler server validate
+```
+
+Show one server's auth shape without its secrets:
+
+```bash
+handler server show demo
+```

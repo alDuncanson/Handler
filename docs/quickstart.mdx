@@ -47,6 +47,19 @@ Send your first message:
 handler message send --url http://localhost:8000 --text "hello"
 ```
 
+Stream the reply instead of waiting for it, and attach a file while you are
+at it:
+
+```bash
+handler message stream --url http://localhost:8000 --text "Review this" --file ./report.pdf
+```
+
+See what tasks the agent holds:
+
+```bash
+handler task list --url http://localhost:8000
+```
+
 ## 3. Configure an A2A server
 
 Handler can store A2A server definitions as configuration for repeated
@@ -66,6 +79,8 @@ handler server add demo --url http://localhost:8000 --repository
 ```
 
 That creates or updates `.handler/servers.toml` at the root of the repository.
+Global definitions live in your user configuration directory; see
+[Servers](./guides/servers) for the path on each platform.
 
 ## 4. Inspect configured servers
 

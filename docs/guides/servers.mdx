@@ -1,14 +1,20 @@
 ---
 title: "Servers"
-description: "Configure global or repo-scoped A2A server definitions for Handler."
+description: "Configure global or repo-scoped A2A server definitions for Handler, including auth and requested extensions."
 ---
 
 # Configure A2A servers
 
 Handler can load configured A2A server definitions from two places:
 
-- global config at `$XDG_CONFIG_HOME/handler/servers.toml`
-- repo-scoped config at `.handler/servers.toml`
+- global config in your user configuration directory
+- repo-scoped config at `.handler/servers.toml` in the repository root
+
+The global file lives where your platform keeps per-user configuration:
+`~/Library/Application Support/handler/servers.toml` on macOS,
+`$XDG_CONFIG_HOME/handler/servers.toml` on Linux (`~/.config/handler` when
+the variable is unset), and the local AppData directory on Windows.
+`handler server validate` prints the path of every file it read.
 
 Repo-scoped config is useful when a project should travel with a shared
 agent URL or auth shape, while secrets continue to come from environment
@@ -23,7 +29,7 @@ version = 1
 url = "http://localhost:8000"
 ```
 
-Each server entry needs a `url`. Auth is optional.
+Each server entry needs a `url`. Auth and extensions are optional.
 
 ## Global vs repo-scoped
 
@@ -38,6 +44,22 @@ Use repo-scoped config when the server definition belongs with the repo:
 ```bash
 handler server add demo --url http://localhost:8000 --repository
 ```
+
+## Request extensions on every call
+
+If an agent expects an A2A extension, list its URI on the server entry and
+Handler sends it in the `A2A-Extensions` header on every request to that
+server. Extensions given on the command line with `-e/--extension` are merged
+in.
+
+```toml
+[servers.demo]
+url = "https://agent.example.com"
+extensions = ["https://example.com/extensions/traceability/v1"]
+```
+
+When a card marks an extension as required and the entry does not request
+it, Handler warns on connect.
 
 ## Validation helpers
 
@@ -71,10 +93,11 @@ version = 1
 
 [servers.demo]
 url = "https://agent.example.com"
+extensions = ["https://example.com/extensions/traceability/v1"]
 
 [servers.demo.auth]
 type = "bearer"
 env = "HANDLER_DEMO_TOKEN"
 ```
 
-See [Authentication](./authentication) for full auth examples.
+See [Authentication](./authentication) for all six auth types.
