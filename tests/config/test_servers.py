@@ -284,6 +284,34 @@ def test_resolve_mtls_server_credentials_warns_for_invalid_cert_data(
     assert warning is not None
 
 
+def test_resolve_mtls_server_credentials_explains_insecure_key_permissions(
+    tmp_path: Path,
+) -> None:
+    cert_path = tmp_path / "client.pem"
+    key_path = tmp_path / "client.key"
+    cert_path.write_text("cert")
+    key_path.write_text("key")
+    key_path.chmod(0o644)
+    server_def = ServerDefinition(
+        server_id="global:mtls-perms",
+        source=ServerSource.GLOBAL,
+        name="mtls-perms",
+        agent_url="https://secure.example.com",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.MTLS,
+            cert_path=str(cert_path),
+            key_path=str(key_path),
+        ),
+        origin_label="Global",
+    )
+
+    credentials, warning = resolve_server_credentials(server_def)
+
+    assert credentials is None
+    assert warning is not None
+    assert "readable by group or others" in warning
+
+
 def test_find_git_root_returns_repo_root(tmp_path: Path, monkeypatch) -> None:
     """find_git_root returns the directory containing .git."""
     git_dir = tmp_path / ".git"

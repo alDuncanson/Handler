@@ -21,6 +21,9 @@ class InputValidationError(ValueError):
     suggestion: str | None = None
     details: dict[str, object] | None = None
 
+    def __str__(self) -> str:
+        return self.message
+
 
 def reject_control_chars(value: str, field_name: str) -> None:
     """Reject ASCII control characters in user-provided values."""
