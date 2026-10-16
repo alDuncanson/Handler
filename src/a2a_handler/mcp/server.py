@@ -634,6 +634,8 @@ def create_mcp_server() -> FastMCP:
         """Get the push notification configuration for a task.
 
         Retrieves the current push notification webhook configuration for a task.
+        Without config_id the task's single config is returned; a task with
+        several configs needs one named (see list_task_notifications).
 
         Args:
             agent_url: Base URL of the A2A agent
