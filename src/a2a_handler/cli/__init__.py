@@ -151,8 +151,10 @@ def cli(
         setup_logging(level="DEBUG")
     elif verbose:
         setup_logging(level="INFO")
-    else:
+    elif quiet:
         setup_logging(level="ERROR")
+    else:
+        setup_logging(level="WARNING")
 
 
 cli.add_command(message)
