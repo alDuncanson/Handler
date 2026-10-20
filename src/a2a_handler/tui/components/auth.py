@@ -63,6 +63,23 @@ class AuthPanel(Vertical):
         elif self.query_one("#auth-oidc", RadioButton).value:
             self.query_one("#oidc-fields", Vertical).remove_class("hidden")
 
+    def select_auth_type(self, auth_type: AuthType | None) -> None:
+        """Select a scheme and show its fields without filling any value in.
+
+        Used when a configured server names a scheme whose secret could not
+        be resolved, so the user lands on the right fields to fill in.
+        """
+        selector = {
+            None: self._set_none_selected,
+            AuthType.API_KEY: self._set_api_key_selected,
+            AuthType.BEARER: self._set_bearer_selected,
+            AuthType.BASIC: self._set_basic_selected,
+            AuthType.MTLS: self._set_mtls_selected,
+            AuthType.OAUTH2: self._set_oauth2_selected,
+            AuthType.OIDC: self._set_oidc_selected,
+        }
+        selector[auth_type]()
+
     def _set_none_selected(self) -> None:
         """Set no-auth selection and hide auth-specific fields."""
         self._select_auth_button("auth-none")
