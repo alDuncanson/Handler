@@ -1,6 +1,7 @@
 """Message commands for sending messages to A2A agents."""
 
 import asyncio
+from pathlib import Path
 import json
 from collections.abc import Sequence
 from dataclasses import replace
@@ -8,6 +9,7 @@ from typing import Any
 from typing import Optional
 
 import click
+import httpx
 from a2a.types import Message, Part, Role
 
 from a2a_handler.auth import (
@@ -26,6 +28,7 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import (
+    save_response_parts,
     A2AService,
     A2AResponse,
     StreamEvent,
@@ -45,6 +48,7 @@ from a2a_handler.service import (
 from a2a_handler.session import get_session, update_session
 
 from ._helpers import (
+    report_saved_parts,
     build_http_client,
     build_streaming_http_client,
     handle_client_error,
@@ -107,6 +111,12 @@ def message() -> None:
     help="Return as soon as the agent acknowledges with a task instead of "
     "waiting for completion",
 )
+@click.option(
+    "--save-artifacts",
+    "save_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Write the reply's file and data parts into this directory",
+)
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option(
@@ -145,6 +155,7 @@ def message_send(
     no_wait: bool,
     push_url: Optional[str],
     push_token: Optional[str],
+    save_dir: Optional[Path],
     extensions: tuple[str, ...],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
@@ -341,6 +352,8 @@ def message_send(
                         attachments=attachments or None,
                         accepted_output_modes=accepted_output_modes or None,
                         history_length=history_length,
+                        save_dir=save_dir,
+                        http_client=http_client,
                     )
                 else:
                     response = await service.send(
@@ -358,6 +371,11 @@ def message_send(
                         response_task_id(response),
                     )
                     _format_response(response, output)
+                    if save_dir is not None:
+                        saved = await save_response_parts(
+                            response, save_dir, http_client=http_client
+                        )
+                        report_saved_parts(saved, output)
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
@@ -425,6 +443,12 @@ def _build_attachments(
     type=int,
     help="History messages the agent should include on the task",
 )
+@click.option(
+    "--save-artifacts",
+    "save_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Write the reply's file and data parts into this directory",
+)
 @click.option("--push-url", help="Webhook URL for push notifications")
 @click.option("--push-token", help="Authentication token for push notifications")
 @click.option(
@@ -462,6 +486,7 @@ def message_stream(
     history_length: Optional[int],
     push_url: Optional[str],
     push_token: Optional[str],
+    save_dir: Optional[Path],
     extensions: tuple[str, ...],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
@@ -492,6 +517,7 @@ def message_stream(
         no_wait=False,
         push_url=push_url,
         push_token=push_token,
+        save_dir=save_dir,
         extensions=extensions,
         bearer_env=bearer_env,
         api_key_env=api_key_env,
@@ -509,6 +535,8 @@ async def _stream_message(
     attachments: Sequence[Part] | None = None,
     accepted_output_modes: tuple[str, ...] | None = None,
     history_length: Optional[int] = None,
+    save_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
 ) -> None:
     """Stream a message and handle events."""
     last_context_id: str | None = None
@@ -578,6 +606,11 @@ async def _stream_message(
                     output.text()
             else:
                 output.text(_format_response_text(last_response))
+        if save_dir is not None:
+            saved = await save_response_parts(
+                last_response, save_dir, http_client=http_client
+            )
+            report_saved_parts(saved, output)
     else:
         output.error(code="no_response", message="No response received from stream")
 

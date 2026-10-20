@@ -451,6 +451,146 @@ def part_file(part: Part) -> dict[str, Any]:
     return info
 
 
+def describe_non_text_parts(parts: Sequence[Part]) -> str:
+    """Say what non-text parts arrived, for a reply that has no text to show.
+
+    ``pixel.png (image/png, 70 bytes)`` reads better than ``(no text in
+    response)`` when the agent's whole answer was a file.
+    """
+    pieces: list[str] = []
+    for part in parts:
+        kind = part_kind(part)
+        if kind == "file":
+            info = part_file(part)
+            details = [info.get("media_type") or "file"]
+            if info.get("num_bytes"):
+                details.append(f"{info['num_bytes']} bytes")
+            pieces.append(
+                f"{info.get('name') or info.get('uri') or 'file'} ({', '.join(details)})"
+            )
+        elif kind == "data":
+            pieces.append("a data part")
+    return ", ".join(pieces)
+
+
+def response_parts(response: Task | Message) -> list[Part]:
+    """Every part an agent sent in a response: artifacts, then agent messages."""
+    if isinstance(response, Message):
+        return list(response.parts)
+    parts: list[Part] = []
+    for artifact in response.artifacts or []:
+        parts.extend(artifact.parts)
+    if not parts and response.history:
+        for message in response.history:
+            if message.role == Role.ROLE_AGENT:
+                parts.extend(message.parts)
+    if not parts and response.status.HasField("message"):
+        parts.extend(response.status.message.parts)
+    return parts
+
+
+@dataclass(frozen=True, slots=True)
+class SavedPart:
+    """One part written to disk."""
+
+    path: Path
+    kind: str
+    num_bytes: int
+
+
+def safe_part_filename(name: str | None, media_type: str | None, fallback: str) -> str:
+    """A filename that stays inside the target directory.
+
+    The agent chose the name, so only its final component is kept, and a
+    name that is empty, hidden, or a traversal attempt gives way to the
+    fallback plus an extension guessed from the media type.
+    """
+    candidate = Path(name).name if name else ""
+    if not candidate or candidate in {".", ".."} or candidate.startswith("."):
+        extension = mimetypes.guess_extension(media_type or "") or ""
+        candidate = f"{fallback}{extension}"
+    return candidate
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    """Never overwrite: ``name.ext`` becomes ``name-2.ext`` and so on."""
+    path = directory / filename
+    stem, suffix = path.stem, path.suffix
+    counter = 2
+    while path.exists():
+        path = directory / f"{stem}-{counter}{suffix}"
+        counter += 1
+    return path
+
+
+async def save_parts(
+    parts: Sequence[Part],
+    directory: Path,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+    prefix: str = "part",
+) -> list[SavedPart]:
+    """Write the file and data parts in ``parts`` into ``directory``.
+
+    Inline files are written as-is, files by reference are downloaded
+    (through ``http_client`` when given, so credentials stay bound to the
+    configured origin), and data parts become ``.json`` files. Text parts are
+    not saved; they are already on screen. Returns what was written.
+    """
+    directory = Path(directory).expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+    saved: list[SavedPart] = []
+    for index, part in enumerate(parts, 1):
+        kind = part_kind(part)
+        fallback = f"{prefix}-{index}"
+        if kind == "data":
+            path = _unique_path(directory, f"{fallback}.json")
+            payload = json.dumps(part_data(part), indent=2, default=str) + "\n"
+            path.write_text(payload)
+            saved.append(SavedPart(path=path, kind="data", num_bytes=len(payload)))
+            continue
+        if kind != "file":
+            continue
+        declared = part.filename or None
+        if not declared and part.HasField("url"):
+            # A reference without a declared name: the URL's last segment is
+            # the name a browser would use too.
+            declared = Path(urlparse(part.url).path).name or None
+        filename = safe_part_filename(declared, part.media_type or None, fallback)
+        if part.HasField("raw"):
+            content = bytes(part.raw)
+        elif part.HasField("url"):
+            if http_client is None:
+                async with httpx.AsyncClient(trust_env=False, timeout=60) as client:
+                    response = await client.get(part.url, follow_redirects=True)
+            else:
+                response = await http_client.get(
+                    part.url, follow_redirects=True, timeout=60
+                )
+            response.raise_for_status()
+            content = response.content
+        else:
+            continue
+        path = _unique_path(directory, filename)
+        path.write_bytes(content)
+        saved.append(SavedPart(path=path, kind="file", num_bytes=len(content)))
+    logger.info("Saved %d part(s) to %s", len(saved), directory)
+    return saved
+
+
+async def save_response_parts(
+    response: Task | Message,
+    directory: Path,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+) -> list[SavedPart]:
+    """Save every file and data part an agent returned in ``response``."""
+    prefix = response_task_id(response) or "response"
+    return await save_parts(
+        response_parts(response), directory, http_client=http_client, prefix=prefix
+    )
+
+
 # Inline file bytes travel base64-encoded inside the request body, so the wire
 # payload is ~4/3 the file size. Servers commonly reject bodies much past this;
 # larger files should be sent by reference as a ``url`` part instead.

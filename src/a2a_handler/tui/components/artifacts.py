@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.message import Message
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Collapsible, Label, ListItem, ListView, Static
@@ -129,6 +130,36 @@ class ArtifactDetailPanel(VerticalScroll):
             text = extract_text_from_message_parts(artifact.parts)
             if text:
                 content.mount(Static(text, classes="artifact-content"))
+            from a2a_handler.service import part_data, part_file, part_kind
+
+            for part in artifact.parts:
+                kind = part_kind(part)
+                if kind == "data":
+                    # Untruncated: the tasks list previews, this is the full view.
+                    content.mount(
+                        Static(
+                            json.dumps(part_data(part), indent=2, default=str),
+                            classes="artifact-content artifact-data",
+                        )
+                    )
+                elif kind == "file":
+                    info = part_file(part)
+                    where = info.get("uri") or (
+                        f"inline, {info.get('num_bytes', 0)} bytes"
+                    )
+                    content.mount(
+                        Static(
+                            f"file: {info.get('name') or 'unnamed'} "
+                            f"({info.get('media_type') or 'unknown type'}; {where})",
+                            classes="artifact-content artifact-file",
+                        )
+                    )
+            content.mount(
+                Static(
+                    "Press s to save this artifact's files and data to a directory.",
+                    classes="artifact-hint",
+                )
+            )
 
         content.mount(self._section_heading("Raw JSON"))
         from a2a_handler.service import to_json_dict
@@ -155,7 +186,16 @@ class ArtifactsPanel(Container):
         Binding("ctrl+u", "scroll_detail_up", "½ Page ↑", show=False),
         Binding("y", "copy_artifact_id", "Copy ID", show=False),
         Binding("Y", "copy_task_id", "Copy Task", show=False),
+        Binding("s", "save_artifact", "Save", show=False),
     ]
+
+    class SaveRequested(Message):
+        """The user asked to save an artifact's parts into a directory."""
+
+        def __init__(self, entry: ArtifactEntry, directory: str) -> None:
+            super().__init__()
+            self.entry = entry
+            self.directory = directory
 
     can_focus = False
 
@@ -268,6 +308,29 @@ class ArtifactsPanel(Container):
             task_id = self._artifacts[self.selected_index].task_id
             self.app.copy_to_clipboard(task_id)
             self.notify(f"Copied task ID: {task_id[:16]}...")
+
+    def action_save_artifact(self) -> None:
+        """Ask where to write the selected artifact's files and data."""
+        entry = self.get_selected_artifact()
+        if entry is None:
+            self.notify("Select an artifact first", severity="warning")
+            return
+        from a2a_handler.tui.commands.screens import TextPromptScreen
+
+        self.app.push_screen(
+            TextPromptScreen(
+                "Save Artifact",
+                "Directory to write this artifact's files and data into.",
+                placeholder="~/Downloads",
+                confirm_label="Save",
+            ),
+            callback=lambda directory: self.request_save(entry, directory),
+        )
+
+    def request_save(self, entry: ArtifactEntry, directory: str | None) -> None:
+        """Hand the save to the server tab, which owns the HTTP client."""
+        if directory and directory.strip():
+            self.post_message(self.SaveRequested(entry, directory.strip()))
 
     def get_selected_artifact(self) -> ArtifactEntry | None:
         """Get the currently selected artifact entry."""

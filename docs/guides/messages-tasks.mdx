@@ -101,6 +101,24 @@ numbers in data parts render as integers even though the protocol carries
 every number as a double. Use `--output json` to get the full parts, including
 inline bytes as base64.
 
+## Save what the agent sends back
+
+Received file and data parts are summarised on screen; to get them onto
+disk, pass `--save-artifacts DIR` to `message send`, `message stream`, or
+`task get`:
+
+```bash
+handler message send --server demo --text "Render the report" --save-artifacts ./out
+handler task get task-123 --server demo --save-artifacts ./out
+```
+
+Inline files are written under their declared filename, files by reference
+are downloaded (with the server's credentials only if the file lives on the
+same origin), and data parts become `<task-id>-<n>.json`. Names are kept to
+their final component and never overwrite an existing file (`report-2.pdf`).
+Text parts are not saved; they are already on screen. In `--output json`
+mode the saved paths go to stderr so stdout stays a single JSON document.
+
 ## Shape the request
 
 The CLI exposes the `SendMessageConfiguration` fields the protocol attaches to

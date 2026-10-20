@@ -16,6 +16,8 @@ from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.service import (
+    describe_non_text_parts,
+    response_parts,
     extract_text,
     part_kind,
     response_context_id,
@@ -200,6 +202,14 @@ class StreamingMessage(Container):
             logger.debug("Streaming message not mounted yet; deferring update")
 
 
+def _non_text_body(response: A2AResponse) -> str:
+    """Describe a reply whose only content is files or data."""
+    described = describe_non_text_parts(response_parts(response))
+    if not described:
+        return ""
+    return f"(no text; received {described}. See the Artifacts tab.)"
+
+
 def _empty_body(state: int | None) -> str:
     """Describe a reply that carries no text, without claiming the agent was silent.
 
@@ -230,6 +240,7 @@ class AgentMessage(Message):
         content = (
             extract_text(response)
             or fallback_text
+            or _non_text_body(response)
             or _empty_body(response_state(response))
         )
         self.task_id = response_task_id(response)

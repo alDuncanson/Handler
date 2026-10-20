@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import contextlib
 from collections.abc import Generator
 from typing import Any
@@ -31,6 +32,7 @@ from a2a_handler.servers import (
     resolve_server_credentials,
 )
 from a2a_handler.service import (
+    save_parts,
     INTERRUPTED_TASK_STATES,
     A2AService,
     attachment_part_from_spec,
@@ -44,7 +46,8 @@ from a2a_handler.service import (
     state_label,
 )
 from a2a_handler.session import get_session_store
-from a2a_handler.tui.components import TabbedMessagesPanel
+from a2a_handler.tui.components.artifacts import ArtifactEntry
+from a2a_handler.tui.components import ArtifactsPanel, TabbedMessagesPanel
 from a2a_handler.tui.components.messages import StreamingMessage
 from a2a_handler.turn import (
     AgentTurn,
@@ -886,6 +889,42 @@ class ServerTab(Container):
                 self._apply_turn_event(server_view, live, event)
         finally:
             self._finish_turn(server_view, turn)
+
+    @on(ArtifactsPanel.SaveRequested)
+    def _handle_save_artifact(self, event: ArtifactsPanel.SaveRequested) -> None:
+        event.stop()
+        self._save_artifact(event.entry, event.directory)
+
+    @work()
+    async def _save_artifact(self, entry: ArtifactEntry, directory: str) -> None:
+        """Write an artifact's file and data parts to disk and say what landed."""
+        server_view = self._try_get_server_view()
+        if server_view is None:
+            return
+        messages_panel = server_view.messages_panel()
+        http_client = (
+            self._agent_service.http_client if self._agent_service is not None else None
+        )
+        try:
+            saved = await save_parts(
+                entry.artifact.parts,
+                Path(directory),
+                http_client=http_client,
+                prefix=entry.artifact_id,
+            )
+        except Exception as error:  # noqa: BLE001 - shown to the user
+            messages_panel.add_system_message(f"Could not save artifact: {error}")
+            return
+        if not saved:
+            messages_panel.add_system_message(
+                f"Artifact {entry.artifact_id} has no file or data parts to save."
+            )
+            return
+        lines = [f"Saved {len(saved)} part(s) from artifact {entry.artifact_id}:"]
+        lines.extend(
+            f"  {item.path} ({item.kind}, {item.num_bytes} bytes)" for item in saved
+        )
+        messages_panel.add_system_message("\n".join(lines))
 
     @on(Button.Pressed, "#cancel-btn")
     async def _handle_cancel_pressed(self) -> None:

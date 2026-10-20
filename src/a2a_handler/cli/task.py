@@ -1,6 +1,7 @@
 """Task commands for managing A2A tasks."""
 
 import asyncio
+from pathlib import Path
 from typing import Any
 from typing import Optional
 
@@ -20,6 +21,7 @@ from a2a_handler.common.input_validation import (
 )
 from a2a.types import Task
 from a2a_handler.service import (
+    save_response_parts,
     A2AService,
     TASK_STATE_LABELS,
     TaskListing,
@@ -31,6 +33,7 @@ from a2a_handler.service import (
 )
 
 from ._helpers import (
+    report_saved_parts,
     build_http_client,
     build_streaming_http_client,
     handle_client_error,
@@ -59,6 +62,12 @@ def task() -> None:
     "--history-length", "-n", type=int, help="Number of history messages to include"
 )
 @click.option(
+    "--save-artifacts",
+    "save_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Write the task's file and data parts into this directory",
+)
+@click.option(
     "--params",
     "json_params",
     help="Raw JSON params object for agent-friendly invocation",
@@ -75,6 +84,7 @@ def task_get(
     server_name: Optional[str],
     task_id: Optional[str],
     history_length: Optional[int],
+    save_dir: Optional[Path],
     json_params: Optional[str],
     bearer_env: Optional[str],
     api_key_env: Optional[str],
@@ -87,6 +97,7 @@ def task_get(
       $ handler task get --server my_agent --task task-123
       $ handler task get --url http://localhost:8000 --task task-123
       $ handler task get task-123 --server my_agent --history-length 10
+      $ handler task get task-123 --server my_agent --save-artifacts ./out
     """
     output = Output()
     payload: dict[str, Any] = {}
@@ -128,6 +139,11 @@ def task_get(
                 service = A2AService(http_client, resolved_url, credentials=credentials)
                 task = await service.get_task(task_id, history_length)
                 _format_task(task, output)
+                if save_dir is not None:
+                    saved = await save_response_parts(
+                        task, save_dir, http_client=http_client
+                    )
+                    report_saved_parts(saved, output)
         except Exception as e:
             handle_client_error(e, resolved_url, output)
             raise click.Abort()
