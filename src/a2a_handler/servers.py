@@ -89,6 +89,8 @@ class ServerDefinition:
     origin_label: str = ""
     #: A2A extension URIs to request on every call to this server.
     extensions: tuple[str, ...] = ()
+    #: Static request headers sent on every call, as (name, value) pairs.
+    headers: tuple[tuple[str, str], ...] = ()
 
     @property
     def label(self) -> str:
@@ -280,7 +282,26 @@ def inspect_servers_file(
 def resolve_server_credentials(
     server_def: ServerDefinition,
 ) -> tuple[AuthCredentials | None, str | None]:
-    """Resolve runtime credentials for a configured server."""
+    """Resolve runtime credentials for a configured server.
+
+    Static headers from the entry ride along on the credentials, the same
+    way ``-H`` does on the command line, so every surface sends them. A
+    header given on the command line wins over the file's on a name clash.
+    """
+    credentials, warning = _resolve_server_auth(server_def)
+    if warning or not server_def.headers:
+        return credentials, warning
+    headers = dict(server_def.headers)
+    if credentials is None:
+        return AuthCredentials(auth_type=AuthType.BEARER, custom_headers=headers), None
+    credentials.custom_headers = {**headers, **(credentials.custom_headers or {})}
+    return credentials, None
+
+
+def _resolve_server_auth(
+    server_def: ServerDefinition,
+) -> tuple[AuthCredentials | None, str | None]:
+    """Resolve the auth scheme's credentials, without the entry's headers."""
     if server_def.auth is None:
         return None, None
 
@@ -500,6 +521,10 @@ def _parse_server(
     if "extensions" in server_table:
         extensions = _parse_server_extensions(server_table.get("extensions"))
 
+    headers: tuple[tuple[str, str], ...] = ()
+    if "headers" in server_table:
+        headers = _parse_server_headers(server_table.get("headers"))
+
     return ServerDefinition(
         server_id=f"{source.value}:{name}",
         source=source,
@@ -508,7 +533,31 @@ def _parse_server(
         auth=auth,
         origin_label=server_source_label(source),
         extensions=extensions,
+        headers=headers,
     )
+
+
+def _parse_server_headers(headers_data: object) -> tuple[tuple[str, str], ...]:
+    """Validate a server's static request headers table.
+
+    Names go through the same check as ``-H`` on the command line, so a file
+    cannot smuggle in ``Authorization`` or a hop-by-hop header.
+    """
+    table = _coerce_str_key_table(headers_data, "headers")
+    parsed: list[tuple[str, str]] = []
+    for name, value in table.items():
+        if not name.strip():
+            raise ServerConfigError("headers keys must be non-empty")
+        if not isinstance(value, str) or not value:
+            raise ServerConfigError(f"headers.{name} must be a non-empty string")
+        try:
+            reject_control_chars(name, "headers")
+            reject_control_chars(value, f"headers.{name}")
+            validate_header_name(name, "headers")
+        except InputValidationError as error:
+            raise ServerConfigError(error.message) from error
+        parsed.append((name, value))
+    return tuple(parsed)
 
 
 def _parse_server_extensions(extensions_data: object) -> tuple[str, ...]:

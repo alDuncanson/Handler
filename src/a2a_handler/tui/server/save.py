@@ -188,8 +188,12 @@ def save_connections_to_workspace(
                     skeleton = _credentials_to_skeleton_dict(panel_credentials)
                     if skeleton:
                         entry["auth"] = skeleton
+                    if panel_credentials.custom_headers:
+                        entry["headers"] = dict(panel_credentials.custom_headers)
         elif server_def and server_def.auth:
             entry["auth"] = _auth_config_to_dict(server_def.auth)
+        if "headers" not in entry and server_def and server_def.headers:
+            entry["headers"] = dict(server_def.headers)
 
         servers[name] = entry
         existing_urls.add(agent_url)

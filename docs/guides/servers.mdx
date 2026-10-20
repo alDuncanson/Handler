@@ -61,6 +61,29 @@ extensions = ["https://example.com/extensions/traceability/v1"]
 When a card marks an extension as required and the entry does not request
 it, Handler warns on connect.
 
+## Send static headers on every call
+
+Some agents key behaviour off a request header that is not a credential: a
+per-user memory scope, a tenant id, a feature flag, a trace id. Put those in a
+`headers` table on the server entry and Handler sends them on every request to
+that server, from the CLI, the TUI, and the MCP server alike.
+
+```toml
+[servers.remy]
+url = "https://remy.example.com/a2a"
+
+[servers.remy.headers]
+"X-Remy-User" = "alice"
+"X-Trace" = "handler"
+```
+
+`handler server add remy --url ... -H "X-Remy-User: alice"` writes the same
+table. Header names go through the same check as `-H` on the command line, so
+`Authorization`, `Cookie`, and hop-by-hop headers are refused; authentication
+belongs in `auth`. A header given with `-H` on a command wins over the file's
+on a name clash, and like credentials, these headers only go to the origin of
+the server's URL.
+
 ## Validation helpers
 
 Handler validates server files when it loads them and skips only the invalid

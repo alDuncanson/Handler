@@ -394,3 +394,46 @@ def test_save_connections_to_workspace_uses_oidc_panel_skeleton(
     text = config_path.read_text()
     assert "real-id" not in text and "real-secret" not in text
     _assert_saved_file_loads(config_path, "oidc_agent")
+
+
+def test_save_connections_to_workspace_keeps_static_headers(
+    tmp_path, monkeypatch
+) -> None:
+    """Headers configured on the server, or typed into the Headers tab, are
+    saved as a headers table and load back."""
+    config_path = _patch_servers_path(tmp_path, monkeypatch)
+    server_def = ServerDefinition(
+        server_id="repository:remy",
+        source=ServerSource.REPOSITORY,
+        name="remy",
+        agent_url="https://remy.example.com",
+        origin_label="Repository",
+        headers=(("X-Remy-User", "alice"),),
+    )
+    from_config = _fake_server_tab(
+        agent_url="https://remy.example.com",
+        card_name="Remy",
+        connected_server_def=server_def,
+    )
+    typed = create_bearer_auth("tok")
+    typed.custom_headers = {"X-Tenant": "acme"}
+    from_panel = _fake_server_tab(
+        agent_url="https://tenant.example.com",
+        card_name="Tenant Agent",
+        panel_credentials=typed,
+    )
+
+    assert save_connections_to_workspace([from_config, from_panel]) == 2
+
+    assert _read_saved_server(config_path, "remy")["headers"] == {
+        "X-Remy-User": "alice"
+    }
+    assert _read_saved_server(config_path, "tenant_agent")["headers"] == {
+        "X-Tenant": "acme"
+    }
+    result = inspect_servers_file(config_path.parent, ServerSource.REPOSITORY)
+    assert result.diagnostics == ()
+    assert {s.name: s.headers for s in result.servers} == {
+        "remy": (("X-Remy-User", "alice"),),
+        "tenant_agent": (("X-Tenant", "acme"),),
+    }
