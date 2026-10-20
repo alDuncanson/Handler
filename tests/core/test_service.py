@@ -1219,6 +1219,75 @@ class TestCredentialOriginScoping:
 
 
 @pytest.mark.asyncio
+class TestUrlAttachmentMediaType:
+    """A URL part with no guessable type asks the file's server for it."""
+
+    @staticmethod
+    def _service(
+        seen: list[httpx.Request], content_type: str | None, fail: bool = False
+    ):
+        task = _make_task(TaskState.TASK_STATE_COMPLETED)
+        fake_client = _FakeStreamingClient(events=[make_stream_response(task=task)])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            if fail:
+                raise httpx.ConnectError("no route", request=request)
+            headers = {"content-type": content_type} if content_type else {}
+            return httpx.Response(200, headers=headers)
+
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        service = A2AService(http_client=http_client, agent_url="http://example.com")
+
+        async def _get_client():
+            return fake_client
+
+        service._get_or_create_client = _get_client  # type: ignore[method-assign]
+        return service, fake_client, http_client
+
+    async def test_head_supplies_the_type_for_an_extensionless_url(self, caplog):
+        seen: list[httpx.Request] = []
+        service, fake_client, http_client = self._service(
+            seen, "text/html; charset=utf-8"
+        )
+        async with http_client:
+            await service.send(
+                "look", attachments=[build_url_part("https://www.example.com/")]
+            )
+
+        assert [r.method for r in seen] == ["HEAD"]
+        assert str(seen[0].url) == "https://www.example.com/"
+        part = fake_client.requests[0].message.parts[1]
+        assert part.url == "https://www.example.com/"
+        assert part.media_type == "text/html"
+
+    async def test_a_guessable_url_is_not_probed(self):
+        seen: list[httpx.Request] = []
+        service, fake_client, http_client = self._service(seen, "text/html")
+        async with http_client:
+            async for _event in service.stream(
+                "look", attachments=[build_url_part("https://example.com/report.pdf")]
+            ):
+                pass
+
+        assert seen == []
+        assert fake_client.requests[0].message.parts[1].media_type == "application/pdf"
+
+    async def test_a_failed_probe_leaves_the_type_empty_and_warns(self, caplog):
+        seen: list[httpx.Request] = []
+        service, fake_client, http_client = self._service(seen, None, fail=True)
+        async with http_client:
+            with caplog.at_level("WARNING"):
+                await service.send(
+                    "look", attachments=[build_url_part("https://www.example.com/")]
+                )
+
+        part = fake_client.requests[0].message.parts[1]
+        assert part.media_type == ""
+        assert "Could not determine a media type" in caplog.text
+
+
+@pytest.mark.asyncio
 class TestA2AServiceSendConfiguration:
     """Tests for SendMessageConfiguration on outgoing requests."""
 

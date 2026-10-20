@@ -458,6 +458,9 @@ MAX_INLINE_FILE_BYTES = 10 * 1024 * 1024
 
 _DEFAULT_MEDIA_TYPE = "application/octet-stream"
 
+#: Seconds allowed for the HEAD request that supplies a URL part's media type.
+_MEDIA_TYPE_PROBE_TIMEOUT = 10.0
+
 
 def build_data_part(value: Any) -> Part:
     """Build a structured-data part from a JSON-compatible Python value."""
@@ -1330,6 +1333,44 @@ class A2AService:
             request.configuration.CopyFrom(configuration)
         return request
 
+    async def _complete_url_media_types(
+        self, attachments: Sequence[Part] | None
+    ) -> None:
+        """Fill in the media type of URL parts that have none.
+
+        A URL with no file extension (``https://example.com/``) gives
+        ``mimetypes`` nothing to go on, and agents backed by Gemini reject a
+        file reference without a type. The server hosting the file knows:
+        one HEAD request supplies its Content-Type. The shared client is
+        used, so credentials stay bound to the configured origin.
+        """
+        for part in attachments or ():
+            if not part.HasField("url") or part.media_type:
+                continue
+            media_type = await self._probe_media_type(part.url)
+            if media_type:
+                part.media_type = media_type
+                logger.info("Resolved media type %s for %s", media_type, part.url)
+            else:
+                logger.warning(
+                    "Could not determine a media type for %s; the agent may "
+                    "reject the attachment",
+                    part.url,
+                )
+
+    async def _probe_media_type(self, url: str) -> str | None:
+        """Return the Content-Type the URL's server reports, or None."""
+        try:
+            response = await self.http_client.head(
+                url, follow_redirects=True, timeout=_MEDIA_TYPE_PROBE_TIMEOUT
+            )
+        except httpx.HTTPError as exc:
+            logger.debug("HEAD %s failed: %s", url, exc)
+            return None
+        content_type = response.headers.get("content-type", "")
+        media_type = content_type.partition(";")[0].strip().lower()
+        return media_type or None
+
     async def send(
         self,
         message_text: str,
@@ -1361,6 +1402,7 @@ class A2AService:
         )
         logger.info("Sending message: %s", truncated_message)
 
+        await self._complete_url_media_types(attachments)
         request = self._build_send_request(
             message_text,
             context_id,
@@ -1424,6 +1466,7 @@ class A2AService:
         )
         logger.info("Streaming message: %s", truncated_message)
 
+        await self._complete_url_media_types(attachments)
         request = self._build_send_request(
             message_text,
             context_id,
