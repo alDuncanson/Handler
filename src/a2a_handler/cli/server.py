@@ -27,6 +27,7 @@ from a2a_handler.servers import (
     find_git_root,
     inspect_servers_file,
     load_server_catalog,
+    literal_secret_warning,
     resolve_server_credentials,
     server_file_path,
     server_source_label,
@@ -434,6 +435,9 @@ def server_show(name: str, source: str | None) -> None:
     )
     if warning:
         result["credentials_warning"] = warning
+    literal_warning = literal_secret_warning(server_def)
+    if literal_warning:
+        result["warnings"] = [literal_warning]
     output.json(result)
 
 
@@ -689,6 +693,10 @@ def server_validate() -> None:
                 if warning:
                     entry["credentials_warning"] = warning
                     entry["status"] = "error"
+                literal_warning = literal_secret_warning(server_def)
+                if literal_warning:
+                    # Still usable, so not an error; but worth fixing.
+                    entry["warnings"] = [literal_warning]
             results.append(entry)
     output.json(results)
 
