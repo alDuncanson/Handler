@@ -452,6 +452,7 @@ def literal_secret_warning(server_def: ServerDefinition) -> str | None:
         'environment variable and reference it with `env = "VAR_NAME"`'
     )
 
+
 def find_named_server(
     name: str, catalog: ServerCatalog | None = None
 ) -> ServerDefinition:
