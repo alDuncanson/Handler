@@ -116,6 +116,10 @@ class ServerCatalog:
         }
 
 
+class ServerLookupError(LookupError):
+    """Raised when a named server cannot be resolved to exactly one entry."""
+
+
 class ServerConfigError(ValueError):
     """Raised when server configuration is malformed."""
 
@@ -447,6 +451,31 @@ def literal_secret_warning(server_def: ServerDefinition) -> str | None:
         "literal `value` in servers.toml, in plain text; move it to an "
         'environment variable and reference it with `env = "VAR_NAME"`'
     )
+
+
+def find_named_server(
+    name: str, catalog: ServerCatalog | None = None
+) -> ServerDefinition:
+    """Resolve a named server across repository and global config.
+
+    Fails closed on ambiguity: a name present in both sources is an error,
+    not a silent pick. ``catalog`` defaults to the one on disk.
+    """
+    if catalog is None:
+        catalog = load_server_catalog()
+    matches = [
+        server_def
+        for server_def in (*catalog.repository_servers, *catalog.global_servers)
+        if server_def.name == name
+    ]
+    if len(matches) > 1:
+        raise ServerLookupError(
+            f"Server '{name}' exists in multiple sources; use the URL or rename "
+            "one entry."
+        )
+    if not matches:
+        raise ServerLookupError(f"Server '{name}' not found in servers.toml.")
+    return matches[0]
 
 
 def find_git_root() -> Path | None:

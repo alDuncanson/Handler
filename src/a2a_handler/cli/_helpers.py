@@ -28,8 +28,10 @@ from a2a_handler.auth import (
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.servers import (
-    ServerDefinition,
+    ServerLookupError,
+    find_named_server,
     load_server_catalog,
+    ServerDefinition,
     resolve_server_credentials,
 )
 
@@ -247,22 +249,10 @@ def _resolve_env_secret(env_var: str, label: str) -> str:
 
 def _find_named_server(server: str) -> ServerDefinition:
     """Resolve a named server definition, failing closed on ambiguity."""
-    catalog = load_server_catalog()
-    matches = [
-        server_def
-        for server_def in (
-            *catalog.repository_servers,
-            *catalog.global_servers,
-        )
-        if server_def.name == server
-    ]
-    if len(matches) > 1:
-        raise click.UsageError(
-            f"Server '{server}' exists in multiple sources; use --url or rename one entry."
-        )
-    if matches:
-        return matches[0]
-    raise click.UsageError(f"Server '{server}' not found in servers.toml.")
+    try:
+        return find_named_server(server, load_server_catalog())
+    except ServerLookupError as error:
+        raise click.UsageError(str(error)) from error
 
 
 def resolve_agent_selection(

@@ -751,3 +751,126 @@ async def test_clear_session_data_all() -> None:
 
     mock_clear.assert_called_once_with()
     assert resp["cleared"] == "All sessions"
+
+
+# ---------------------------------------------------------------------------
+# Credentials from the environment or a named server (#139)
+# ---------------------------------------------------------------------------
+
+
+def _catalog_with(server_def):
+    from a2a_handler.servers import ServerCatalog
+
+    return ServerCatalog(repository_servers=(server_def,))
+
+
+def _named_server(name: str, url: str, auth=None):
+    from a2a_handler.servers import ServerDefinition, ServerSource
+
+    return ServerDefinition(
+        server_id=f"repository:{name}",
+        source=ServerSource.REPOSITORY,
+        name=name,
+        agent_url=url,
+        auth=auth,
+        origin_label="Repository",
+    )
+
+
+@pytest.mark.asyncio
+async def test_bearer_env_keeps_the_token_out_of_the_tool_call(monkeypatch):
+    monkeypatch.setenv("HANDLER_TEST_TOKEN", "from-env")
+    server = create_mcp_server()
+    fn = _tool_fn(server, "get_agent_card")
+    mock_service = AsyncMock()
+    mock_service.get_card.return_value = _make_agent_card()
+
+    with (
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service) as cls,
+    ):
+        await fn(agent_url="http://localhost:8000", bearer_env="HANDLER_TEST_TOKEN")
+
+    credentials = cls.call_args.kwargs["credentials"]
+    assert credentials.to_headers() == {"Authorization": "Bearer from-env"}
+
+
+@pytest.mark.asyncio
+async def test_unset_bearer_env_fails_clearly(monkeypatch):
+    monkeypatch.delenv("HANDLER_TEST_TOKEN", raising=False)
+    fn = _tool_fn(create_mcp_server(), "get_agent_card")
+
+    with pytest.raises(ValueError, match="missing_env.*HANDLER_TEST_TOKEN"):
+        await fn(agent_url="http://localhost:8000", bearer_env="HANDLER_TEST_TOKEN")
+
+
+@pytest.mark.asyncio
+async def test_named_server_supplies_url_and_auth(monkeypatch):
+    from a2a_handler.auth import AuthType
+    from a2a_handler.servers import ServerAuthConfig
+
+    monkeypatch.setenv("REMY_TOKEN", "tok")
+    server_def = _named_server(
+        "remy",
+        "https://remy.example.com/a2a",
+        auth=ServerAuthConfig(auth_type=AuthType.BEARER, env_var="REMY_TOKEN"),
+    )
+    fn = _tool_fn(create_mcp_server(), "send_message")
+    mock_service = AsyncMock()
+    mock_service.send.return_value = _make_task()
+
+    with (
+        patch(
+            "a2a_handler.servers.load_server_catalog",
+            return_value=_catalog_with(server_def),
+        ),
+        patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
+        patch("a2a_handler.mcp.server.A2AService", return_value=mock_service) as cls,
+        patch("a2a_handler.mcp.server.update_session"),
+    ):
+        resp = await fn(server="remy", message="hi")
+
+    assert resp["id"] == "task-1"
+    args, kwargs = cls.call_args
+    assert args[1] == "https://remy.example.com/a2a"
+    assert kwargs["credentials"].to_headers() == {"Authorization": "Bearer tok"}
+
+
+@pytest.mark.asyncio
+async def test_named_server_with_unset_env_fails_closed(monkeypatch):
+    from a2a_handler.auth import AuthType
+    from a2a_handler.servers import ServerAuthConfig
+
+    monkeypatch.delenv("REMY_TOKEN", raising=False)
+    server_def = _named_server(
+        "remy",
+        "https://remy.example.com/a2a",
+        auth=ServerAuthConfig(auth_type=AuthType.BEARER, env_var="REMY_TOKEN"),
+    )
+    fn = _tool_fn(create_mcp_server(), "get_task")
+
+    with patch(
+        "a2a_handler.servers.load_server_catalog",
+        return_value=_catalog_with(server_def),
+    ):
+        with pytest.raises(ValueError, match="server_auth.*REMY_TOKEN"):
+            await fn(server="remy", task_id="task-1")
+
+
+@pytest.mark.asyncio
+async def test_target_must_be_exactly_one_of_url_or_server():
+    fn = _tool_fn(create_mcp_server(), "list_tasks")
+    with pytest.raises(ValueError, match="missing_target"):
+        await fn()
+    with pytest.raises(ValueError, match="invalid_target"):
+        await fn(agent_url="http://localhost:8000", server="remy")
+
+
+@pytest.mark.asyncio
+async def test_unknown_named_server_is_an_error():
+    from a2a_handler.servers import ServerCatalog
+
+    fn = _tool_fn(create_mcp_server(), "list_tasks")
+    with patch("a2a_handler.servers.load_server_catalog", return_value=ServerCatalog()):
+        with pytest.raises(ValueError, match="unknown_server.*'nope' not found"):
+            await fn(server="nope")
