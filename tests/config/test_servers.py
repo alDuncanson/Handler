@@ -813,6 +813,8 @@ def test_env_backed_auth_does_not_warn(tmp_path: Path, caplog, monkeypatch) -> N
     assert credentials is not None and credentials.value == "from-env"
     assert "plain text" not in caplog.text
     assert literal_secret_warning(server_def) is None
+
+
 def _write(tmp_path: Path, body: str) -> Path:
     (tmp_path / "servers.toml").write_text("version = 1\n" + body)
     return tmp_path
