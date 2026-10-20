@@ -75,10 +75,22 @@ The server provides thirteen tools:
 | Push notifications | `set_task_notification`, `get_task_notification`, `list_task_notifications`, `delete_task_notification` |
 | Sessions | `list_sessions`, `get_session_info`, `clear_session_data` |
 
-Every tool that talks to an agent takes the agent URL plus optional auth
-arguments: `bearer_token`, `api_key`, `cert_path`, `key_path`,
-`ca_cert_path`, and `custom_headers`. Credentials are bound to the origin of
-that URL, exactly as in the CLI.
+Every tool that talks to an agent takes either `agent_url` or `server`, the
+name of an entry in `servers.toml` (global, or repository-local relative to
+the MCP server's working directory). A named server brings its URL, its
+configured auth, and its static headers, so the call needs no credential at
+all:
+
+```json
+{ "server": "remy", "message": "What do you remember about me?" }
+```
+
+For an ad-hoc URL, prefer `bearer_env` or `api_key_env`, which name an
+environment variable in the MCP server's process; the secret stays out of the
+tool-call JSON that clients log and display. The raw-value arguments
+(`bearer_token`, `api_key`, `cert_path`, `key_path`, `ca_cert_path`,
+`custom_headers`) still work and take precedence when given. Credentials are
+bound to the origin of the agent URL, exactly as in the CLI.
 
 `list_tasks` follows pagination to the end and returns the tasks with a
 `count` and a `truncated` flag. `get_task_notification` looks up the task's

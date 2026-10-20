@@ -3,6 +3,8 @@
 from dataclasses import replace
 from typing import Literal
 
+import os
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -24,6 +26,12 @@ from a2a_handler.common.input_validation import (
     validate_page_size,
     validate_resource_id,
     validate_webhook_url,
+)
+from a2a_handler.servers import (
+    ServerDefinition,
+    ServerLookupError,
+    find_named_server,
+    resolve_server_credentials,
 )
 from a2a_handler.service import (
     A2AService,
@@ -70,6 +78,42 @@ def _build_http_client(
     return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 
+def _resolve_target(
+    agent_url: str | None, server: str | None
+) -> tuple[str, ServerDefinition | None]:
+    """Pick the agent from ``agent_url`` or a named ``server``, never both."""
+    if agent_url and server:
+        raise ValueError("invalid_target: pass either agent_url or server, not both")
+    if server:
+        try:
+            server_def = find_named_server(server)
+        except ServerLookupError as error:
+            raise ValueError(f"unknown_server: {error}") from error
+        return server_def.agent_url, server_def
+    if not agent_url:
+        raise ValueError("missing_target: pass agent_url or server")
+    try:
+        validate_agent_url(agent_url)
+    except InputValidationError as error:
+        raise _validation_error(error) from error
+    return agent_url, None
+
+
+def _env_secret(env_var: str, label: str) -> str:
+    """Read a secret named by an env var, failing clearly when it is unset."""
+    try:
+        reject_control_chars(env_var, label)
+    except InputValidationError as error:
+        raise _validation_error(error) from error
+    value = os.environ.get(env_var)
+    if not value:
+        raise ValueError(
+            f"missing_env: environment variable {env_var} is not set (needed for "
+            f"{label})"
+        )
+    return value
+
+
 def _resolve_credentials(
     agent_url: str,
     bearer_token: str | None = None,
@@ -78,8 +122,18 @@ def _resolve_credentials(
     key_path: str | None = None,
     ca_cert_path: str | None = None,
     custom_headers: dict[str, str] | None = None,
+    *,
+    bearer_env: str | None = None,
+    api_key_env: str | None = None,
+    server_def: ServerDefinition | None = None,
 ) -> AuthCredentials | None:
-    """Resolve credentials from explicit args or saved session."""
+    """Resolve credentials for a tool call.
+
+    Precedence: an explicit value, then an env var named by ``bearer_env`` /
+    ``api_key_env`` (the secret stays in the MCP server's environment and out
+    of the tool-call JSON), then the named server's configured auth, which
+    fails closed when its env var is unset rather than going unauthenticated.
+    """
     credentials: AuthCredentials | None = None
     if cert_path and key_path:
         credentials = create_mtls_auth(cert_path, key_path, ca_cert_path)
@@ -87,6 +141,14 @@ def _resolve_credentials(
         credentials = create_bearer_auth(bearer_token)
     elif api_key:
         credentials = create_api_key_auth(api_key)
+    elif bearer_env:
+        credentials = create_bearer_auth(_env_secret(bearer_env, "bearer_env"))
+    elif api_key_env:
+        credentials = create_api_key_auth(_env_secret(api_key_env, "api_key_env"))
+    elif server_def is not None:
+        credentials, warning = resolve_server_credentials(server_def)
+        if warning:
+            raise ValueError(f"server_auth: {warning}")
     if custom_headers:
         validated_headers: dict[str, str] = {}
         for name, value in custom_headers.items():
@@ -206,14 +268,17 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def get_agent_card(
-        agent_url: str,
         extended: bool = False,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Retrieve an agent's card with full details.
 
@@ -223,6 +288,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent (e.g., "http://localhost:8000")
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             extended: If True, fetch the extended card agents offer to
                      authenticated clients. Fails clearly when the agent does
                      not offer one.
@@ -234,7 +302,7 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Getting agent card from %s", agent_url)
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
             if api_key:
@@ -250,6 +318,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -263,17 +334,20 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def send_message(
-        agent_url: str,
         message: str,
         context_id: str | None = None,
         task_id: str | None = None,
         use_session: bool = False,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Send a message to an A2A agent and receive a response.
 
@@ -283,6 +357,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent (e.g., "http://localhost:8000")
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             message: The text message to send to the agent
             context_id: Optional context ID for conversation continuity
             task_id: Optional task ID to continue an existing task
@@ -303,7 +380,7 @@ def create_mcp_server() -> FastMCP:
         if not message:
             raise ValueError("missing_message_text: message must be a non-empty string")
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             if context_id:
                 validate_resource_id(context_id, "context_id")
             if task_id:
@@ -344,6 +421,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -364,15 +444,18 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def get_task(
-        agent_url: str,
         task_id: str,
         history_length: int | None = None,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Get the current status and details of a task.
 
@@ -381,6 +464,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             task_id: ID of the task to retrieve
             history_length: Optional number of history messages to include
             bearer_token: Optional bearer token for authentication
@@ -395,7 +481,7 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Getting task %s from %s", task_id, agent_url)
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             validate_resource_id(task_id, "task_id")
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
@@ -412,6 +498,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -422,18 +511,21 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def list_tasks(
-        agent_url: str,
         context_id: str | None = None,
         status: str | None = None,
         page_size: int | None = None,
         history_length: int | None = None,
         include_artifacts: bool = False,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """List an agent's tasks, following pagination to the end.
 
@@ -442,6 +534,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             context_id: Only list tasks in this context
             status: Only list tasks in this state (e.g., "completed",
                    "working", "input_required")
@@ -461,7 +556,7 @@ def create_mcp_server() -> FastMCP:
         logger.info("Listing tasks at %s", agent_url)
         status_value: int | None = None
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             if context_id:
                 validate_resource_id(context_id, "context_id")
             if status:
@@ -483,6 +578,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -503,14 +601,17 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def cancel_task(
-        agent_url: str,
         task_id: str,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Cancel a running task.
 
@@ -518,6 +619,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             task_id: ID of the task to cancel
             bearer_token: Optional bearer token for authentication
             api_key: Optional API key for authentication
@@ -531,7 +635,7 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Canceling task %s at %s", task_id, agent_url)
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             validate_resource_id(task_id, "task_id")
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
@@ -548,6 +652,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -558,16 +665,19 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def set_task_notification(
-        agent_url: str,
         task_id: str,
         webhook_url: str,
         webhook_token: str | None = None,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Configure push notifications for a task.
 
@@ -576,6 +686,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             task_id: ID of the task to configure notifications for
             webhook_url: URL that will receive notification POSTs
             webhook_token: Optional authentication token for the webhook
@@ -591,7 +704,7 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Setting push config for task %s at %s", task_id, agent_url)
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             validate_resource_id(task_id, "task_id")
             validate_webhook_url(webhook_url)
             if webhook_token:
@@ -611,6 +724,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -621,15 +737,18 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def get_task_notification(
-        agent_url: str,
         task_id: str,
         config_id: str | None = None,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Get the push notification configuration for a task.
 
@@ -639,6 +758,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             task_id: ID of the task
             config_id: Optional specific config ID to retrieve
             bearer_token: Optional bearer token for authentication
@@ -653,7 +775,7 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Getting push config for task %s at %s", task_id, agent_url)
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             validate_resource_id(task_id, "task_id")
             if config_id:
                 validate_resource_id(config_id, "config_id")
@@ -672,6 +794,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -682,14 +807,17 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def list_task_notifications(
-        agent_url: str,
         task_id: str,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """List every push notification config for a task.
 
@@ -698,6 +826,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             task_id: ID of the task
             bearer_token: Optional bearer token for authentication
             api_key: Optional API key for authentication
@@ -709,7 +840,7 @@ def create_mcp_server() -> FastMCP:
         """
         logger.info("Listing push configs for task %s at %s", task_id, agent_url)
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             validate_resource_id(task_id, "task_id")
             if bearer_token:
                 reject_control_chars(bearer_token, "bearer_token")
@@ -726,6 +857,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
@@ -739,15 +873,18 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool()
     async def delete_task_notification(
-        agent_url: str,
         task_id: str,
         config_id: str,
+        agent_url: str | None = None,
         bearer_token: str | None = None,
         api_key: str | None = None,
         cert_path: str | None = None,
         key_path: str | None = None,
         ca_cert_path: str | None = None,
         custom_headers: dict[str, str] | None = None,
+        server: str | None = None,
+        bearer_env: str | None = None,
+        api_key_env: str | None = None,
     ) -> dict:
         """Delete a push notification config from a task.
 
@@ -756,6 +893,9 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             agent_url: Base URL of the A2A agent
+            server: Name of a server from servers.toml, used instead of agent_url
+            bearer_env: Env var (in the MCP server's environment) holding a bearer token
+            api_key_env: Env var holding an API key
             task_id: ID of the task
             config_id: ID of the config to delete
             bearer_token: Optional bearer token for authentication
@@ -771,7 +911,7 @@ def create_mcp_server() -> FastMCP:
             "Deleting push config %s for task %s at %s", config_id, task_id, agent_url
         )
         try:
-            validate_agent_url(agent_url)
+            agent_url, server_def = _resolve_target(agent_url, server)
             validate_resource_id(task_id, "task_id")
             validate_resource_id(config_id, "config_id")
             if bearer_token:
@@ -789,6 +929,9 @@ def create_mcp_server() -> FastMCP:
             key_path,
             ca_cert_path,
             custom_headers,
+            bearer_env=bearer_env,
+            api_key_env=api_key_env,
+            server_def=server_def,
         )
 
         async with _build_http_client(credentials=credentials) as http_client:
