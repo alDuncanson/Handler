@@ -7,13 +7,20 @@ from types import SimpleNamespace
 from typing import cast
 
 from a2a_handler.auth import (
+    create_basic_auth,
+    create_oidc_auth,
     AuthCredentials,
     AuthType,
     create_api_key_auth,
     create_bearer_auth,
 )
 from a2a_handler.cli.server import _read_toml
-from a2a_handler.servers import ServerAuthConfig, ServerDefinition, ServerSource
+from a2a_handler.servers import (
+    ServerAuthConfig,
+    ServerDefinition,
+    ServerSource,
+    inspect_servers_file,
+)
 from a2a_handler.tui.server.save import save_connections_to_workspace
 
 
@@ -263,3 +270,127 @@ def test_save_connections_to_workspace_uses_api_key_panel_skeleton(
         "env": "API_KEY",
         "header": "X-Handler-Key",
     }
+
+
+def _assert_saved_file_loads(config_path, expected_name: str) -> None:
+    """The point of saving is to load again later; prove the entry is valid."""
+    result = inspect_servers_file(config_path.parent, ServerSource.REPOSITORY)
+    assert result.diagnostics == ()
+    assert [server.name for server in result.servers] == [expected_name]
+
+
+def test_save_connections_to_workspace_preserves_basic_server_auth(
+    tmp_path, monkeypatch
+) -> None:
+    """A configured Basic server keeps its username; without it the saved
+    entry cannot load (the loader requires one)."""
+    config_path = _patch_servers_path(tmp_path, monkeypatch)
+    server_def = ServerDefinition(
+        server_id="repository:basic",
+        source=ServerSource.REPOSITORY,
+        name="basic",
+        agent_url="https://basic.example.com",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.BASIC, username="alice", env_var="BASIC_PW"
+        ),
+        origin_label="Repository",
+    )
+    server_tab = _fake_server_tab(
+        agent_url="https://basic.example.com",
+        card_name="Basic Agent",
+        connected_server_def=server_def,
+    )
+
+    assert save_connections_to_workspace([server_tab]) == 1
+
+    saved = _read_saved_server(config_path, "basic_agent")
+    assert saved["auth"] == {"type": "basic", "username": "alice", "env": "BASIC_PW"}
+    _assert_saved_file_loads(config_path, "basic_agent")
+
+
+def test_save_connections_to_workspace_preserves_oidc_server_auth(
+    tmp_path, monkeypatch
+) -> None:
+    config_path = _patch_servers_path(tmp_path, monkeypatch)
+    server_def = ServerDefinition(
+        server_id="repository:oidc",
+        source=ServerSource.REPOSITORY,
+        name="oidc",
+        agent_url="https://oidc.example.com",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.OIDC,
+            issuer_url="https://idp.example.com",
+            client_id_env="CLIENT_ID",
+            client_secret_env="CLIENT_SECRET",
+            scopes=["openid"],
+        ),
+        origin_label="Repository",
+    )
+    server_tab = _fake_server_tab(
+        agent_url="https://oidc.example.com",
+        card_name="OIDC Agent",
+        connected_server_def=server_def,
+    )
+
+    assert save_connections_to_workspace([server_tab]) == 1
+
+    saved = _read_saved_server(config_path, "oidc_agent")
+    assert saved["auth"] == {
+        "type": "oidc",
+        "issuer_url": "https://idp.example.com",
+        "client_id_env": "CLIENT_ID",
+        "client_secret_env": "CLIENT_SECRET",
+        "scopes": ["openid"],
+    }
+    _assert_saved_file_loads(config_path, "oidc_agent")
+
+
+def test_save_connections_to_workspace_uses_basic_panel_skeleton(
+    tmp_path, monkeypatch
+) -> None:
+    """Typed Basic credentials keep the username and hide the password
+    behind a placeholder env var, instead of being dropped."""
+    config_path = _patch_servers_path(tmp_path, monkeypatch)
+    server_tab = _fake_server_tab(
+        agent_url="https://basic.example.com",
+        card_name="Basic Agent",
+        panel_credentials=create_basic_auth("alice", "s3cret"),
+    )
+
+    assert save_connections_to_workspace([server_tab]) == 1
+
+    saved = _read_saved_server(config_path, "basic_agent")
+    assert saved["auth"] == {
+        "type": "basic",
+        "username": "alice",
+        "env": "BASIC_PASSWORD",
+    }
+    assert "s3cret" not in config_path.read_text()
+    _assert_saved_file_loads(config_path, "basic_agent")
+
+
+def test_save_connections_to_workspace_uses_oidc_panel_skeleton(
+    tmp_path, monkeypatch
+) -> None:
+    config_path = _patch_servers_path(tmp_path, monkeypatch)
+    server_tab = _fake_server_tab(
+        agent_url="https://oidc.example.com",
+        card_name="OIDC Agent",
+        panel_credentials=create_oidc_auth(
+            "https://idp.example.com", "real-id", "real-secret", scopes=["openid"]
+        ),
+    )
+
+    assert save_connections_to_workspace([server_tab]) == 1
+
+    saved = _read_saved_server(config_path, "oidc_agent")
+    assert saved["auth"] == {
+        "type": "oidc",
+        "issuer_url": "https://idp.example.com",
+        "client_id_env": "CLIENT_ID",
+        "client_secret_env": "CLIENT_SECRET",
+        "scopes": ["openid"],
+    }
+    text = config_path.read_text()
+    assert "real-id" not in text and "real-secret" not in text
+    _assert_saved_file_loads(config_path, "oidc_agent")

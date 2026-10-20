@@ -46,9 +46,11 @@ def _auth_config_to_dict(auth: ServerAuthConfig) -> dict[str, object]:
             entry["ca_cert"] = auth.ca_cert_path
         return entry
 
-    if auth.auth_type == AuthType.OAUTH2:
-        if auth.token_url:
+    if auth.auth_type in (AuthType.OAUTH2, AuthType.OIDC):
+        if auth.auth_type == AuthType.OAUTH2 and auth.token_url:
             entry["token_url"] = auth.token_url
+        if auth.auth_type == AuthType.OIDC and auth.issuer_url:
+            entry["issuer_url"] = auth.issuer_url
         if auth.client_id_env:
             entry["client_id_env"] = auth.client_id_env
         if auth.client_secret_env:
@@ -57,6 +59,8 @@ def _auth_config_to_dict(auth: ServerAuthConfig) -> dict[str, object]:
             entry["scopes"] = list(auth.scopes)
         return entry
 
+    if auth.auth_type == AuthType.BASIC and auth.username:
+        entry["username"] = auth.username
     if auth.env_var:
         entry["env"] = auth.env_var
     elif auth.value:
@@ -87,9 +91,11 @@ def _credentials_to_skeleton_dict(
             entry["ca_cert"] = credentials.ca_cert_path
         return entry
 
-    if credentials.auth_type == AuthType.OAUTH2:
-        if credentials.token_url:
+    if credentials.auth_type in (AuthType.OAUTH2, AuthType.OIDC):
+        if credentials.auth_type == AuthType.OAUTH2 and credentials.token_url:
             entry["token_url"] = credentials.token_url
+        if credentials.auth_type == AuthType.OIDC and credentials.issuer_url:
+            entry["issuer_url"] = credentials.issuer_url
         entry["client_id_env"] = "CLIENT_ID"
         entry["client_secret_env"] = "CLIENT_SECRET"
         if credentials.scopes:
@@ -98,6 +104,14 @@ def _credentials_to_skeleton_dict(
 
     if credentials.auth_type == AuthType.BEARER:
         entry["env"] = "BEARER_TOKEN"
+        return entry
+
+    if credentials.auth_type == AuthType.BASIC:
+        # The username is not a secret and is needed to use the entry at all;
+        # only the password hides behind a placeholder env var.
+        if credentials.username:
+            entry["username"] = credentials.username
+        entry["env"] = "BASIC_PASSWORD"
         return entry
 
     if credentials.auth_type == AuthType.API_KEY:
