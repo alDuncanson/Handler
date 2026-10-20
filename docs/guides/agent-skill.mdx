@@ -1,0 +1,71 @@
+---
+title: "Agent skill"
+description: "Install the Handler skill so Claude Code, Cursor, and other coding agents know how to drive Handler without guessing."
+---
+
+# Give agents a Handler skill
+
+These docs are published as an agent skill: a `SKILL.md` file in the open
+[Agent Skills](https://agentskills.io) format that coding agents load on demand.
+It is generated from the documentation on every deploy, so it always describes
+the current CLI, including the auth schemes, attachment flags, and task commands.
+
+```text
+https://handler.alduncanson.com/skill.md
+```
+
+The site also serves a discovery index at
+`https://handler.alduncanson.com/.well-known/skills/index.json`, which is how
+skill installers find it from the base URL.
+
+## Install with the skills CLI
+
+The [skills CLI](https://github.com/vercel-labs/skills) discovers the skill
+from the docs URL, detects the agents installed on your machine (Claude Code,
+Cursor, Windsurf, and others), and lets you install to all of them or pick:
+
+```bash
+npx skills add https://handler.alduncanson.com
+```
+
+Run it again whenever you want the latest version; the skill changes when the
+docs change.
+
+## Install by hand
+
+Claude Code loads skills from `~/.claude/skills/<name>/SKILL.md` for every
+project, or from `.claude/skills/<name>/SKILL.md` inside one repository:
+
+```bash
+mkdir -p ~/.claude/skills/handler
+curl -fsSL https://handler.alduncanson.com/skill.md -o ~/.claude/skills/handler/SKILL.md
+```
+
+Other agents that read the same format take the file in their own skills
+directory.
+
+## What the skill teaches
+
+- when Handler is the right tool, and when it is not
+- the core commands with their flags: cards, messages, attachments, tasks,
+  sessions, push notifications, server configuration
+- the six authentication schemes, how each is configured, and that credentials
+  come from environment variables and only go to the origin you configured
+- structured output (`--output json` and `--output ndjson`) for scripting
+- a step-by-step workflow from adding a server to bridging Handler into MCP
+- the gotchas that trip people up, and a verification checklist
+
+## Pair it with live docs
+
+A skill is a snapshot of what Handler can do. For questions the skill does not
+answer, give the agent the hosted [documentation MCP](/guides/agent-docs-mcp)
+at `https://handler.alduncanson.com/mcp`, or point it at
+`https://handler.alduncanson.com/llms.txt` for the full page index.
+
+## Recommended agent instruction
+
+```text
+Use the Handler skill to talk to A2A agents. Prefer named servers from
+servers.toml over raw URLs, keep credentials in environment variables, and use
+`handler --output json` when another program or agent will consume the result.
+```
