@@ -41,6 +41,10 @@ from a2a_handler.service import (
     card_extensions,
     build_data_part,
     build_file_part,
+    part_kind,
+    response_parts,
+    describe_non_text_parts,
+    save_parts,
     card_protocol_version,
     credential_origin,
     part_data,
@@ -65,6 +69,9 @@ from a2a_handler.service import (
     LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
 )
 from tests.factories import (
+    make_artifact,
+    make_data_part,
+    make_file_part,
     make_agent_card,
     make_message,
     make_push_config,
@@ -2283,3 +2290,96 @@ class TestExtensions:
             extensions=["urn:required-ext"],
         )
         assert requesting.unrequested_required_extensions(card) == []
+
+
+class TestSavedParts:
+    """Writing received parts to disk (#100)."""
+
+    @pytest.mark.asyncio
+    async def test_saves_inline_files_data_and_skips_text(self, tmp_path):
+        parts = [
+            Part(text="hello"),
+            make_file_part(
+                raw=b"\x89PNG...", filename="pixel.png", media_type="image/png"
+            ),
+            make_data_part({"replicas": 3, "ok": True}),
+        ]
+
+        saved = await save_parts(parts, tmp_path, prefix="task-1")
+
+        assert [(s.kind, s.path.name) for s in saved] == [
+            ("file", "pixel.png"),
+            ("data", "task-1-3.json"),
+        ]
+        assert (tmp_path / "pixel.png").read_bytes() == b"\x89PNG..."
+        assert json.loads((tmp_path / "task-1-3.json").read_text()) == {
+            "replicas": 3,
+            "ok": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_downloads_files_by_reference_through_the_given_client(
+        self, tmp_path
+    ):
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200, content=b"%PDF-1.4 ...")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            saved = await save_parts(
+                [
+                    make_file_part(
+                        url="https://files.example.com/report.pdf",
+                        media_type="application/pdf",
+                    )
+                ],
+                tmp_path,
+                http_client=client,
+            )
+
+        assert seen == ["https://files.example.com/report.pdf"]
+        assert saved[0].path.name == "report.pdf"
+        assert saved[0].path.read_bytes().startswith(b"%PDF")
+
+    @pytest.mark.asyncio
+    async def test_never_overwrites_and_never_escapes_the_directory(self, tmp_path):
+        (tmp_path / "pixel.png").write_bytes(b"old")
+        parts = [
+            make_file_part(raw=b"new", filename="pixel.png", media_type="image/png"),
+            make_file_part(
+                raw=b"evil", filename="../../etc/passwd", media_type="text/plain"
+            ),
+            make_file_part(raw=b"hidden", filename=".bashrc", media_type="text/plain"),
+            make_file_part(raw=b"noname", media_type="application/pdf"),
+        ]
+
+        saved = await save_parts(parts, tmp_path, prefix="art")
+
+        names = sorted(s.path.name for s in saved)
+        assert names == ["art-3.txt", "art-4.pdf", "passwd", "pixel-2.png"]
+        assert (tmp_path / "pixel.png").read_bytes() == b"old"
+        assert all(s.path.parent == tmp_path for s in saved)
+
+    def test_describe_non_text_parts(self):
+        parts = [
+            Part(text="ignored"),
+            make_file_part(raw=b"12345", filename="pixel.png", media_type="image/png"),
+            make_data_part({"k": "v"}),
+        ]
+        assert (
+            describe_non_text_parts(parts)
+            == "pixel.png (image/png, 5 bytes), a data part"
+        )
+        assert describe_non_text_parts([Part(text="only text")]) == ""
+
+    def test_response_parts_prefers_artifacts_then_agent_history(self):
+        task = make_task(artifacts=[make_artifact(parts=[make_data_part({"a": 1})])])
+        assert [part_kind(p) for p in response_parts(task)] == ["data"]
+        plain = make_task()
+        assert (
+            response_parts(plain) == list(plain.status.message.parts)
+            if plain.status.HasField("message")
+            else response_parts(plain) == []
+        )

@@ -1,6 +1,7 @@
 """Shared utilities for CLI commands."""
 
 import os
+from collections.abc import Sequence
 import sys
 from dataclasses import dataclass
 
@@ -26,6 +27,7 @@ from a2a_handler.auth import (
     create_bearer_auth,
 )
 from a2a_handler.common import Output, get_logger
+from a2a_handler.service import SavedPart
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.servers import (
     ServerLookupError,
@@ -235,6 +237,23 @@ def _protocol_error_suggestion(error: A2AError) -> str | None:
     if isinstance(error, (UnsupportedOperationError, MethodNotFoundError)):
         return "This agent does not implement that operation"
     return None
+
+
+def report_saved_parts(saved: Sequence[SavedPart], output: Output) -> None:
+    """Tell the user what --save-artifacts wrote, without disturbing JSON output."""
+    if not saved:
+        output.text(
+            "No file or data parts to save."
+        ) if not output.is_structured else click.echo(
+            "No file or data parts to save.", err=True
+        )
+        return
+    for item in saved:
+        line = f"saved {item.path} ({item.kind}, {item.num_bytes} bytes)"
+        if output.is_structured:
+            click.echo(line, err=True)
+        else:
+            output.text(line)
 
 
 def _resolve_env_secret(env_var: str, label: str) -> str:

@@ -690,3 +690,82 @@ async def test_messages_panel_reset_session_clears_chat_tasks_and_artifacts() ->
         assert restored.client_secret == "client-secret"
         assert restored.scopes == ["read", "write"]
         assert restored.custom_headers == {"X-Trace-ID": "trace-123"}
+
+
+@pytest.mark.asyncio
+async def test_file_only_reply_says_what_arrived_instead_of_no_text() -> None:
+    """Issue #100: a reply whose only content is a file is described, not
+    reported as empty."""
+    from tests.factories import make_artifact, make_file_part, make_task
+
+    app = _MessagesPanelHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        panel = app.query_one(TabbedMessagesPanel)
+        task = make_task(
+            artifacts=[
+                make_artifact(
+                    parts=[
+                        make_file_part(
+                            raw=b"12345", filename="pixel.png", media_type="image/png"
+                        )
+                    ]
+                )
+            ]
+        )
+        panel.add_agent_message(task)
+        await pilot.pause()
+
+        texts = [
+            str(getattr(w, "content", "")) for w in panel.query_one("#chat").children
+        ]
+        assert any("received pixel.png (image/png, 5 bytes)" in t for t in texts)
+        assert not any("(no text in response)" in t for t in texts)
+
+
+@pytest.mark.asyncio
+async def test_artifact_detail_shows_data_in_full_and_offers_save() -> None:
+    from tests.factories import make_artifact, make_data_part, make_file_part
+
+    posted: list = []
+
+    class _CapturingHarness(_ArtifactsPanelHarness):
+        def on_artifacts_panel_save_requested(
+            self, event: ArtifactsPanel.SaveRequested
+        ) -> None:
+            posted.append(event)
+
+    app = _CapturingHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        artifacts_panel = app.query_one(ArtifactsPanel)
+        big = {"items": [{"index": i, "label": "x" * 40} for i in range(6)]}
+        artifact = make_artifact(
+            artifact_id="art-1",
+            parts=[
+                make_data_part(big),
+                make_file_part(
+                    url="https://files.example.com/r.pdf", media_type="application/pdf"
+                ),
+            ],
+        )
+        artifacts_panel.add_artifact(artifact, "task-1", "ctx-1")
+        await pilot.pause()
+
+        rendered = " ".join(
+            str(getattr(w, "content", ""))
+            for w in artifacts_panel.query(".artifact-content")
+        )
+        assert '"index": 5' in rendered  # the whole data part, not a 120-char preview
+        assert "https://files.example.com/r.pdf" in rendered
+        assert "application/pdf" in rendered
+        assert artifacts_panel.query(".artifact-hint")
+
+        entry = artifacts_panel.get_selected_artifact()
+        assert entry is not None
+        artifacts_panel.request_save(entry, "  ")  # a blank answer is a no-op
+        artifacts_panel.request_save(entry, " ~/out ")
+        await pilot.pause()
+        assert len(posted) == 1
+        assert isinstance(posted[0], ArtifactsPanel.SaveRequested)
+        assert posted[0].directory == "~/out" and posted[0].entry is entry

@@ -88,6 +88,56 @@ class TestTaskGet:
             assert result.exit_code == 0
             assert "task-123" in result.output
 
+    def test_task_get_save_artifacts_writes_parts(self, runner, tmp_path):
+        """--save-artifacts writes the task's file and data parts and says where."""
+        from tests.factories import make_artifact, make_data_part, make_file_part
+
+        mock_task = Task(
+            id="task-123",
+            context_id="ctx-123",
+            status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
+            artifacts=[
+                make_artifact(
+                    parts=[
+                        make_file_part(
+                            raw=b"png-bytes",
+                            filename="pixel.png",
+                            media_type="image/png",
+                        ),
+                        make_data_part({"k": "v"}),
+                    ]
+                )
+            ],
+        )
+        out_dir = tmp_path / "out"
+        with (
+            patch("a2a_handler.cli.task.build_http_client") as mock_client,
+            patch("a2a_handler.cli.task.A2AService") as mock_service_cls,
+        ):
+            mock_http = AsyncMock()
+            mock_http.__aenter__.return_value = mock_http
+            mock_http.__aexit__.return_value = None
+            mock_client.return_value = mock_http
+            mock_service = AsyncMock()
+            mock_service.get_task.return_value = mock_task
+            mock_service_cls.return_value = mock_service
+            result = runner.invoke(
+                task,
+                [
+                    "get",
+                    "task-123",
+                    "--url",
+                    "http://localhost:8000",
+                    "--save-artifacts",
+                    str(out_dir),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert (out_dir / "pixel.png").read_bytes() == b"png-bytes"
+        assert json.loads((out_dir / "task-123-2.json").read_text()) == {"k": "v"}
+        assert "saved" in result.output and "pixel.png" in result.output
+
     def test_task_get_with_history_length(self, runner):
         """Test task get with history length option."""
         mock_task = _make_task(TaskState.TASK_STATE_COMPLETED)
