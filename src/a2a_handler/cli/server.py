@@ -12,6 +12,7 @@ from typing import cast
 import click
 
 from a2a_handler.common import Output, get_logger
+from a2a_handler.auth import parse_header_string
 from a2a_handler.common.input_validation import (
     InputValidationError,
     validate_header_name,
@@ -82,6 +83,10 @@ def _server_to_dict(server_def: ServerDefinition) -> dict[str, object]:
         data["auth"] = auth
     else:
         data["auth"] = None
+    if server_def.extensions:
+        data["extensions"] = list(server_def.extensions)
+    if server_def.headers:
+        data["headers"] = dict(server_def.headers)
     return data
 
 
@@ -304,6 +309,10 @@ def _build_server_auth_entry(
     return None, None
 
 
+#: Entry keys written as their own ``[servers.<name>.<key>]`` table.
+_SUB_TABLES = ("auth", "headers")
+
+
 def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
     """Atomically write a servers.toml from a data dict."""
     lines = [f"version = {SERVER_SCHEMA_VERSION}", ""]
@@ -317,18 +326,22 @@ def _write_servers_toml(path: Path, data: dict[str, object]) -> None:
             encoded_name = _toml_encode_key(name)
             lines.append(f"[servers.{encoded_name}]")
             for key, value in entry.items():
-                if key == "auth":
+                if key in _SUB_TABLES:
                     continue
                 lines.append(f"{key} = {_toml_encode_value(value)}")
-
-            auth = _as_toml_table(entry.get("auth"))
-            if auth is not None:
+            for sub_table in _SUB_TABLES:
+                table = _as_toml_table(entry.get(sub_table))
+                if table is None:
+                    continue
                 lines.append("")
-                lines.append(f"[servers.{encoded_name}.auth]")
-                for key, value in auth.items():
-                    lines.append(f"{key} = {_toml_encode_value(value)}")
+                lines.append(f"[servers.{encoded_name}.{sub_table}]")
+                for key, value in table.items():
+                    # Header names carry hyphens, so those keys are quoted.
+                    encoded_key = (
+                        _toml_encode_key(key) if sub_table == "headers" else key
+                    )
+                    lines.append(f"{encoded_key} = {_toml_encode_value(value)}")
             lines.append("")
-
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fd, tmp_path = tempfile.mkstemp(
@@ -493,6 +506,13 @@ def server_show(name: str, source: str | None) -> None:
     help="OIDC scope to request (repeatable)",
 )
 @click.option(
+    "--header",
+    "-H",
+    "headers",
+    multiple=True,
+    help="Static header sent on every request, as 'Name: Value' (repeatable)",
+)
+@click.option(
     "--global",
     "use_global",
     is_flag=True,
@@ -523,6 +543,7 @@ def server_add(
     oidc_client_id_env: str | None,
     oidc_client_secret_env: str | None,
     oidc_scopes: tuple[str, ...],
+    headers: tuple[str, ...],
     use_global: bool,
     use_repository: bool,
 ) -> None:
@@ -608,6 +629,16 @@ def server_add(
         return
     if auth_entry is not None:
         entry["auth"] = auth_entry
+    if headers:
+        parsed_headers: dict[str, object] = {}
+        for raw_header in headers:
+            try:
+                header_name, header_value = parse_header_string(raw_header)
+            except (ValueError, InputValidationError) as error:
+                output.error(code="invalid_header", message=str(error))
+                return
+            parsed_headers[header_name] = header_value
+        entry["headers"] = parsed_headers
 
     try:
         validate_server_definition(name, entry, target_source)

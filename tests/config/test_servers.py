@@ -813,3 +813,80 @@ def test_env_backed_auth_does_not_warn(tmp_path: Path, caplog, monkeypatch) -> N
     assert credentials is not None and credentials.value == "from-env"
     assert "plain text" not in caplog.text
     assert literal_secret_warning(server_def) is None
+def _write(tmp_path: Path, body: str) -> Path:
+    (tmp_path / "servers.toml").write_text("version = 1\n" + body)
+    return tmp_path
+
+
+def test_load_servers_parses_static_headers(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        '[servers.remy]\nurl = "http://localhost:8080"\n'
+        '[servers.remy.headers]\n"X-Remy-User" = "alice"\n"X-Trace" = "abc123"\n',
+    )
+    (server_def,) = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    assert server_def.headers == (("X-Remy-User", "alice"), ("X-Trace", "abc123"))
+
+
+def test_load_servers_rejects_reserved_or_bad_headers(tmp_path: Path) -> None:
+    """Authorization is managed by the auth scheme, never by a headers table,
+    and hop-by-hop or non-string entries are refused like -H refuses them."""
+    for body in (
+        '[servers.x]\nurl = "http://localhost"\n[servers.x.headers]\nAuthorization = "Bearer t"\n',
+        '[servers.x]\nurl = "http://localhost"\n[servers.x.headers]\nHost = "evil"\n',
+        '[servers.x]\nurl = "http://localhost"\n[servers.x.headers]\n"X-Num" = 1\n',
+        '[servers.x]\nurl = "http://localhost"\nheaders = "not a table"\n',
+    ):
+        _write(tmp_path, body)
+        assert load_servers(tmp_path, ServerSource.GLOBAL) == []
+
+
+def test_headers_ride_on_credentials_without_auth(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        '[servers.remy]\nurl = "http://localhost:8080"\n'
+        '[servers.remy.headers]\n"X-Remy-User" = "alice"\n',
+    )
+    (server_def,) = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    credentials, warning = resolve_server_credentials(server_def)
+
+    assert warning is None and credentials is not None
+    assert credentials.custom_headers == {"X-Remy-User": "alice"}
+    assert credentials.to_headers() == {"X-Remy-User": "alice"}
+
+
+def test_headers_merge_with_the_auth_scheme(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("REMY_TOKEN", "tok")
+    _write(
+        tmp_path,
+        '[servers.remy]\nurl = "http://localhost:8080"\n'
+        '[servers.remy.auth]\ntype = "bearer"\nenv = "REMY_TOKEN"\n'
+        '[servers.remy.headers]\n"X-Remy-User" = "alice"\n',
+    )
+    (server_def,) = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    credentials, warning = resolve_server_credentials(server_def)
+
+    assert warning is None and credentials is not None
+    assert credentials.to_headers() == {
+        "X-Remy-User": "alice",
+        "Authorization": "Bearer tok",
+    }
+
+
+def test_headers_do_not_mask_an_auth_failure(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("REMY_TOKEN", raising=False)
+    _write(
+        tmp_path,
+        '[servers.remy]\nurl = "http://localhost:8080"\n'
+        '[servers.remy.auth]\ntype = "bearer"\nenv = "REMY_TOKEN"\n'
+        '[servers.remy.headers]\n"X-Remy-User" = "alice"\n',
+    )
+    (server_def,) = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    credentials, warning = resolve_server_credentials(server_def)
+
+    assert credentials is None
+    assert warning is not None and "REMY_TOKEN" in warning

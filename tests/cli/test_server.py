@@ -221,6 +221,65 @@ class TestServerAdd:
         assert data["servers"]["demo"]["auth"]["type"] == "bearer"
         assert data["servers"]["demo"]["auth"]["env"] == "TEST_BEARER"
 
+    def test_add_with_headers(self, runner: CliRunner, servers_dir: Path) -> None:
+        """--header writes a quoted-key headers table that loads back."""
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "remy",
+                    "--url",
+                    "http://localhost:8080",
+                    "-H",
+                    "X-Remy-User: alice",
+                    "--header",
+                    "X-Trace: abc",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        data = tomllib.loads(path.read_text())
+        assert data["servers"]["remy"]["headers"] == {
+            "X-Remy-User": "alice",
+            "X-Trace": "abc",
+        }
+        assert '"X-Remy-User" = "alice"' in path.read_text()
+
+    def test_add_rejects_a_reserved_header(
+        self, runner: CliRunner, servers_dir: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        path = servers_dir / "servers.toml"
+        with (
+            patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
+            patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+        ):
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "x",
+                    "--url",
+                    "http://localhost",
+                    "-H",
+                    "Authorization: Bearer t",
+                ],
+            )
+
+        assert (
+            "reserved" in result.output.lower()
+            or "authorization" in result.output.lower()
+        )
+        assert not path.exists()
+
     def test_add_with_api_key(self, runner: CliRunner, servers_dir: Path) -> None:
         import os
         from unittest.mock import patch
