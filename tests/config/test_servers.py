@@ -4,6 +4,7 @@ from pathlib import Path
 
 from a2a_handler.auth import AuthType
 from a2a_handler.servers import (
+    literal_secret_warning,
     ServerAuthConfig,
     ServerDefinition,
     ServerSource,
@@ -778,3 +779,37 @@ extensions = "not-a-list"
     )
     servers = load_servers(tmp_path, ServerSource.GLOBAL)
     assert servers == []
+
+
+def test_literal_auth_value_warns_but_still_resolves(tmp_path: Path, caplog) -> None:
+    """A hand-written `value` keeps working, but the user is told it is in
+    plain text and pointed at `env`."""
+    (tmp_path / "servers.toml").write_text(
+        'version = 1\n[servers.demo]\nurl = "http://localhost:8000"\n'
+        '[servers.demo.auth]\ntype = "bearer"\nvalue = "literal-token"\n'
+    )
+    (server_def,) = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    with caplog.at_level("WARNING"):
+        credentials, warning = resolve_server_credentials(server_def)
+
+    assert credentials is not None and credentials.value == "literal-token"
+    assert warning is None
+    assert "plain text" in caplog.text and 'env = "VAR_NAME"' in caplog.text
+    assert "literal-token" not in caplog.text
+
+
+def test_env_backed_auth_does_not_warn(tmp_path: Path, caplog, monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_TOKEN", "from-env")
+    (tmp_path / "servers.toml").write_text(
+        'version = 1\n[servers.demo]\nurl = "http://localhost:8000"\n'
+        '[servers.demo.auth]\ntype = "bearer"\nenv = "DEMO_TOKEN"\n'
+    )
+    (server_def,) = load_servers(tmp_path, ServerSource.GLOBAL)
+
+    with caplog.at_level("WARNING"):
+        credentials, _warning = resolve_server_credentials(server_def)
+
+    assert credentials is not None and credentials.value == "from-env"
+    assert "plain text" not in caplog.text
+    assert literal_secret_warning(server_def) is None

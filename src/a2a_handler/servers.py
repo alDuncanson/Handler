@@ -377,6 +377,8 @@ def resolve_server_credentials(
 
     if value is None:
         value = auth.value
+        if value:
+            logger.warning(literal_secret_warning(server_def))
 
     if not value:
         return (
@@ -407,6 +409,23 @@ def resolve_server_credentials(
         return create_basic_auth(auth.username, value), None
 
     return create_api_key_auth(value, header_name=auth.header_name), None
+
+
+def literal_secret_warning(server_def: ServerDefinition) -> str | None:
+    """Explain why a credential written straight into servers.toml is a risk.
+
+    Nothing Handler writes produces ``auth.value``; only a hand-edited file
+    does. It keeps working, but the file now holds the secret in plain text.
+    """
+    auth = server_def.auth
+    if auth is None or not auth.value:
+        return None
+    name = server_def.name or server_def.agent_url
+    return (
+        f"Server '{name}' keeps its {auth.auth_type.value} credential as a "
+        "literal `value` in servers.toml, in plain text; move it to an "
+        'environment variable and reference it with `env = "VAR_NAME"`'
+    )
 
 
 def find_git_root() -> Path | None:
