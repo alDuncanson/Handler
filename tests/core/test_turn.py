@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import AsyncIterator, Sequence
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from a2a.client.errors import A2AClientError
@@ -460,3 +460,81 @@ class TestNarration:
 
         assert turn.result is not None
         assert turn.result.narration == "halfway there"
+
+
+def _service_subscribing(events: Sequence[StreamEvent]) -> AsyncMock:
+    """A service double whose ``resubscribe`` replays events; ``stream`` must
+    not be called by an attach turn."""
+    service = AsyncMock()
+    calls: list[str] = []
+
+    def resubscribe(task_id):  # noqa: ANN001
+        calls.append(task_id)
+
+        async def gen() -> AsyncIterator[StreamEvent]:
+            for event in events:
+                yield event
+
+        return gen()
+
+    service.resubscribe = resubscribe
+    service.resubscribe_calls = calls
+    service.stream = Mock(side_effect=AssertionError("attach turns do not send"))
+    return service
+
+
+class TestAttach:
+    """Attaching to a running task is a turn without an outgoing message."""
+
+    @pytest.mark.asyncio
+    async def test_attach_subscribes_instead_of_sending(self):
+        service = _service_subscribing(
+            [
+                _status_event(TaskState.TASK_STATE_WORKING, "tick 9/10"),
+                _status_event(TaskState.TASK_STATE_COMPLETED, "done"),
+            ]
+        )
+        turn = AgentTurn(service=service, text="", task_id="task-1", attach=True)
+
+        events = await _drain(turn)
+
+        assert service.resubscribe_calls == ["task-1"]
+        assert [e.kind for e in events] == [TurnEventKind.STATUS, TurnEventKind.STATUS]
+        assert turn.result is not None
+        assert turn.result.state == TaskState.TASK_STATE_COMPLETED
+        assert turn.result.continue_task_id is None
+
+    @pytest.mark.asyncio
+    async def test_attach_knows_its_task_before_any_event(self):
+        """So STOP can be pressed before the first event arrives."""
+        service = _service_subscribing([])
+        turn = AgentTurn(service=service, text="", task_id="task-1", attach=True)
+
+        assert turn.active_task_id == "task-1"
+        assert await turn.request_cancel() is True
+        service.cancel_task.assert_awaited_once_with("task-1")
+
+    @pytest.mark.asyncio
+    async def test_attach_to_a_vanished_task_is_an_error_not_a_resend(self):
+        service = AsyncMock()
+
+        def resubscribe(task_id):  # noqa: ANN001
+            async def gen() -> AsyncIterator[StreamEvent]:
+                raise A2AClientError("Task not found")
+                yield  # pragma: no cover
+
+            return gen()
+
+        service.resubscribe = resubscribe
+        service.stream = Mock(
+            side_effect=AssertionError("must not fall back to a send")
+        )
+        turn = AgentTurn(service=service, text="", task_id="task-1", attach=True)
+
+        await _drain(turn)
+
+        assert turn.result is not None and turn.result.error is not None
+
+    def test_attach_requires_a_task_id(self):
+        with pytest.raises(ValueError, match="task ID"):
+            AgentTurn(service=AsyncMock(), text="", attach=True)

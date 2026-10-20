@@ -2920,3 +2920,134 @@ async def test_unresolved_server_auth_warns_once_and_opens_the_right_scheme(
             assert auth_panel.get_auth_type() == AuthType.BEARER
             assert auth_panel.get_credentials() is None
             assert not workspace.query_one("#bearer-fields").has_class("hidden")
+
+
+def _subscribing_service(card, task, events):
+    """A service double for the resume-and-reattach path."""
+    mock_service = AsyncMock()
+    mock_service.get_card.return_value = card
+    mock_service.get_task.return_value = task
+
+    def resubscribe(task_id):  # noqa: ANN001
+        async def gen():
+            for event in events:
+                yield event
+
+        return gen()
+
+    mock_service.resubscribe = resubscribe
+    mock_service.stream = Mock(side_effect=AssertionError("no send expected"))
+    return mock_service
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_session_with_a_running_task_reattaches_to_its_stream(
+    patch_server_sources: Mock,
+) -> None:
+    """Issue #108: a task still running when the session resumes streams its
+    remaining updates, and settles when it finishes."""
+    saved_session = AgentSession(
+        agent_url="https://agent.example.com",
+        context_id="ctx-run",
+        task_id="task-run",
+        last_used_at="2024-01-02T03:04:05+00:00",
+    )
+    patch_server_sources.find.return_value = saved_session
+    patch_server_sources.list_all.return_value = [saved_session]
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="agent",
+        agent_url="https://agent.example.com",
+    )
+    running = make_task(
+        state=TaskState.TASK_STATE_WORKING, task_id="task-run", context_id="ctx-run"
+    )
+    finished = make_task(
+        state=TaskState.TASK_STATE_COMPLETED,
+        task_id="task-run",
+        context_id="ctx-run",
+        artifacts=[make_artifact(text="Finished the slow task")],
+    )
+    events = [
+        StreamEvent(event_type="status", task=running, text="tick 9/10"),
+        StreamEvent(event_type="status", task=finished, text="Finished the slow task"),
+    ]
+    app = HandlerTUI()
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch("a2a_handler.tui.server.tab.build_http_client", return_value=AsyncMock()),
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_service_cls.return_value = _subscribing_service(
+            make_agent_card(name="Demo Agent"), running, events
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            workspace.query_one(
+                "#server-select", Select
+            ).value = "recent:https://agent.example.com"
+            await pilot.pause()
+            await workspace.handle_connect_button()
+            for _ in range(10):
+                await pilot.pause()
+                if (
+                    workspace._active_turn is None
+                    and workspace._send_worker is not None
+                ):
+                    break
+
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("reattaching" in t for t in texts)
+            assert any("Finished the slow task" in t for t in texts)
+            assert workspace._active_turn is None
+            assert workspace.state.current_task_id is None
+            assert workspace.query_one("#cancel-btn", Button).has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_attaching_to_a_finished_task_shows_it_without_subscribing() -> None:
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="demo",
+        agent_url="https://agent.example.com",
+    )
+    app = HandlerTUI()
+    finished = make_task(
+        state=TaskState.TASK_STATE_COMPLETED,
+        task_id="task-done",
+        context_id="ctx-done",
+        artifacts=[make_artifact(text="All set")],
+    )
+    catalog_patch, client_patch, service_patch = _connected_workspace_patches(
+        repo_connection, make_agent_card(name="Demo Agent"), AsyncMock()
+    )
+    with catalog_patch, client_patch, service_patch as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_card.return_value = make_agent_card(name="Demo Agent")
+        mock_service.get_task.return_value = finished
+        mock_service.resubscribe = Mock(
+            side_effect=AssertionError("must not subscribe")
+        )
+        mock_service_cls.return_value = mock_service
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+            await workspace.handle_connect_button()
+            await pilot.pause()
+
+            workspace._handle_attach_task_result("task-done")
+            for _ in range(6):
+                await pilot.pause()
+
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            assert any("already finished" in t and "completed" in t for t in texts)
+            # Shown as it stands (task and artifact panels), never subscribed to.
+            mock_service.get_task.assert_awaited_once_with("task-done")
+            assert workspace.state.current_task_id is None
+            assert workspace._active_turn is None

@@ -84,6 +84,18 @@ placeholder "The agent is waiting for your reply..." and your next message
 continues the same task. An agent that pauses for authentication points you
 at the Auth tab instead.
 
+## Reattaching to a running task
+
+A task keeps running on the agent after you disconnect. When you resume a
+saved session whose task is still working, the TUI subscribes to it again
+and streams the rest of its updates into the same live reply, with STOP
+available. A task that finished while you were away is shown as it ended;
+one that is waiting for your reply leaves the composer ready for it.
+
+To attach to any task by ID, open the command palette and choose
+**Attach Task**. The same rules apply: a running task streams, a settled one
+is displayed.
+
 ## Attaching files and data
 
 Press ATTACH (or run "Attach File" from the command palette) and enter a
