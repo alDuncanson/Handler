@@ -51,6 +51,7 @@
             "pages": [
               "guides/mcp",
               "guides/agent-docs-mcp",
+              "guides/agent-skill",
               "guides/enterprise-a2a",
               "guides/local-servers"
             ]

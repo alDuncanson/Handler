@@ -106,3 +106,18 @@ pipx run a2a-handler
 ## Documentation
 
 Read the documentation at <https://handler.alduncanson.com>.
+
+### For coding agents
+
+The docs ship as an agent skill, regenerated on every deploy. Install it into
+Claude Code, Cursor, Windsurf, or any agent that reads the `SKILL.md` format:
+
+```bash
+npx skills add https://handler.alduncanson.com
+```
+
+Or fetch it by hand from <https://handler.alduncanson.com/skill.md>. For live
+lookups, agents can also use the hosted documentation MCP server at
+<https://handler.alduncanson.com/mcp> or the page index at
+<https://handler.alduncanson.com/llms.txt>. See the
+[agent skill guide](https://handler.alduncanson.com/guides/agent-skill).
