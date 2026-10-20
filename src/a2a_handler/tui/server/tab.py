@@ -19,6 +19,7 @@ from textual.worker import Worker
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
+    validate_resource_id,
     InputValidationError,
     validate_agent_url,
 )
@@ -30,6 +31,7 @@ from a2a_handler.servers import (
     resolve_server_credentials,
 )
 from a2a_handler.service import (
+    INTERRUPTED_TASK_STATES,
     A2AService,
     attachment_part_from_spec,
     UNKNOWN_PROTOCOL_VERSION,
@@ -44,7 +46,15 @@ from a2a_handler.service import (
 from a2a_handler.session import get_session_store
 from a2a_handler.tui.components import TabbedMessagesPanel
 from a2a_handler.tui.components.messages import StreamingMessage
-from a2a_handler.turn import AgentTurn, TurnEvent, TurnEventKind, TurnResult
+from a2a_handler.turn import (
+    AgentTurn,
+    TurnEvent,
+    TurnEventKind,
+    TurnResult,
+    state_is_settled,
+    state_needs_auth,
+    state_needs_input,
+)
 from a2a_handler.tui.server.session import resolve_saved_conversation
 from a2a_handler.tui.server.types import (
     MANUAL_SERVER_ID,
@@ -791,6 +801,92 @@ class ServerTab(Container):
         )
         server_view.input_panel().focus_input()
 
+    def prompt_attach_task(self) -> None:
+        """Ask for a task ID and attach to that task's stream."""
+        if not self.is_connected:
+            return
+        from a2a_handler.tui.commands.screens import TextPromptScreen
+
+        self.app.push_screen(
+            TextPromptScreen(
+                "Attach Task",
+                "Stream a task already running on this agent, by ID.",
+                placeholder="task id",
+                confirm_label="Attach",
+            ),
+            callback=self._handle_attach_task_result,
+        )
+
+    def _handle_attach_task_result(self, task_id: str | None) -> None:
+        if not task_id or not task_id.strip():
+            return
+        self._send_worker = self._attach_turn(task_id.strip())
+
+    @work(exclusive=True)
+    async def _attach_turn(self, task_id: str) -> None:
+        """Attach to a task and stream its remaining updates.
+
+        A turn without an outgoing message: same live render, same STOP
+        control, same settling rules as a send. A task that has already
+        settled is shown as it stands rather than subscribed to, so this
+        never hangs on a stream that will not produce anything.
+        """
+        server_view = self._try_get_server_view()
+        if (
+            not self.is_connected
+            or self._agent_service is None
+            or server_view is None
+            or self._active_turn is not None
+        ):
+            return
+        messages_panel = server_view.messages_panel()
+        try:
+            validate_resource_id(task_id, "task_id")
+        except InputValidationError as error:
+            messages_panel.add_system_message(f"Error: {error.message}")
+            return
+        try:
+            task = await self._agent_service.get_task(task_id)
+        except Exception as error:  # noqa: BLE001 - shown to the user
+            messages_panel.add_system_message(f"Could not load task {task_id}: {error}")
+            return
+        state = response_state(task)
+        if state_is_settled(state):
+            self._load_task_into_live_view(server_view, task)
+            if state_needs_input(state) or state_needs_auth(state):
+                self.state.current_task_id = task.id
+                self.state.current_context_id = task.context_id or None
+                self._persist_session_state()
+                server_view.input_panel().prompt_for_reply()
+                messages_panel.add_system_message(
+                    f"Task {task.id} is waiting for your reply."
+                )
+            else:
+                messages_panel.add_system_message(
+                    f"Task {task.id} already finished ({state_label(state)})."
+                )
+            return
+
+        self.state.current_task_id = task.id
+        self.state.current_context_id = task.context_id or None
+        self._persist_session_state()
+        self._refresh_status_badges()
+        turn = AgentTurn(
+            service=self._agent_service,
+            text="",
+            context_id=self.state.current_context_id,
+            task_id=task.id,
+            attach=True,
+        )
+        self._active_turn = turn
+        live = messages_panel.begin_agent_stream()
+        server_view.input_panel().set_waiting(True, cancellable=True)
+        try:
+            async for event in turn.events():
+                self._apply_turn_event(server_view, live, event)
+        finally:
+            self._finish_turn(server_view, turn)
+
     @on(Button.Pressed, "#cancel-btn")
     async def _handle_cancel_pressed(self) -> None:
         await self.cancel_active_turn()
@@ -1161,3 +1257,12 @@ class ServerTab(Container):
         }:
             if self.state.current_task_id == task.id:
                 self._clear_current_task_id()
+            return
+        if response_state(task) in INTERRUPTED_TASK_STATES:
+            # The agent is waiting on us; the next message answers it.
+            return
+        # Still running: pick the stream back up where we left it.
+        server_view.messages_panel().add_system_message(
+            f"Task {task.id} is still running; reattaching to its stream."
+        )
+        self._send_worker = self._attach_turn(task.id)

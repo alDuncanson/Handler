@@ -41,6 +41,11 @@ def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
             "Queue a file path or URL to send with the next message",
             app.action_attach_file,
         )
+        yield SystemCommand(
+            "Attach Task",
+            "Stream a task already running on this agent, by its ID",
+            app.action_attach_task,
+        )
 
     saved_session_target = (
         active.get_saved_session_target() if active is not None else None

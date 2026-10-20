@@ -116,11 +116,21 @@ class AgentTurn:
     context_id: str | None = None
     task_id: str | None = None
     attachments: Sequence[Part] | None = None
+    #: Attach to ``task_id`` with SubscribeToTask instead of sending ``text``.
+    #: Same streaming render, same cancel, same settling rules; no message.
+    attach: bool = False
 
     result: TurnResult | None = None
     _task_id_seen: str | None = field(default=None, init=False)
     _cancel_requested: bool = field(default=False, init=False)
     _last_narration: str = field(default="", init=False)
+
+    def __post_init__(self) -> None:
+        if self.attach:
+            if not self.task_id:
+                raise ValueError("An attach turn needs the task ID to attach to")
+            # Known up front, so a cancel can be sent before any event arrives.
+            self._task_id_seen = self.task_id
 
     @property
     def active_task_id(self) -> str | None:
@@ -180,7 +190,9 @@ class AgentTurn:
                 yield event
             return
         except Exception as error:  # noqa: BLE001 - inspected, then re-raised
-            if not (self.task_id and is_uncontinuable_task_error(error)):
+            # Attaching to a task that is gone has no fallback: there is no
+            # message to resend without it.
+            if self.attach or not (self.task_id and is_uncontinuable_task_error(error)):
                 raise
             logger.info("Retrying turn without stale task_id %s", self.task_id)
 
@@ -200,12 +212,17 @@ class AgentTurn:
         latest: Task | Message | None = None
         latest_state: int | None = None
 
-        async for event in self.service.stream(
-            self.text,
-            context_id=self.context_id,
-            task_id=task_id,
-            attachments=self.attachments,
-        ):
+        if self.attach:
+            assert task_id is not None
+            source = self.service.resubscribe(task_id)
+        else:
+            source = self.service.stream(
+                self.text,
+                context_id=self.context_id,
+                task_id=task_id,
+                attachments=self.attachments,
+            )
+        async for event in source:
             if event.task_id:
                 self._task_id_seen = event.task_id
             if event.context_id:
