@@ -104,6 +104,9 @@ class ServerTab(Container):
         self._servers_by_id: dict[str, ServerDefinition] = {}
         self._server_credentials: dict[str, AuthCredentials] = {}
         self._server_warnings: dict[str, str] = {}
+        # The (server id, text) of the last warning shown, so re-syncing the
+        # same server (as startup does twice) does not repeat it.
+        self._announced_warning: tuple[str, str] | None = None
         self._initial_bearer_token = initial_bearer_token
         self._auto_connect_server = auto_connect_server
         self._auto_connect_url = auto_connect_url
@@ -431,14 +434,28 @@ class ServerTab(Container):
         messages_panel = self._get_server_view().messages_panel()
         credentials = self._server_credentials.get(server_id)
         warning = self._server_warnings.get(server_id)
-
+        server_def = self._servers_by_id.get(server_id)
         with self._suppressing_auth_events():
             if credentials is not None:
                 messages_panel.set_auth_credentials(credentials)
+            elif server_def is not None and server_def.auth is not None:
+                # The secret could not be resolved (its env var is unset, say).
+                # Land on the scheme the server needs, with what is known
+                # filled in, so the user can supply the rest by hand.
+                auth = server_def.auth
+                if auth.auth_type == AuthType.BASIC and auth.username:
+                    messages_panel.set_auth_credentials(
+                        AuthCredentials(
+                            auth_type=AuthType.BASIC, username=auth.username
+                        )
+                    )
+                else:
+                    messages_panel.set_auth_credentials(None)
+                    messages_panel.preselect_auth_type(auth.auth_type)
             else:
                 messages_panel.set_auth_credentials(None)
-
-        if warning:
+        if warning and self._announced_warning != (server_id, warning):
+            self._announced_warning = (server_id, warning)
             messages_panel.add_system_message(warning)
 
     def _clear_pending_attachments(self) -> None:

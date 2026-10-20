@@ -2872,3 +2872,51 @@ async def test_a_reply_begun_before_the_last_one_is_torn_down_does_not_collide()
         assert len(live) == 1
         assert live[0] is second
         assert "second" in live[0].body_text
+
+
+@pytest.mark.asyncio
+async def test_unresolved_server_auth_warns_once_and_opens_the_right_scheme(
+    monkeypatch,
+) -> None:
+    """A named server whose env var is unset: say so once (startup syncs the
+    picker twice) and leave the Auth tab on the scheme the server needs so a
+    value can be pasted in, instead of a blank tab."""
+    monkeypatch.delenv("HANDLER_TEST_MISSING_TOKEN", raising=False)
+    repo_connection = _make_server(
+        source=ServerSource.REPOSITORY,
+        name="gated",
+        agent_url="https://gated.example.com",
+        auth=ServerAuthConfig(
+            auth_type=AuthType.BEARER, env_var="HANDLER_TEST_MISSING_TOKEN"
+        ),
+    )
+    app = HandlerTUI(connect_servers=("gated",))
+
+    with (
+        patch(
+            "a2a_handler.tui.server.tab.load_server_catalog",
+            return_value=ServerCatalog(repository_servers=(repo_connection,)),
+        ),
+        patch("a2a_handler.tui.server.tab.build_http_client") as mock_client,
+        patch("a2a_handler.tui.server.tab.A2AService") as mock_service_cls,
+    ):
+        mock_client.return_value = AsyncMock()
+        mock_service = AsyncMock()
+        mock_service.get_card.side_effect = RuntimeError("401 Unauthorized")
+        mock_service_cls.return_value = mock_service
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            workspace = app.query_one(ServerTabs).get_active_server()
+            assert workspace is not None
+
+            texts = _chat_texts(workspace.query_one(TabbedMessagesPanel))
+            warnings = [t for t in texts if "expects environment variable" in t]
+            assert len(warnings) == 1
+            assert "HANDLER_TEST_MISSING_TOKEN" in warnings[0]
+
+            auth_panel = workspace.query_one(TabbedMessagesPanel)._get_auth_panel()
+            assert auth_panel.get_auth_type() == AuthType.BEARER
+            assert auth_panel.get_credentials() is None
+            assert not workspace.query_one("#bearer-fields").has_class("hidden")

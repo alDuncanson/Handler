@@ -477,6 +477,10 @@ class TabbedMessagesPanel(Container):
                 credentials.custom_headers = custom_headers
         return credentials
 
+    def preselect_auth_type(self, auth_type: "AuthType | None") -> None:
+        """Open the Auth tab on a scheme without filling any value in."""
+        self._get_auth_panel().select_auth_type(auth_type)
+
     def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
         """Preconfigure auth and headers panel fields from resolved credentials."""
         auth_panel = self._get_auth_panel()
