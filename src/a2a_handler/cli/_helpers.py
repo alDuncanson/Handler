@@ -11,6 +11,13 @@ from a2a.client.errors import (
     A2AClientTimeoutError,
     AgentCardResolutionError,
 )
+from a2a.utils.errors import (
+    A2AError,
+    MethodNotFoundError,
+    TaskNotCancelableError,
+    TaskNotFoundError,
+    UnsupportedOperationError,
+)
 
 from a2a_handler.auth import (
     AuthCredentials,
@@ -172,6 +179,14 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         log.error("A2A client error: %s", e)
         message = str(e)
         error_code = "a2a_client_error"
+    elif isinstance(e, A2AError):
+        # The agent answered with a protocol error. That is a normal outcome
+        # with a clear meaning, not a crash, so no traceback.
+        log.error("Agent returned an error: %s", e)
+        message = str(e)
+        error_code = "a2a_error"
+        details = {"error": type(e).__name__, "agent_url": agent_url}
+        suggestion = _protocol_error_suggestion(e)
     elif isinstance(e, httpx.ConnectError):
         log.error("Connection refused to %s", agent_url)
         message = f"Connection refused: Is the server running at {agent_url}?"
@@ -204,6 +219,20 @@ def handle_client_error(e: Exception, agent_url: str, output: Output | None) -> 
         )
     else:
         print(f"Error [{error_code}]: {message}", file=sys.stderr)
+
+
+def _protocol_error_suggestion(error: A2AError) -> str | None:
+    """A next step for the protocol errors a user can act on."""
+    if isinstance(error, TaskNotCancelableError):
+        return (
+            "The task has probably already finished; `handler task get` shows "
+            "its current state"
+        )
+    if isinstance(error, TaskNotFoundError):
+        return "Check the task ID; the agent may have discarded the task"
+    if isinstance(error, (UnsupportedOperationError, MethodNotFoundError)):
+        return "This agent does not implement that operation"
+    return None
 
 
 def _resolve_env_secret(env_var: str, label: str) -> str:

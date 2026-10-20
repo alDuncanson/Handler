@@ -5,6 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import click
 import httpx
+from a2a.utils.errors import (
+    TaskNotCancelableError,
+    TaskNotFoundError,
+    UnsupportedOperationError,
+)
 import pytest
 from a2a.client.errors import (
     A2AClientError,
@@ -153,6 +158,38 @@ class TestHandleClientError:
         output.error.assert_called_once()
         call_args = output.error.call_args.kwargs["message"]
         assert "Generic A2A error" in call_args
+
+    def test_protocol_error_is_reported_without_a_traceback(self, caplog):
+        """A protocol error from the agent is a normal outcome, not a crash."""
+        output = MagicMock(spec=Output)
+        error = TaskNotCancelableError("Task cannot be canceled")
+
+        with caplog.at_level("ERROR"):
+            handle_client_error(error, "http://localhost:8000", output)
+
+        kwargs = output.error.call_args.kwargs
+        assert kwargs["code"] == "a2a_error"
+        assert kwargs["message"] == "Task cannot be canceled"
+        assert "already finished" in kwargs["suggestion"]
+        assert kwargs["details"]["error"] == "TaskNotCancelableError"
+        assert "Traceback" not in caplog.text
+        assert all(record.exc_info is None for record in caplog.records)
+
+    def test_task_not_found_suggests_checking_the_id(self):
+        output = MagicMock(spec=Output)
+
+        handle_client_error(TaskNotFoundError("nope"), "http://localhost:8000", output)
+
+        assert "task ID" in output.error.call_args.kwargs["suggestion"]
+
+    def test_unsupported_operation_names_the_agent_gap(self):
+        output = MagicMock(spec=Output)
+
+        handle_client_error(
+            UnsupportedOperationError("no"), "http://localhost:8000", output
+        )
+
+        assert "does not implement" in output.error.call_args.kwargs["suggestion"]
 
     def test_httpx_connect_error(self):
         """Test handling httpx.ConnectError."""
