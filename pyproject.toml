@@ -101,6 +101,7 @@ asyncio_mode = "auto"
 source = ["a2a_handler"]
 
 [tool.coverage.report]
+fail_under = 85
 show_missing = true
 skip_empty = true
 exclude_lines = [
