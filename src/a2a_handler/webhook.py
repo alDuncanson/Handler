@@ -21,7 +21,7 @@ from a2a_handler.common import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_MAX_STORED_NOTIFICATIONS = 100
-NOTIFICATION_TOKEN_HEADER = "x-a2a-notification-token"
+NOTIFICATION_TOKEN_HEADER = "x-a2a-notification-token"  # noqa: S105
 
 
 @dataclass

@@ -1,12 +1,12 @@
 """Agent card panel component for displaying agent metadata and capabilities."""
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from a2a.types import AgentCard
 from rich.syntax import Syntax
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Vertical, VerticalScroll
 from textual.widgets import Static
 
@@ -27,7 +27,7 @@ TEXTUAL_TO_SYNTAX_THEME_MAP: dict[str, str] = {
 class AgentCardPanel(Container):
     """Panel displaying agent card information with tabs."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding(
             "j", "scroll_down", "\u2193 Scroll", show=False, key_display="j/\u2193"
         ),

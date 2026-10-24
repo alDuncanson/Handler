@@ -97,7 +97,7 @@ def _credentials_to_skeleton_dict(
         if credentials.auth_type == AuthType.OIDC and credentials.issuer_url:
             entry["issuer_url"] = credentials.issuer_url
         entry["client_id_env"] = "CLIENT_ID"
-        entry["client_secret_env"] = "CLIENT_SECRET"
+        entry["client_secret_env"] = "CLIENT_SECRET"  # noqa: S105
         if credentials.scopes:
             entry["scopes"] = list(credentials.scopes)
         return entry

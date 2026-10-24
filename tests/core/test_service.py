@@ -2,10 +2,13 @@
 
 import copy
 import json
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from a2a.client.card_resolver import parse_agent_card
+from a2a.client.errors import AgentCardResolutionError
 from a2a.types import (
     AgentCard,
     AgentExtension,
@@ -20,59 +23,54 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from typing import Any, cast
+from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
 
 from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
-from a2a.client.card_resolver import parse_agent_card
-from a2a.client.errors import AgentCardResolutionError
-from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
-from a2a_handler.service import (
-    A2AService,
-    ExtendedCardNotSupportedError,
-    MAX_INLINE_FILE_BYTES,
-    PushConfigAmbiguousError,
-    PushConfigNotFoundError,
-    StreamEvent,
-    TASK_STATE_LABELS,
-    TERMINAL_TASK_STATES,
-    TransportNegotiationError,
-    attachment_part_from_spec,
-    card_extensions,
-    build_data_part,
-    build_file_part,
-    part_kind,
-    response_parts,
-    describe_non_text_parts,
-    save_parts,
-    card_protocol_version,
-    credential_origin,
-    part_data,
-    build_url_part,
-    extract_text,
-    extract_text_from_task,
-    extract_text_from_message_parts,
-    is_terminal,
-    protocol_dump,
-    response_context_id,
-    response_needs_auth,
-    response_state,
-    response_task_id,
-    negotiate_transport_binding,
-    supported_transport_bindings,
-    task_state_from_label,
-    to_json_dict,
-    UNKNOWN_PROTOCOL_VERSION,
-)
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
     LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+    MAX_INLINE_FILE_BYTES,
+    TASK_STATE_LABELS,
+    TERMINAL_TASK_STATES,
+    UNKNOWN_PROTOCOL_VERSION,
+    A2AService,
+    ExtendedCardNotSupportedError,
+    PushConfigAmbiguousError,
+    PushConfigNotFoundError,
+    StreamEvent,
+    TransportNegotiationError,
+    attachment_part_from_spec,
+    build_data_part,
+    build_file_part,
+    build_url_part,
+    card_extensions,
+    card_protocol_version,
+    credential_origin,
+    describe_non_text_parts,
+    extract_text,
+    extract_text_from_message_parts,
+    extract_text_from_task,
+    is_terminal,
+    negotiate_transport_binding,
+    part_data,
+    part_kind,
+    protocol_dump,
+    response_context_id,
+    response_needs_auth,
+    response_parts,
+    response_state,
+    response_task_id,
+    save_parts,
+    supported_transport_bindings,
+    task_state_from_label,
+    to_json_dict,
 )
 from tests.factories import (
+    make_agent_card,
     make_artifact,
     make_data_part,
     make_file_part,
-    make_agent_card,
     make_message,
     make_push_config,
     make_stream_response,
@@ -294,7 +292,7 @@ class TestStreamEventStatusFields:
 
     def test_context_id_from_status_event(self):
         """Test context_id derived from status update event."""
-        from a2a.types import TaskStatusUpdateEvent, TaskStatus
+        from a2a.types import TaskStatus, TaskStatusUpdateEvent
 
         status_event = TaskStatusUpdateEvent(
             task_id="task-123",
@@ -306,7 +304,7 @@ class TestStreamEventStatusFields:
 
     def test_task_id_from_status_event(self):
         """Test task_id derived from status update event."""
-        from a2a.types import TaskStatusUpdateEvent, TaskStatus
+        from a2a.types import TaskStatus, TaskStatusUpdateEvent
 
         status_event = TaskStatusUpdateEvent(
             task_id="task-from-status",
@@ -318,7 +316,7 @@ class TestStreamEventStatusFields:
 
     def test_state_from_status_event(self):
         """Test state derived from status update event."""
-        from a2a.types import TaskStatusUpdateEvent, TaskStatus
+        from a2a.types import TaskStatus, TaskStatusUpdateEvent
 
         status_event = TaskStatusUpdateEvent(
             task_id="task-123",
@@ -334,7 +332,7 @@ class TestStreamEventArtifact:
 
     def test_context_id_from_artifact(self):
         """Test context_id derived from artifact event."""
-        from a2a.types import TaskArtifactUpdateEvent, Artifact
+        from a2a.types import Artifact, TaskArtifactUpdateEvent
 
         artifact_event = TaskArtifactUpdateEvent(
             task_id="task-123",
@@ -349,7 +347,7 @@ class TestStreamEventArtifact:
 
     def test_task_id_from_artifact(self):
         """Test task_id derived from artifact event."""
-        from a2a.types import TaskArtifactUpdateEvent, Artifact
+        from a2a.types import Artifact, TaskArtifactUpdateEvent
 
         artifact_event = TaskArtifactUpdateEvent(
             task_id="task-artifact",
@@ -368,8 +366,9 @@ class TestExtractTextFromTask:
 
     def test_extract_from_task_with_artifacts(self):
         """Test extracting text from task artifacts."""
-        from a2a_handler.service import extract_text_from_task
         from a2a.types import Artifact
+
+        from a2a_handler.service import extract_text_from_task
 
         task = Task(
             id="task-123",
@@ -410,8 +409,9 @@ class TestExtractTextFromTask:
 
     def test_extract_prefers_artifacts_over_history(self):
         """Test that artifacts take precedence over history."""
-        from a2a_handler.service import extract_text_from_task
         from a2a.types import Artifact
+
+        from a2a_handler.service import extract_text_from_task
 
         task = Task(
             id="task-123",
@@ -609,7 +609,7 @@ class TestBuildUserMessage:
         assert message.parts[0].HasField("data")
 
     def test_empty_message_is_refused(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="needs text or at least one attachment"):
             self._service()._build_user_message("")
 
 
@@ -1165,7 +1165,8 @@ class TestCredentialOriginScoping:
             )
             events = [event async for event in service.stream("hi")]
 
-        assert events and events[-1].task_id == "t1"
+        assert events
+        assert events[-1].task_id == "t1"
         assert "authorization" not in seen["https://elsewhere.example.net/rpc"]
 
     async def test_no_warning_when_the_card_stays_home(self, caplog):

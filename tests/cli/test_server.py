@@ -202,19 +202,19 @@ class TestServerAdd:
         with (
             patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
             patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+            mock_patch.dict(os.environ, {"TEST_BEARER": "tok"}),
         ):
-            with mock_patch.dict(os.environ, {"TEST_BEARER": "tok"}):
-                result = runner.invoke(
-                    server,
-                    [
-                        "add",
-                        "demo",
-                        "--url",
-                        "http://localhost:8000",
-                        "--bearer-env",
-                        "TEST_BEARER",
-                    ],
-                )
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "http://localhost:8000",
+                    "--bearer-env",
+                    "TEST_BEARER",
+                ],
+            )
 
         assert result.exit_code == 0
         data = tomllib.loads(path.read_text())
@@ -289,21 +289,21 @@ class TestServerAdd:
         with (
             patch("a2a_handler.cli.server._resolve_servers_path", return_value=path),
             patch("a2a_handler.cli.server._inspect_server_sources", return_value=[]),
+            mock_patch.dict(os.environ, {"TEST_API_KEY": "key-123"}),
         ):
-            with mock_patch.dict(os.environ, {"TEST_API_KEY": "key-123"}):
-                result = runner.invoke(
-                    server,
-                    [
-                        "add",
-                        "demo",
-                        "--url",
-                        "http://localhost:8000",
-                        "--api-key-env",
-                        "TEST_API_KEY",
-                        "--api-key-header",
-                        "X-Custom",
-                    ],
-                )
+            result = runner.invoke(
+                server,
+                [
+                    "add",
+                    "demo",
+                    "--url",
+                    "http://localhost:8000",
+                    "--api-key-env",
+                    "TEST_API_KEY",
+                    "--api-key-header",
+                    "X-Custom",
+                ],
+            )
 
         assert result.exit_code == 0
         data = tomllib.loads(path.read_text())

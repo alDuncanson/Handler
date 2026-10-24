@@ -4,11 +4,11 @@ from pathlib import Path
 
 from a2a_handler.auth import AuthType
 from a2a_handler.servers import (
-    literal_secret_warning,
     ServerAuthConfig,
     ServerDefinition,
     ServerSource,
     find_git_root,
+    literal_secret_warning,
     load_server_catalog,
     load_servers,
     resolve_server_credentials,
@@ -793,9 +793,11 @@ def test_literal_auth_value_warns_but_still_resolves(tmp_path: Path, caplog) -> 
     with caplog.at_level("WARNING"):
         credentials, warning = resolve_server_credentials(server_def)
 
-    assert credentials is not None and credentials.value == "literal-token"
+    assert credentials is not None
+    assert credentials.value == "literal-token"
     assert warning is None
-    assert "plain text" in caplog.text and 'env = "VAR_NAME"' in caplog.text
+    assert "plain text" in caplog.text
+    assert 'env = "VAR_NAME"' in caplog.text
     assert "literal-token" not in caplog.text
 
 
@@ -810,7 +812,8 @@ def test_env_backed_auth_does_not_warn(tmp_path: Path, caplog, monkeypatch) -> N
     with caplog.at_level("WARNING"):
         credentials, _warning = resolve_server_credentials(server_def)
 
-    assert credentials is not None and credentials.value == "from-env"
+    assert credentials is not None
+    assert credentials.value == "from-env"
     assert "plain text" not in caplog.text
     assert literal_secret_warning(server_def) is None
 
@@ -854,7 +857,8 @@ def test_headers_ride_on_credentials_without_auth(tmp_path: Path) -> None:
 
     credentials, warning = resolve_server_credentials(server_def)
 
-    assert warning is None and credentials is not None
+    assert warning is None
+    assert credentials is not None
     assert credentials.custom_headers == {"X-Remy-User": "alice"}
     assert credentials.to_headers() == {"X-Remy-User": "alice"}
 
@@ -871,7 +875,8 @@ def test_headers_merge_with_the_auth_scheme(tmp_path: Path, monkeypatch) -> None
 
     credentials, warning = resolve_server_credentials(server_def)
 
-    assert warning is None and credentials is not None
+    assert warning is None
+    assert credentials is not None
     assert credentials.to_headers() == {
         "X-Remy-User": "alice",
         "Authorization": "Bearer tok",
@@ -891,4 +896,5 @@ def test_headers_do_not_mask_an_auth_failure(tmp_path: Path, monkeypatch) -> Non
     credentials, warning = resolve_server_credentials(server_def)
 
     assert credentials is None
-    assert warning is not None and "REMY_TOKEN" in warning
+    assert warning is not None
+    assert "REMY_TOKEN" in warning

@@ -1,7 +1,7 @@
 """Card commands for agent card operations."""
 
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 import click
 from a2a.types import AgentCard
@@ -47,11 +47,11 @@ def card() -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def card_get(
-    agent_url: Optional[str],
-    server_name: Optional[str],
+    agent_url: str | None,
+    server_name: str | None,
     extended: bool,
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Retrieve an agent's card.
 
@@ -91,7 +91,7 @@ def card_get(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_get())
 
@@ -119,11 +119,11 @@ def _format_agent_card(card_data: object, output: Output) -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def card_validate(
-    agent_url: Optional[str],
-    file_path: Optional[str],
-    server_name: Optional[str],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    agent_url: str | None,
+    file_path: str | None,
+    server_name: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Validate an agent card from URL or file.
 

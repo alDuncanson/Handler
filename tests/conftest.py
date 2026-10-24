@@ -2,8 +2,8 @@
 
 import pytest
 
-from a2a_handler.common.output import configure_output
 from a2a_handler.cli._helpers import configure_http_timeouts
+from a2a_handler.common.output import configure_output
 
 
 @pytest.fixture(autouse=True)

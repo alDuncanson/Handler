@@ -223,7 +223,7 @@ def update() -> None:
         )
         raise SystemExit(1)
 
-    result = subprocess.run(command, check=False)
+    result = subprocess.run(command, check=False)  # noqa: S603
     if result.returncode != 0:
         output.error(
             code="update_failed",

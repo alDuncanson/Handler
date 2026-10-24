@@ -3,9 +3,9 @@
 import asyncio
 from pathlib import Path
 from typing import Any
-from typing import Optional
 
 import click
+from a2a.types import Task
 
 from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import (
@@ -19,25 +19,24 @@ from a2a_handler.common.input_validation import (
     validate_resource_id,
     validate_webhook_url,
 )
-from a2a.types import Task
 from a2a_handler.service import (
-    save_response_parts,
-    A2AService,
     TASK_STATE_LABELS,
+    A2AService,
     TaskListing,
     protocol_dump,
     push_config_dump,
     response_state,
+    save_response_parts,
     state_label,
     task_state_from_label,
 )
 
 from ._helpers import (
-    report_saved_parts,
     build_http_client,
     build_streaming_http_client,
     handle_client_error,
     handle_validation_error,
+    report_saved_parts,
     require_task_id,
     resolve_agent_selection,
     resolve_selection_credentials,
@@ -79,15 +78,15 @@ def task() -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_get(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
-    history_length: Optional[int],
-    save_dir: Optional[Path],
-    json_params: Optional[str],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
+    history_length: int | None,
+    save_dir: Path | None,
+    json_params: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Retrieve the current status of a task.
 
@@ -146,7 +145,7 @@ def task_get(
                     report_saved_parts(saved, output)
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_get())
 
@@ -180,15 +179,15 @@ def task_get(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_list(
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    context_id: Optional[str],
-    status: Optional[str],
-    page_size: Optional[int],
-    history_length: Optional[int],
+    agent_url: str | None,
+    server_name: str | None,
+    context_id: str | None,
+    status: str | None,
+    page_size: int | None,
+    history_length: int | None,
     include_artifacts: bool,
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """List the agent's tasks, following pagination to the end.
 
@@ -204,7 +203,7 @@ def task_list(
     selection = resolve_agent_selection(agent_url, server_name)
     resolved_url = selection.agent_url
 
-    status_value: Optional[int] = None
+    status_value: int | None = None
     try:
         validate_agent_url(resolved_url)
         if context_id:
@@ -235,7 +234,7 @@ def task_list(
                 _format_task_list(listing, output)
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_list())
 
@@ -290,12 +289,12 @@ def _format_task_list(listing: TaskListing, output: Output) -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_cancel(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Request cancellation of a task.
 
@@ -332,7 +331,7 @@ def task_cancel(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_cancel())
 
@@ -349,12 +348,12 @@ def task_cancel(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def task_resubscribe(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Resubscribe to a task's SSE stream after disconnection.
 
@@ -403,7 +402,7 @@ def task_resubscribe(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_resubscribe())
 
@@ -435,14 +434,14 @@ def task_notification() -> None:
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def notification_set(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
     webhook_url: str,
-    token: Optional[str],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    token: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Configure a push notification webhook for a task.
 
@@ -482,7 +481,7 @@ def notification_set(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_set())
 
@@ -504,13 +503,13 @@ def notification_set(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def notification_list(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
-    page_size: Optional[int],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
+    page_size: int | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """List a task's push notification configs, following pagination to the end.
 
@@ -554,7 +553,7 @@ def notification_list(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_list())
 
@@ -574,13 +573,13 @@ def notification_list(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def notification_remove(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
     config_id: str,
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Remove a push notification config from a task.
 
@@ -624,7 +623,7 @@ def notification_remove(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_remove())
 
@@ -642,13 +641,13 @@ def notification_remove(
     "--api-key-env", "-k", help="Env var containing API key (overrides saved)"
 )
 def notification_get(
-    task_id_arg: Optional[str],
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    task_id: Optional[str],
-    config_id: Optional[str],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    task_id_arg: str | None,
+    agent_url: str | None,
+    server_name: str | None,
+    task_id: str | None,
+    config_id: str | None,
+    bearer_env: str | None,
+    api_key_env: str | None,
 ) -> None:
     """Get the push notification configuration for a task.
 
@@ -690,6 +689,6 @@ def notification_get(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_get())

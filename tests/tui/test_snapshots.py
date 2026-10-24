@@ -34,7 +34,6 @@ from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.components import TabbedMessagesPanel
 from tests.factories import make_agent_card
 
-
 SNAPSHOT_VERSION = "0.0.0"
 
 

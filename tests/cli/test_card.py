@@ -4,17 +4,17 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from unittest.mock import patch as mock_patch
 
 import pytest
-from click.testing import CliRunner
 from a2a.types import AgentCard, AgentExtension, AgentSkill
+from click.testing import CliRunner
 
 from a2a_handler.cli import cli
-from a2a_handler.cli.card import card, _format_agent_card, _format_validation_result
+from a2a_handler.cli.card import _format_agent_card, _format_validation_result, card
 from a2a_handler.common import Output
-from a2a_handler.validation import ValidationResult, ValidationIssue, ValidationSource
+from a2a_handler.validation import ValidationIssue, ValidationResult, ValidationSource
 from tests.factories import make_agent_card
 
 

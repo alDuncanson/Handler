@@ -12,7 +12,7 @@ import os
 import stat
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,15 +32,13 @@ def _set_owner_only_permissions(path: Path) -> None:
 
     Silently ignored on platforms where chmod is not effective (e.g. Windows).
     """
-    try:
+    with contextlib.suppress(OSError):
         path.chmod(_OWNER_RW)
-    except OSError:
-        pass
 
 
 def _current_timestamp() -> str:
     """Return an ISO 8601 UTC timestamp for recency tracking."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass

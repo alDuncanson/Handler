@@ -2,12 +2,10 @@
 
 import json
 import os
-
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from unittest.mock import patch as mock_patch
 
-from click.testing import CliRunner
+import pytest
 from a2a.types import (
     Message,
     Part,
@@ -16,6 +14,7 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
+from click.testing import CliRunner
 
 from a2a_handler.cli import cli
 from a2a_handler.cli.task import task
@@ -136,7 +135,8 @@ class TestTaskGet:
         assert result.exit_code == 0, result.output
         assert (out_dir / "pixel.png").read_bytes() == b"png-bytes"
         assert json.loads((out_dir / "task-123-2.json").read_text()) == {"k": "v"}
-        assert "saved" in result.output and "pixel.png" in result.output
+        assert "saved" in result.output
+        assert "pixel.png" in result.output
 
     def test_task_get_with_history_length(self, runner):
         """Test task get with history length option."""
@@ -325,7 +325,7 @@ class TestTaskIdArgument:
     """Tests for supplying a task ID positionally instead of with --task."""
 
     @pytest.mark.parametrize(
-        "command,extra",
+        ("command", "extra"),
         [
             ("get", []),
             ("cancel", []),
@@ -1098,9 +1098,10 @@ class TestFormatTask:
 
     def test_format_task_completed(self):
         """Test formatting a completed task emits JSON."""
+        from unittest.mock import MagicMock
+
         from a2a_handler.cli.task import _format_task
         from a2a_handler.common import Output
-        from unittest.mock import MagicMock
 
         mock_task = Task(
             id="task-123",
@@ -1126,9 +1127,10 @@ class TestFormatTask:
 
     def test_format_task_no_text(self):
         """Test formatting a task without text emits JSON."""
+        from unittest.mock import MagicMock
+
         from a2a_handler.cli.task import _format_task
         from a2a_handler.common import Output
-        from unittest.mock import MagicMock
 
         mock_task = _make_task(TaskState.TASK_STATE_WORKING)
 

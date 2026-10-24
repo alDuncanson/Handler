@@ -2,9 +2,8 @@
 
 import os
 
-from textual.app import App, ComposeResult
-
 import pytest
+from textual.app import App, ComposeResult
 
 from a2a_handler.auth import (
     AuthCredentials,

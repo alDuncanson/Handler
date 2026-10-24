@@ -10,8 +10,8 @@ from unittest.mock import patch as mock_patch
 import pytest
 from click.testing import CliRunner
 
-from a2a_handler.cli._helpers import build_http_client, build_streaming_http_client
 from a2a_handler.cli import cli
+from a2a_handler.cli._helpers import build_http_client, build_streaming_http_client
 
 
 @pytest.fixture

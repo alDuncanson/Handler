@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 import tempfile
@@ -11,15 +12,15 @@ from typing import cast
 
 import click
 
-from a2a_handler.common import Output, get_logger
 from a2a_handler.auth import parse_header_string
+from a2a_handler.common import Output, get_logger
 from a2a_handler.common.input_validation import (
     InputValidationError,
     validate_header_name,
 )
 from a2a_handler.servers import (
-    SERVERS_FILENAME,
     SERVER_SCHEMA_VERSION,
+    SERVERS_FILENAME,
     ServerCatalog,
     ServerDefinition,
     ServerLoadDiagnostic,
@@ -27,8 +28,8 @@ from a2a_handler.servers import (
     ServerSource,
     find_git_root,
     inspect_servers_file,
-    load_server_catalog,
     literal_secret_warning,
+    load_server_catalog,
     resolve_server_credentials,
     server_file_path,
     server_source_label,
@@ -113,10 +114,8 @@ _OWNER_RW = stat.S_IRUSR | stat.S_IWUSR  # 0o600
 
 
 def _set_owner_only_permissions(path: Path) -> None:
-    try:
+    with contextlib.suppress(OSError):
         path.chmod(_OWNER_RW)
-    except OSError:
-        pass
 
 
 def _toml_encode_value(value: object) -> str:

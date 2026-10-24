@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.message import Message
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, VerticalScroll
+from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Collapsible, Label, ListItem, ListView, Static
 
@@ -177,7 +177,7 @@ class ArtifactDetailPanel(VerticalScroll):
 class ArtifactsPanel(Container):
     """Panel with split view: artifact list on left, details on right."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("j", "cursor_down", "↓ Select", show=False, key_display="j/↓"),
         Binding("k", "cursor_up", "↑ Select", show=False, key_display="k/↑"),
         Binding("down", "cursor_down", "Down", show=False),
@@ -200,7 +200,10 @@ class ArtifactsPanel(Container):
     can_focus = False
 
     selected_index: reactive[int] = reactive(0)
-    _artifacts: list[ArtifactEntry] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._artifacts: list[ArtifactEntry] = []
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="artifacts-split"):

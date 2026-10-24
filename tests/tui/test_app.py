@@ -15,18 +15,19 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
-from textual.app import App as TextualApp, SystemCommand
+from textual.app import App as TextualApp
+from textual.app import SystemCommand
 from textual.widgets import Button, HelpPanel, Input, Select, Static, Tab, Tabs
 
 from a2a_handler import __version__
 from a2a_handler.auth import AuthType, create_bearer_auth
-from a2a_handler.service import StreamEvent, extract_text
 from a2a_handler.servers import (
     ServerAuthConfig,
     ServerCatalog,
     ServerDefinition,
     ServerSource,
 )
+from a2a_handler.service import StreamEvent, extract_text
 from a2a_handler.session import AgentSession
 from a2a_handler.tui import HandlerTUI
 from a2a_handler.tui.app import HandlerTUI as HandlerTUIApplication
@@ -97,7 +98,7 @@ def _stub_stream(mock_service: AsyncMock, turns: list[_TurnPayload]) -> list[obj
     """
     calls: list[object] = []
 
-    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):
         if attachments is not None:
             calls.append(
                 call(
@@ -2218,7 +2219,7 @@ async def test_send_shows_loading_indicator_while_waiting_for_response() -> None
     send_started = asyncio.Event()
     release_response = asyncio.Event()
 
-    def slow_stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+    def slow_stream(text, *, context_id=None, task_id=None, attachments=None):
         async def events():
             send_started.set()
             await release_response.wait()
@@ -2456,7 +2457,7 @@ async def test_streaming_updates_render_before_the_turn_finishes() -> None:
         text="Finishing up",
     )
 
-    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):
         async def events():
             yield working
             streaming_started.set()
@@ -2594,7 +2595,7 @@ async def test_cancel_button_stops_the_turn_and_asks_the_agent() -> None:
         text="Working on it",
     )
 
-    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):
         async def events():
             yield working
             streaming_started.set()
@@ -2670,7 +2671,7 @@ async def test_cancel_before_any_text_says_so_plainly() -> None:
         ),
     )
 
-    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):
         async def events():
             yield silent
             started.set()
@@ -2928,7 +2929,7 @@ def _subscribing_service(card, task, events):
     mock_service.get_card.return_value = card
     mock_service.get_task.return_value = task
 
-    def resubscribe(task_id):  # noqa: ANN001
+    def resubscribe(task_id):
         async def gen():
             for event in events:
                 yield event

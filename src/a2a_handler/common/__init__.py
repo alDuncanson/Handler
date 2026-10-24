@@ -16,15 +16,14 @@ from .logging import (
     install_tui_log_handler,
     setup_logging,
 )
-from .output import Output
-from .output import configure_output
+from .output import Output, configure_output
 
 __all__ = [
     "LogLevel",
     "LogRecord",
     "Output",
-    "configure_output",
     "TUILogHandler",
+    "configure_output",
     "get_logger",
     "get_theme",
     "get_tui_log_handler",

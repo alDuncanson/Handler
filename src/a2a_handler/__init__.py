@@ -9,4 +9,4 @@ from a2a_handler.tui import HandlerTUI, main
 
 __version__ = version("a2a-handler")
 
-__all__ = ["__version__", "HandlerTUI", "main"]
+__all__ = ["HandlerTUI", "__version__", "main"]

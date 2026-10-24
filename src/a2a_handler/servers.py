@@ -13,10 +13,10 @@ import os
 import re
 import ssl
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Mapping
 
 from platformdirs import user_config_dir
 

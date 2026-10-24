@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Sequence
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -70,7 +70,7 @@ def _service_streaming(
     service = AsyncMock()
     calls: list[str | None] = []
 
-    def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+    def stream(text, *, context_id=None, task_id=None, attachments=None):
         calls.append(task_id)
 
         async def gen() -> AsyncIterator[StreamEvent]:
@@ -232,7 +232,7 @@ class TestStaleTaskRetry:
         assert turn.result.failed is True
 
     @pytest.mark.parametrize(
-        "message,expected",
+        ("message", "expected"),
         [
             ("Task task-1 does not exist", True),
             ("task not found", True),
@@ -285,7 +285,7 @@ class TestCancel:
         """Cancelling the consuming task still leaves a usable result."""
         started = asyncio.Event()
 
-        def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+        def stream(text, *, context_id=None, task_id=None, attachments=None):
             async def gen() -> AsyncIterator[StreamEvent]:
                 yield _status_event(TaskState.TASK_STATE_WORKING)
                 started.set()
@@ -316,7 +316,7 @@ class TestSummarize:
     """The one-line description used for notices and logs."""
 
     @pytest.mark.parametrize(
-        "state,expected",
+        ("state", "expected"),
         [
             (TaskState.TASK_STATE_COMPLETED, "done"),
             (TaskState.TASK_STATE_INPUT_REQUIRED, "waiting for your reply"),
@@ -436,7 +436,7 @@ class TestNarration:
         """Cancelling the consumer keeps whatever the agent had already said."""
         started = asyncio.Event()
 
-        def stream(text, *, context_id=None, task_id=None, attachments=None):  # noqa: ANN001, ARG001
+        def stream(text, *, context_id=None, task_id=None, attachments=None):
             async def gen() -> AsyncIterator[StreamEvent]:
                 yield _status_event(TaskState.TASK_STATE_WORKING, "halfway there")
                 started.set()
@@ -468,7 +468,7 @@ def _service_subscribing(events: Sequence[StreamEvent]) -> AsyncMock:
     service = AsyncMock()
     calls: list[str] = []
 
-    def resubscribe(task_id):  # noqa: ANN001
+    def resubscribe(task_id):
         calls.append(task_id)
 
         async def gen() -> AsyncIterator[StreamEvent]:
@@ -518,7 +518,7 @@ class TestAttach:
     async def test_attach_to_a_vanished_task_is_an_error_not_a_resend(self):
         service = AsyncMock()
 
-        def resubscribe(task_id):  # noqa: ANN001
+        def resubscribe(task_id):
             async def gen() -> AsyncIterator[StreamEvent]:
                 raise A2AClientError("Task not found")
                 yield  # pragma: no cover
@@ -533,7 +533,8 @@ class TestAttach:
 
         await _drain(turn)
 
-        assert turn.result is not None and turn.result.error is not None
+        assert turn.result is not None
+        assert turn.result.error is not None
 
     def test_attach_requires_a_task_id(self):
         with pytest.raises(ValueError, match="task ID"):
