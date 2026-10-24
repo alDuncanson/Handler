@@ -659,7 +659,6 @@ class _FakeListTasksClient:
         return self.pages[len(self.requests) - 1]
 
 
-@pytest.mark.asyncio
 class TestA2AServiceListTasks:
     """Tests for A2AService.list_tasks and list_all_tasks."""
 
@@ -896,7 +895,6 @@ class TestCardProtocolVersion:
         assert card_protocol_version(None, {"name": "x"}) == UNKNOWN_PROTOCOL_VERSION
 
 
-@pytest.mark.asyncio
 class TestServiceKeepsServedCard:
     async def test_protocol_version_comes_from_the_served_json(self):
         raw = {
@@ -1021,7 +1019,6 @@ class TestServiceKeepsServedCard:
                 await service.get_card()
 
 
-@pytest.mark.asyncio
 class TestCredentialOriginScoping:
     """Credentials must only ever reach the origin the user configured."""
 
