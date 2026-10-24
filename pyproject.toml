@@ -129,7 +129,7 @@ ignore = [
 source = ["a2a_handler"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 88
 show_missing = true
 skip_empty = true
 exclude_lines = [
