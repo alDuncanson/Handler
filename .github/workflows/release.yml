@@ -71,7 +71,9 @@ jobs:
         with:
           generate_release_notes: true
           discussion_category_name: Announcements
-          files: dist/*
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
