@@ -1,7 +1,5 @@
 """Session commands for managing saved conversation state."""
 
-from typing import Optional
-
 import click
 
 from a2a_handler.common import Output
@@ -49,7 +47,7 @@ def session_list() -> None:
 @session.command("show")
 @click.option("--url", "agent_url", help="Agent URL")
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
-def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
+def session_show(agent_url: str | None, server_name: str | None) -> None:
     """Display saved conversation state for an agent.
 
     \b
@@ -84,8 +82,8 @@ def session_show(agent_url: Optional[str], server_name: Optional[str]) -> None:
 @click.option("--server", "-s", "server_name", help="Named server from servers.toml")
 @click.option("--all", "-a", "clear_all", is_flag=True, help="Clear all sessions")
 def session_clear(
-    agent_url: Optional[str],
-    server_name: Optional[str],
+    agent_url: str | None,
+    server_name: str | None,
     clear_all: bool,
 ) -> None:
     """Clear saved conversation state.

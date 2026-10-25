@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from unittest.mock import patch as mock_patch
 
 import pytest
-from click.testing import CliRunner
 from a2a.types import (
     Message,
     Part,
@@ -15,12 +14,13 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from click.testing import CliRunner
 
 from a2a_handler.cli.message import (
-    message,
     _format_response,
     _stream_message,
     _stream_text_delta,
+    message,
 )
 from a2a_handler.common import Output
 from a2a_handler.service import StreamEvent

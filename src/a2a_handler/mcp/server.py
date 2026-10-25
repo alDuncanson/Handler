@@ -1,9 +1,8 @@
 """MCP server implementation exposing A2A capabilities as tools and resources."""
 
+import os
 from dataclasses import replace
 from typing import Literal
-
-import os
 
 import httpx
 from mcp.server.fastmcp import FastMCP

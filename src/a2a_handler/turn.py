@@ -151,7 +151,7 @@ class AgentTurn:
             return False
         try:
             await self.service.cancel_task(task_id)
-        except Exception as error:  # noqa: BLE001 - surfaced to the user, not raised
+        except Exception as error:
             logger.warning("Cancel request for task %s failed: %s", task_id, error)
             return False
         logger.info("Cancel requested for task %s", task_id)
@@ -170,8 +170,8 @@ class AgentTurn:
                 narration=self._last_narration,
             )
             raise
-        except Exception as error:  # noqa: BLE001 - reported as a result, not raised
-            logger.error("Turn failed: %s", error, exc_info=True)
+        except Exception as error:
+            logger.exception("Turn failed: %s", error)
             self.result = TurnResult(
                 context_id=self.context_id,
                 continue_task_id=self.task_id,
@@ -189,7 +189,7 @@ class AgentTurn:
             async for event in self._stream(self.task_id):
                 yield event
             return
-        except Exception as error:  # noqa: BLE001 - inspected, then re-raised
+        except Exception as error:
             # Attaching to a task that is gone has no fallback: there is no
             # message to resend without it.
             if self.attach or not (self.task_id and is_uncontinuable_task_error(error)):

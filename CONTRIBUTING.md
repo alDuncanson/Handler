@@ -53,3 +53,14 @@ default branch redeploy the docs automatically.
 - **Linting**: `ruff check`
 - **Type Checking**: `ty check`
 - **Testing**: pytest
+
+## Verifying a Release
+
+Every tagged build is attested. To check that an artifact really came from this
+repository's release workflow:
+
+```bash
+gh attestation verify dist/a2a_handler-*.whl --repo alDuncanson/Handler
+uvx pypi-attestations verify pypi --repository https://github.com/alDuncanson/Handler \
+  pypi:a2a_handler-<version>-py3-none-any.whl
+```

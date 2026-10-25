@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urljoin, urlparse
 
 from a2a.types import Task, TaskState
 from textual import on
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs
 
@@ -17,10 +17,10 @@ from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.service import (
     describe_non_text_parts,
-    response_parts,
     extract_text,
     part_kind,
     response_context_id,
+    response_parts,
     response_state,
     response_task_id,
     state_label,
@@ -198,7 +198,7 @@ class StreamingMessage(Container):
         try:
             self.query_one(".message-stream-state", Static).update(self._status)
             self.query_one(".message-body", Static).update(self._render_body())
-        except Exception:  # noqa: BLE001 - not mounted yet; compose() will render
+        except Exception:
             logger.debug("Streaming message not mounted yet; deferring update")
 
 
@@ -320,7 +320,7 @@ class ChatScrollContainer(VerticalScroll):
 class TabbedMessagesPanel(Container):
     """Panel with tabs for Messages and Logs."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("h", "previous_tab", "← Tab", show=False, key_display="h/←"),
         Binding("l", "next_tab", "→ Tab", show=False, key_display="l/→"),
         Binding("left", "previous_tab", "Previous Tab", show=False),
@@ -473,7 +473,7 @@ class TabbedMessagesPanel(Container):
         self._get_tasks_panel().clear()
         self._get_artifacts_panel().clear()
 
-    def get_auth_credentials(self) -> "AuthCredentials | None":
+    def get_auth_credentials(self) -> AuthCredentials | None:
         """Get configured auth credentials and custom headers."""
         auth_panel = self._get_auth_panel()
         credentials = auth_panel.get_credentials()
@@ -488,11 +488,11 @@ class TabbedMessagesPanel(Container):
                 credentials.custom_headers = custom_headers
         return credentials
 
-    def preselect_auth_type(self, auth_type: "AuthType | None") -> None:
+    def preselect_auth_type(self, auth_type: AuthType | None) -> None:
         """Open the Auth tab on a scheme without filling any value in."""
         self._get_auth_panel().select_auth_type(auth_type)
 
-    def set_auth_credentials(self, credentials: "AuthCredentials | None") -> None:
+    def set_auth_credentials(self, credentials: AuthCredentials | None) -> None:
         """Preconfigure auth and headers panel fields from resolved credentials."""
         auth_panel = self._get_auth_panel()
         headers_panel = self._get_headers_panel()
@@ -547,23 +547,23 @@ class TabbedMessagesPanel(Container):
 
         headers_panel.set_headers(credentials.custom_headers)
 
-    def add_task(self, task: "Task") -> None:
+    def add_task(self, task: Task) -> None:
         """Add a task to the tasks panel."""
         tasks_panel = self._get_tasks_panel()
         tasks_panel.add_task(task)
 
-    def update_task(self, task: "Task") -> None:
+    def update_task(self, task: Task) -> None:
         """Update an existing task or add if new."""
         tasks_panel = self._get_tasks_panel()
         tasks_panel.update_task(task)
 
-    def add_artifact(self, artifact: "Artifact", task_id: str, context_id: str) -> None:
+    def add_artifact(self, artifact: Artifact, task_id: str, context_id: str) -> None:
         """Add an artifact to the artifacts panel."""
         artifacts_panel = self._get_artifacts_panel()
         artifacts_panel.add_artifact(artifact, task_id, context_id)
 
     def update_artifact(
-        self, artifact: "Artifact", task_id: str, context_id: str
+        self, artifact: Artifact, task_id: str, context_id: str
     ) -> None:
         """Update an existing artifact or add if new."""
         artifacts_panel = self._get_artifacts_panel()

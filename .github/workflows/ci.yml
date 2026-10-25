@@ -10,23 +10,23 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    name: Check
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.14
 
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        run: uv sync --locked --all-extras --dev
 
       - name: Lint with Ruff
         run: uv run ruff check .
@@ -37,5 +37,101 @@ jobs:
       - name: Type check with ty
         run: uv run ty check
 
-      - name: Run tests
-        run: uv run pytest
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest and newest versions pyproject.toml claims to support.
+        python-version: ["3.11", "3.14"]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+
+      - name: Run tests with coverage
+        run: uv run pytest --cov --cov-report=term-missing --cov-report=json:coverage-report.json
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-report
+          path: coverage-report.json
+
+  check:
+    # The one status the main ruleset requires. It fails when any job above did,
+    # so adding or renaming jobs never silently loosens the gate.
+    name: Check
+    if: always()
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+
+  badge:
+    name: Coverage badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the badges branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: badges
+
+      - name: Download coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-report
+
+      - name: Write the shields.io endpoint file
+        run: |
+          python3 - <<'PY'
+          import json
+
+          percent = json.load(open("coverage-report.json"))["totals"]["percent_covered"]
+          color = (
+              "brightgreen" if percent >= 90
+              else "green" if percent >= 80
+              else "yellow" if percent >= 70
+              else "red"
+          )
+          badge = {
+              "schemaVersion": 1,
+              "label": "coverage",
+              "message": f"{percent:.0f}%",
+              "color": color,
+          }
+          with open("coverage.json", "w") as handle:
+              json.dump(badge, handle, indent=2)
+              handle.write("\n")
+          PY
+          rm coverage-report.json
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "Coverage unchanged"
+            exit 0
+          fi
+          git commit -m "coverage: $(python3 -c 'import json; print(json.load(open("coverage.json"))["message"])')"
+          git push

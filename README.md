@@ -1,6 +1,8 @@
 # Handler
 
 [![CI](https://github.com/alDuncanson/handler/actions/workflows/ci.yml/badge.svg)](https://github.com/alDuncanson/handler/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FalDuncanson%2FHandler%2Fbadges%2Fcoverage.json)](https://github.com/alDuncanson/Handler/actions/workflows/ci.yml)
+[![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://github.com/alDuncanson/Handler/attestations)
 [![A2A Protocol](https://img.shields.io/badge/A2A_Protocol-v1.0.0-blue)](https://a2a-protocol.org/latest/)
 [![PyPI version](https://img.shields.io/pypi/v/a2a-handler)](https://pypi.org/project/a2a-handler/)
 [![PyPI - Status](https://img.shields.io/pypi/status/a2a-handler)](https://pypi.org/project/a2a-handler/)

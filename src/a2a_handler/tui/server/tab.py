@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import contextlib
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import httpx
-from a2a.types import AgentCard, Message as A2AMessage, Part, Role, Task, TaskState
+from a2a.types import AgentCard, Part, Role, Task, TaskState
+from a2a.types import Message as A2AMessage
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -20,9 +21,9 @@ from textual.worker import Worker
 from a2a_handler.auth import AuthCredentials, AuthType
 from a2a_handler.common import get_logger
 from a2a_handler.common.input_validation import (
-    validate_resource_id,
     InputValidationError,
     validate_agent_url,
+    validate_resource_id,
 )
 from a2a_handler.servers import (
     ServerCatalog,
@@ -32,32 +33,23 @@ from a2a_handler.servers import (
     resolve_server_credentials,
 )
 from a2a_handler.service import (
-    save_parts,
     INTERRUPTED_TASK_STATES,
+    UNKNOWN_PROTOCOL_VERSION,
     A2AService,
     attachment_part_from_spec,
-    UNKNOWN_PROTOCOL_VERSION,
     card_protocol_version,
     extract_text_from_message_parts,
     part_file,
     required_extension_uris,
-    response_task_id,
     response_state,
+    response_task_id,
+    save_parts,
     state_label,
 )
 from a2a_handler.session import get_session_store
-from a2a_handler.tui.components.artifacts import ArtifactEntry
 from a2a_handler.tui.components import ArtifactsPanel, TabbedMessagesPanel
+from a2a_handler.tui.components.artifacts import ArtifactEntry
 from a2a_handler.tui.components.messages import StreamingMessage
-from a2a_handler.turn import (
-    AgentTurn,
-    TurnEvent,
-    TurnEventKind,
-    TurnResult,
-    state_is_settled,
-    state_needs_auth,
-    state_needs_input,
-)
 from a2a_handler.tui.server.session import resolve_saved_conversation
 from a2a_handler.tui.server.types import (
     MANUAL_SERVER_ID,
@@ -70,6 +62,15 @@ from a2a_handler.tui.server.types import (
     build_recent_server,
 )
 from a2a_handler.tui.server.views import ConnectionBar, ServerView
+from a2a_handler.turn import (
+    AgentTurn,
+    TurnEvent,
+    TurnEventKind,
+    TurnResult,
+    state_is_settled,
+    state_needs_auth,
+    state_needs_input,
+)
 
 logger = get_logger(__name__)
 
@@ -551,7 +552,7 @@ class ServerTab(Container):
             return agent_card, None
         try:
             extended_card = await self._agent_service.get_extended_card()
-        except Exception as error:  # noqa: BLE001 - reported to the user, not raised
+        except Exception as error:
             logger.warning(
                 "Extended card fetch failed for %s: %s", self.server_id, error
             )
@@ -682,7 +683,6 @@ class ServerTab(Container):
             context_id: str | None = None
             resumed_task_id: str | None = None
             if saved_conversation is not None:
-                assert saved_conversation is not None
                 context_id = saved_conversation.context_id
                 resumed_task_id = saved_conversation.task_id
 
@@ -720,12 +720,7 @@ class ServerTab(Container):
             self.post_message(self.TitleChanged(self.server_id, agent_card.name))
 
         except Exception as error:
-            logger.error(
-                "Connection failed for %s: %s",
-                self.server_id,
-                error,
-                exc_info=True,
-            )
+            logger.exception("Connection failed for %s: %s", self.server_id, error)
             messages_panel.add_system_message(f"Connection failed: {error!s}")
             if previous_state.mode == ServerConnectionMode.CONNECTED:
                 self.state = previous_state
@@ -850,7 +845,7 @@ class ServerTab(Container):
             return
         try:
             task = await self._agent_service.get_task(task_id)
-        except Exception as error:  # noqa: BLE001 - shown to the user
+        except Exception as error:
             messages_panel.add_system_message(f"Could not load task {task_id}: {error}")
             return
         state = response_state(task)
@@ -912,7 +907,7 @@ class ServerTab(Container):
                 http_client=http_client,
                 prefix=entry.artifact_id,
             )
-        except Exception as error:  # noqa: BLE001 - shown to the user
+        except Exception as error:
             messages_panel.add_system_message(f"Could not save artifact: {error}")
             return
         if not saved:
@@ -1102,9 +1097,7 @@ class ServerTab(Container):
         self._persist_session_state()
 
         if result.error is not None:
-            logger.error(
-                "Turn failed for %s: %s", self.server_id, result.error, exc_info=True
-            )
+            logger.error("Turn failed for %s: %s", self.server_id, result.error)
             messages_panel.add_system_message(f"Error: {result.error!s}")
             self._refresh_status_badges()
             return

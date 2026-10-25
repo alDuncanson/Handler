@@ -9,12 +9,12 @@ import pytest
 from a2a.types import AgentCard, AgentSkill
 from google.protobuf.json_format import ParseDict, ParseError
 
+from a2a_handler.service import to_json_dict
 from a2a_handler.validation import (
     ValidationSource,
     validate_agent_card_from_file,
     validate_agent_card_from_url,
 )
-from a2a_handler.service import to_json_dict
 from tests.factories import make_agent_card
 
 

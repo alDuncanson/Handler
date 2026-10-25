@@ -137,17 +137,19 @@ class TestMTLSAuth:
             create_mtls_auth("/nonexistent/cert.pem", "/nonexistent/key.pem")
 
     def test_create_mtls_auth_validates_key_exists(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".pem") as cert_file:
-            with pytest.raises(FileNotFoundError, match="Client private key not found"):
-                create_mtls_auth(cert_file.name, "/nonexistent/key.pem")
+        with (
+            tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
+            pytest.raises(FileNotFoundError, match="Client private key not found"),
+        ):
+            create_mtls_auth(cert_file.name, "/nonexistent/key.pem")
 
     def test_create_mtls_auth_validates_ca_cert_exists(self) -> None:
         with (
             tempfile.NamedTemporaryFile(suffix=".pem") as cert_file,
             tempfile.NamedTemporaryFile(suffix=".pem") as key_file,
+            pytest.raises(FileNotFoundError, match="CA certificate not found"),
         ):
-            with pytest.raises(FileNotFoundError, match="CA certificate not found"):
-                create_mtls_auth(cert_file.name, key_file.name, "/nonexistent/ca.pem")
+            create_mtls_auth(cert_file.name, key_file.name, "/nonexistent/ca.pem")
 
     def test_create_mtls_auth_success(self) -> None:
         with (
@@ -231,7 +233,7 @@ class TestBasicAuth:
         """Basic auth encodes username:password as base64."""
         creds = create_basic_auth("alice", "secret")
         headers = creds.to_headers()
-        # base64("alice:secret")
+        # Encodes alice:secret in base64.
         assert headers == {"Authorization": "Basic YWxpY2U6c2VjcmV0"}
 
     def test_basic_allows_empty_password(self) -> None:
@@ -308,9 +310,11 @@ class TestOIDCAuth:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(ValueError, match="no token_endpoint"):
-                await creds.discover_oidc_token_endpoint()
+        with (
+            patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client),
+            pytest.raises(ValueError, match="no token_endpoint"),
+        ):
+            await creds.discover_oidc_token_endpoint()
 
     async def test_fetch_token_discovers_then_posts(self) -> None:
         """An OIDC token fetch discovers the endpoint, then runs the grant."""
@@ -522,9 +526,11 @@ class TestOAuth2Auth:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(httpx.HTTPStatusError):
-                await creds.fetch_oauth2_token()
+        with (
+            patch("a2a_handler.auth.httpx.AsyncClient", return_value=mock_client),
+            pytest.raises(httpx.HTTPStatusError),
+        ):
+            await creds.fetch_oauth2_token()
 
     async def test_fetch_oauth2_token_missing_fields(self) -> None:
         """fetch_oauth2_token raises when OAuth2 fields are incomplete."""

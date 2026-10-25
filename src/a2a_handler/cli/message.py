@@ -1,12 +1,11 @@
 """Message commands for sending messages to A2A agents."""
 
 import asyncio
-from pathlib import Path
 import json
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
-from typing import Optional
 
 import click
 import httpx
@@ -28,9 +27,8 @@ from a2a_handler.common.input_validation import (
     validate_webhook_url,
 )
 from a2a_handler.service import (
-    save_response_parts,
-    A2AService,
     A2AResponse,
+    A2AService,
     StreamEvent,
     attachment_part_from_spec,
     build_data_part,
@@ -42,17 +40,18 @@ from a2a_handler.service import (
     response_context_id,
     response_state,
     response_task_id,
+    save_response_parts,
     state_label,
     to_json_dict,
 )
 from a2a_handler.session import get_session, update_session
 
 from ._helpers import (
-    report_saved_parts,
     build_http_client,
     build_streaming_http_client,
     handle_client_error,
     handle_validation_error,
+    report_saved_parts,
     resolve_agent_selection,
     resolve_selection_credentials,
 )
@@ -140,25 +139,25 @@ def message() -> None:
     help="Custom header (repeatable, format: 'Name: Value')",
 )
 def message_send(
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    text: Optional[str],
+    agent_url: str | None,
+    server_name: str | None,
+    text: str | None,
     files: tuple[str, ...],
     data_values: tuple[str, ...],
     stream: bool,
-    json_payload: Optional[str],
-    context_id: Optional[str],
-    task_id: Optional[str],
+    json_payload: str | None,
+    context_id: str | None,
+    task_id: str | None,
     use_session: bool,
     accepted_output_modes: tuple[str, ...],
-    history_length: Optional[int],
+    history_length: int | None,
     no_wait: bool,
-    push_url: Optional[str],
-    push_token: Optional[str],
-    save_dir: Optional[Path],
+    push_url: str | None,
+    push_token: str | None,
+    save_dir: Path | None,
     extensions: tuple[str, ...],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    bearer_env: str | None,
+    api_key_env: str | None,
     headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message to an agent and receive a response.
@@ -379,7 +378,7 @@ def message_send(
 
         except Exception as e:
             handle_client_error(e, resolved_url, output)
-            raise click.Abort()
+            raise click.Abort() from e
 
     asyncio.run(do_send())
 
@@ -393,9 +392,7 @@ def _build_attachments(
     Raises InputValidationError for an unreadable/oversized file or invalid
     JSON, so callers handle it alongside the other input checks.
     """
-    attachments: list[Part] = []
-    for file_spec in files:
-        attachments.append(attachment_part_from_spec(file_spec))
+    attachments: list[Part] = [attachment_part_from_spec(spec) for spec in files]
     for raw_value in data_values:
         try:
             value = json.loads(raw_value)
@@ -474,22 +471,22 @@ def _build_attachments(
 @click.pass_context
 def message_stream(
     ctx: click.Context,
-    agent_url: Optional[str],
-    server_name: Optional[str],
-    text: Optional[str],
+    agent_url: str | None,
+    server_name: str | None,
+    text: str | None,
     files: tuple[str, ...],
     data_values: tuple[str, ...],
-    context_id: Optional[str],
-    task_id: Optional[str],
+    context_id: str | None,
+    task_id: str | None,
     use_session: bool,
     accepted_output_modes: tuple[str, ...],
-    history_length: Optional[int],
-    push_url: Optional[str],
-    push_token: Optional[str],
-    save_dir: Optional[Path],
+    history_length: int | None,
+    push_url: str | None,
+    push_token: str | None,
+    save_dir: Path | None,
     extensions: tuple[str, ...],
-    bearer_env: Optional[str],
-    api_key_env: Optional[str],
+    bearer_env: str | None,
+    api_key_env: str | None,
     headers: tuple[str, ...] = (),
 ) -> None:
     """Send a message and stream the response in real-time.
@@ -528,13 +525,13 @@ def message_stream(
 async def _stream_message(
     service: A2AService,
     text: str,
-    context_id: Optional[str],
-    task_id: Optional[str],
+    context_id: str | None,
+    task_id: str | None,
     agent_url: str,
     output: Output,
     attachments: Sequence[Part] | None = None,
     accepted_output_modes: tuple[str, ...] | None = None,
-    history_length: Optional[int] = None,
+    history_length: int | None = None,
     save_dir: Path | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> None:

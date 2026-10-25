@@ -18,8 +18,8 @@ from textual.app import App, ComposeResult
 from textual.widgets import Markdown, TabbedContent
 
 from a2a_handler.auth import AuthType, create_oauth2_auth
-from a2a_handler.tui.components.logs import LogsPanel
 from a2a_handler.tui.components import ArtifactsPanel, TabbedMessagesPanel, TasksPanel
+from a2a_handler.tui.components.logs import LogsPanel
 from tests.factories import make_data_part, make_file_part
 
 
@@ -768,4 +768,5 @@ async def test_artifact_detail_shows_data_in_full_and_offers_save() -> None:
         await pilot.pause()
         assert len(posted) == 1
         assert isinstance(posted[0], ArtifactsPanel.SaveRequested)
-        assert posted[0].directory == "~/out" and posted[0].entry is entry
+        assert posted[0].directory == "~/out"
+        assert posted[0].entry is entry

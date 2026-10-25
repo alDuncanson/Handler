@@ -113,10 +113,10 @@ class ConnectionBar(Container):
                 ServerSource.RECENT: recent_servers,
             }[source]
             if servers:
-                for server_def in servers:
-                    options.append(
-                        (_picker_option_label(server_def), server_def.server_id)
-                    )
+                options.extend(
+                    (_picker_option_label(server_def), server_def.server_id)
+                    for server_def in servers
+                )
 
         options.append((MANUAL_SERVER_LABEL, MANUAL_SERVER_ID))
 

@@ -9,14 +9,15 @@ protocol types are constructed, inspected, and serialized. The rest of Handler
 directly.
 """
 
-import mimetypes
 import copy
 import ipaddress
 import json
+import mimetypes
 import uuid
+from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterable, Sequence, Union, cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -27,6 +28,7 @@ from a2a.client import Client, ClientConfig, ClientFactory
 # the served JSON, which the resolver discards.
 from a2a.client.card_resolver import parse_agent_card
 from a2a.client.errors import A2AClientError, AgentCardResolutionError
+from a2a.extensions.common import HTTP_EXTENSION_HEADER
 from a2a.helpers import (
     get_data_parts,
     get_text_parts,
@@ -58,7 +60,6 @@ from a2a.types import (
     TaskState,
     TaskStatusUpdateEvent,
 )
-from a2a.extensions.common import HTTP_EXTENSION_HEADER
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, TransportProtocol
 from a2a.utils.errors import ExtendedAgentCardNotConfiguredError
 from google.protobuf import json_format
@@ -150,7 +151,7 @@ class TransportNegotiationError(A2AClientError):
 def grpc_transport_available() -> bool:
     """Return whether the optional gRPC dependencies are installed."""
     try:
-        import grpc  # noqa: F401, PLC0415  # ty: ignore[unresolved-import]
+        import grpc  # noqa: F401  # ty: ignore[unresolved-import]
 
         return True
     except ImportError:
@@ -231,7 +232,7 @@ def credential_origin(url: str) -> tuple[str, str, int | None]:
 def _grpc_channel_factory(url: str) -> Any:
     """Create a gRPC channel for an agent interface URL."""
     # Only reachable when the optional grpc extra is installed.
-    import grpc  # noqa: PLC0415  # ty: ignore[unresolved-import]
+    import grpc  # ty: ignore[unresolved-import]
 
     parsed = urlparse(url)
     target = parsed.netloc or url
@@ -757,15 +758,19 @@ def extract_text_from_task(task: Task) -> str:
     extracted_texts = []
 
     if task.artifacts:
-        for artifact in task.artifacts:
-            if artifact.parts:
-                extracted_texts.append(extract_text_from_message_parts(artifact.parts))
+        extracted_texts.extend(
+            extract_text_from_message_parts(artifact.parts)
+            for artifact in task.artifacts
+            if artifact.parts
+        )
 
     # Only check history if no artifacts found (avoids duplication)
     if not extracted_texts and task.history:
-        for message in task.history:
-            if message.role == Role.ROLE_AGENT and message.parts:
-                extracted_texts.append(extract_text_from_message_parts(message.parts))
+        extracted_texts.extend(
+            extract_text_from_message_parts(message.parts)
+            for message in task.history
+            if message.role == Role.ROLE_AGENT and message.parts
+        )
 
     if not any(extracted_texts) and task.status.HasField("message"):
         extracted_texts.append(
@@ -775,7 +780,7 @@ def extract_text_from_task(task: Task) -> str:
     return "\n".join(text for text in extracted_texts if text)
 
 
-A2AResponse = Union[Task, Message]
+A2AResponse = Task | Message
 
 
 def response_context_id(response: A2AResponse) -> str | None:
@@ -1161,7 +1166,7 @@ class A2AService:
             # Its compatibility shims raise plain TypeError/AttributeError on
             # malformed cards, not only ParseError, so everything is wrapped.
             card = parse_agent_card(copy.deepcopy(card_data))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise AgentCardResolutionError(
                 f"Failed to validate agent card structure from {target_url}: {exc}"
             ) from exc

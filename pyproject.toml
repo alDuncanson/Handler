@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
@@ -75,7 +76,7 @@ Changelog = "https://github.com/alDuncanson/handler/releases"
 handler = "a2a_handler.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.9.15,<0.13.0"]
+requires = ["uv_build>=0.9.15,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
@@ -93,13 +94,42 @@ default = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "A",        # shadowed builtins
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "PT",       # pytest style
+    "ASYNC",    # async pitfalls
+    "S",        # bandit
+    "LOG", "G", # logging
+    "PERF",     # perflint
+    "N",        # pep8-naming
+    "ERA",      # commented-out code
+    "RUF",      # ruff-specific
+]
+ignore = [
+    "E501", # line length is ruff format's job
+    "S101", # asserts narrow types for ty; Handler never runs under -O
+]
+
 [tool.ruff.lint.per-file-ignores]
 "src/a2a_handler/cli/__init__.py" = ["E402"]
+# Textual widgets take `id`, like their base classes.
+"src/a2a_handler/tui/**" = ["A002"]
+# Tests monkeypatch with setattr and hold fixture secrets, paths, and bind addresses.
+"tests/**" = ["B009", "B010", "S104", "S105", "S106", "S108"]
 
 [tool.coverage.run]
 source = ["a2a_handler"]
 
 [tool.coverage.report]
+fail_under = 88
 show_missing = true
 skip_empty = true
 exclude_lines = [

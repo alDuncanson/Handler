@@ -1,12 +1,12 @@
 """Shared utilities for CLI commands."""
 
 import os
-from collections.abc import Sequence
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-import httpx
 import click
+import httpx
 from a2a.client.errors import (
     A2AClientError,
     A2AClientTimeoutError,
@@ -27,15 +27,15 @@ from a2a_handler.auth import (
     create_bearer_auth,
 )
 from a2a_handler.common import Output, get_logger
-from a2a_handler.service import SavedPart
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.servers import (
+    ServerDefinition,
     ServerLookupError,
     find_named_server,
     load_server_catalog,
-    ServerDefinition,
     resolve_server_credentials,
 )
+from a2a_handler.service import SavedPart
 
 TIMEOUT = 120
 _TIMEOUT_NONE_VALUES = {"none", "null", "off", "disabled"}

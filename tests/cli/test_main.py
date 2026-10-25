@@ -10,8 +10,8 @@ from unittest.mock import patch as mock_patch
 import pytest
 from click.testing import CliRunner
 
-from a2a_handler.cli._helpers import build_http_client, build_streaming_http_client
 from a2a_handler.cli import cli
+from a2a_handler.cli._helpers import build_http_client, build_streaming_http_client
 
 
 @pytest.fixture
@@ -258,3 +258,42 @@ def test_verbose_and_debug_lower_the_level(runner: CliRunner) -> None:
     assert logging.getLogger().getEffectiveLevel() == logging.INFO
     assert runner.invoke(cli, ["-d", "version"]).exit_code == 0
     assert logging.getLogger().getEffectiveLevel() == logging.DEBUG
+
+
+def test_update_reports_a_failed_installer_run(runner: CliRunner) -> None:
+    completed = subprocess.CompletedProcess(
+        args=["uv", "tool", "upgrade", "a2a-handler"], returncode=3
+    )
+    with (
+        patch(
+            "a2a_handler.cli.shutil.which",
+            side_effect=lambda name: "/bin/uv" if name == "uv" else None,
+        ),
+        patch("a2a_handler.cli.subprocess.run", return_value=completed),
+    ):
+        result = runner.invoke(cli, ["update"])
+
+    assert result.exit_code == 3
+    assert "Handler update command failed" in result.output
+    assert "returncode: 3" in result.output
+
+
+def test_mcp_command_starts_the_server_with_the_chosen_transport(
+    runner: CliRunner,
+) -> None:
+    with patch("a2a_handler.mcp.run_mcp_server") as run_server:
+        result = runner.invoke(cli, ["mcp", "--transport", "sse"])
+
+    assert result.exit_code == 0
+    run_server.assert_called_once_with(transport="sse")
+
+
+def test_web_command_serves_the_tui(runner: CliRunner) -> None:
+    with patch("textual_serve.server.Server") as server_cls:
+        result = runner.invoke(cli, ["web", "--host", "0.0.0.0", "--port", "9123"])
+
+    assert result.exit_code == 0
+    server_cls.assert_called_once_with(
+        command="handler tui", host="0.0.0.0", port=9123, title="Handler"
+    )
+    server_cls.return_value.serve.assert_called_once_with()

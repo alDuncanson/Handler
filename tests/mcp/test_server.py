@@ -1,8 +1,8 @@
 """Tests for MCP server tool registration and validation guards."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from a2a.types import (
     AgentCard,
     AgentSkill,
@@ -195,11 +195,11 @@ async def test_get_agent_card_extended_unsupported_raises_clear_error() -> None:
     with (
         patch("a2a_handler.mcp.server._build_http_client", return_value=_mock_http()),
         patch("a2a_handler.mcp.server.A2AService", return_value=mock_service),
-    ):
-        with pytest.raises(
+        pytest.raises(
             ExtendedCardNotSupportedError, match="does not offer an extended"
-        ):
-            await fn(agent_url="http://localhost:8000", extended=True)
+        ),
+    ):
+        await fn(agent_url="http://localhost:8000", extended=True)
 
 
 @pytest.mark.asyncio
@@ -442,10 +442,8 @@ async def test_list_tasks_rejects_negative_history_length() -> None:
     server = create_mcp_server()
     fn = _tool_fn(server, "list_tasks")
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(Exception, match="must not be negative"):
         await fn(agent_url="http://localhost:8000", history_length=-1)
-
-    assert "must not be negative" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -800,7 +798,7 @@ async def test_unset_bearer_env_fails_clearly(monkeypatch):
     monkeypatch.delenv("HANDLER_TEST_TOKEN", raising=False)
     fn = _tool_fn(create_mcp_server(), "get_agent_card")
 
-    with pytest.raises(ValueError, match="missing_env.*HANDLER_TEST_TOKEN"):
+    with pytest.raises(ValueError, match=r"missing_env.*HANDLER_TEST_TOKEN"):
         await fn(agent_url="http://localhost:8000", bearer_env="HANDLER_TEST_TOKEN")
 
 
@@ -849,12 +847,14 @@ async def test_named_server_with_unset_env_fails_closed(monkeypatch):
     )
     fn = _tool_fn(create_mcp_server(), "get_task")
 
-    with patch(
-        "a2a_handler.servers.load_server_catalog",
-        return_value=_catalog_with(server_def),
+    with (
+        patch(
+            "a2a_handler.servers.load_server_catalog",
+            return_value=_catalog_with(server_def),
+        ),
+        pytest.raises(ValueError, match=r"server_auth.*REMY_TOKEN"),
     ):
-        with pytest.raises(ValueError, match="server_auth.*REMY_TOKEN"):
-            await fn(server="remy", task_id="task-1")
+        await fn(server="remy", task_id="task-1")
 
 
 @pytest.mark.asyncio
@@ -871,6 +871,8 @@ async def test_unknown_named_server_is_an_error():
     from a2a_handler.servers import ServerCatalog
 
     fn = _tool_fn(create_mcp_server(), "list_tasks")
-    with patch("a2a_handler.servers.load_server_catalog", return_value=ServerCatalog()):
-        with pytest.raises(ValueError, match="unknown_server.*'nope' not found"):
-            await fn(server="nope")
+    with (
+        patch("a2a_handler.servers.load_server_catalog", return_value=ServerCatalog()),
+        pytest.raises(ValueError, match=r"unknown_server.*'nope' not found"),
+    ):
+        await fn(server="nope")

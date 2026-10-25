@@ -7,12 +7,12 @@ from types import SimpleNamespace
 from typing import cast
 
 from a2a_handler.auth import (
-    create_basic_auth,
-    create_oidc_auth,
     AuthCredentials,
     AuthType,
     create_api_key_auth,
+    create_basic_auth,
     create_bearer_auth,
+    create_oidc_auth,
 )
 from a2a_handler.cli.server import _read_toml
 from a2a_handler.servers import (
@@ -392,7 +392,8 @@ def test_save_connections_to_workspace_uses_oidc_panel_skeleton(
         "scopes": ["openid"],
     }
     text = config_path.read_text()
-    assert "real-id" not in text and "real-secret" not in text
+    assert "real-id" not in text
+    assert "real-secret" not in text
     _assert_saved_file_loads(config_path, "oidc_agent")
 
 

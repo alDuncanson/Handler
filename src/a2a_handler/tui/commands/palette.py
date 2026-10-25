@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from a2a_handler.tui.app import HandlerTUI
 
 
-def iter_custom_system_commands(app: "HandlerTUI") -> Iterable[SystemCommand]:
+def iter_custom_system_commands(app: HandlerTUI) -> Iterable[SystemCommand]:
     """Yield app-specific command palette entries."""
     server_tabs = app.query_one(ServerTabs)
     active = server_tabs.get_active_server()

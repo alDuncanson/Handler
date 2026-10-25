@@ -14,15 +14,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+import httpx
 
 from a2a_handler.common.input_validation import (
     check_key_file_permissions,
     validate_header_name,
     validate_token_url,
 )
-
-import httpx
-
 
 _TOKEN_EXPIRY_MARGIN = 30  # seconds before expiry to trigger refresh
 
@@ -82,7 +80,7 @@ class AuthCredentials:
             val = getattr(self, secret_field)
             redacted[secret_field] = "***" if val else None
         if self.custom_headers:
-            redacted["custom_headers"] = {k: "***" for k in self.custom_headers}
+            redacted["custom_headers"] = dict.fromkeys(self.custom_headers, "***")
         return f"AuthCredentials({redacted})"
 
     def to_headers(self) -> dict[str, str]:
@@ -94,9 +92,9 @@ class AuthCredentials:
         headers: dict[str, str] = {}
         if self.custom_headers:
             headers.update(self.custom_headers)
-        if self.auth_type == AuthType.BEARER and self.value:
-            headers["Authorization"] = f"Bearer {self.value}"
-        elif self.auth_type in TOKEN_FETCHING_AUTH_TYPES and self.value:
+        if (self.auth_type == AuthType.BEARER and self.value) or (
+            self.auth_type in TOKEN_FETCHING_AUTH_TYPES and self.value
+        ):
             headers["Authorization"] = f"Bearer {self.value}"
         elif self.auth_type == AuthType.BASIC and self.username is not None:
             userpass = f"{self.username}:{self.value}".encode()
@@ -241,7 +239,7 @@ class AuthCredentials:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AuthCredentials":
+    def from_dict(cls, data: dict) -> AuthCredentials:
         """Deserialize credentials from storage."""
         custom_headers_raw = data.get("custom_headers")
         custom_headers = (

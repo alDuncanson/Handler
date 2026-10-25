@@ -5,29 +5,29 @@ from unittest.mock import MagicMock, patch
 
 import click
 import httpx
-from a2a.utils.errors import (
-    TaskNotCancelableError,
-    TaskNotFoundError,
-    UnsupportedOperationError,
-)
 import pytest
 from a2a.client.errors import (
     A2AClientError,
     A2AClientTimeoutError,
     AgentCardResolutionError,
 )
+from a2a.utils.errors import (
+    TaskNotCancelableError,
+    TaskNotFoundError,
+    UnsupportedOperationError,
+)
 
 from a2a_handler.auth import AuthType
 from a2a_handler.cli._helpers import (
+    TIMEOUT,
     AgentSelection,
     build_http_client,
     build_streaming_http_client,
     configure_http_timeouts,
     handle_client_error,
-    TIMEOUT,
     resolve_agent_selection,
-    resolve_selection_credentials,
     resolve_agent_target,
+    resolve_selection_credentials,
 )
 from a2a_handler.common import Output
 from a2a_handler.servers import (

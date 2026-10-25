@@ -106,3 +106,39 @@ class TestNdjsonOutput:
         assert (
             captured.err.strip() == '{"type": "error", "code": "x", "message": "bad"}'
         )
+
+
+class TestTextOutput:
+    def test_quiet_suppresses_text(self, capsys):
+        output = Output(quiet=True)
+        output.text("hidden")
+        assert capsys.readouterr().out == ""
+
+    def test_text_error_renders_nested_details(self, capsys):
+        output = Output()
+        output.error(
+            code="update_failed",
+            message="Update failed",
+            details={"command": ["uv", "tool"], "env": {"nested": True}, "code": 1},
+            suggestion="Retry",
+        )
+        assert capsys.readouterr().err.splitlines() == [
+            "Error: Update failed",
+            "Details: command:",
+            "  - uv",
+            "  - tool",
+            "env:",
+            "  nested: True",
+            "code: 1",
+            "Suggestion: Retry",
+        ]
+
+    def test_text_error_renders_lists_of_tables(self, capsys):
+        output = Output()
+        output.error(code="x", message="m", details=[{"a": 1}, "plain"])
+        assert capsys.readouterr().err.splitlines() == [
+            "Error: m",
+            "Details: -",
+            "  a: 1",
+            "- plain",
+        ]
