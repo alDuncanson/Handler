@@ -63,6 +63,14 @@ jobs:
       - name: Run tests with coverage
         run: uv run pytest --cov --cov-report=term-missing --cov-report=json:coverage-report.json
 
+      - name: Upload snapshot report on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshot-report-${{ matrix.python-version }}
+          path: snapshot_report.html
+          if-no-files-found: ignore
+
       - name: Upload coverage report
         if: matrix.python-version == '3.14'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
