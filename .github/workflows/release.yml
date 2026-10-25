@@ -58,7 +58,9 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -94,7 +96,7 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
 
       - name: Sign distributions for PyPI
-        run: uvx pypi-attestations==0.0.30 sign dist/*
+        run: uvx pypi-attestations==0.0.30 sign dist/*.whl dist/*.tar.gz
 
       - name: Publish to PyPI
         run: uv publish
