@@ -31,6 +31,7 @@ from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
     LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
     MAX_INLINE_FILE_BYTES,
+    REST_AGENT_CARD_PATH,
     TASK_STATE_LABELS,
     TERMINAL_TASK_STATES,
     UNKNOWN_PROTOCOL_VERSION,
@@ -985,6 +986,74 @@ class TestServiceKeepsServedCard:
 
         assert getattr(exc_info.value, "status_code", None) == 401
         assert "agent.json" in str(exc_info.value)
+
+    async def test_card_served_only_at_the_rest_route_is_found(self):
+        """Hosted agents such as Google's data agents have no well-known
+        card; they serve it at the HTTP+JSON binding's /v1/card instead."""
+        card = make_agent_card(name="Hosted", url="http://example.com/")
+        seen_paths: list[str] = []
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            seen_paths.append(request.url.path)
+            if request.url.path == REST_AGENT_CARD_PATH:
+                return httpx.Response(200, json=to_json_dict(card))
+            return httpx.Response(404)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            found = await service.get_card()
+
+        assert found.name == "Hosted"
+        assert seen_paths == [
+            AGENT_CARD_WELL_KNOWN_PATH,
+            LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+            REST_AGENT_CARD_PATH,
+        ]
+
+    async def test_auth_error_on_the_rest_route_is_the_one_reported(self):
+        """A hosted agent whose only card sits behind auth at /v1/card must
+        read as 401, not as the well-known paths' 404s."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path == REST_AGENT_CARD_PATH:
+                return httpx.Response(401)
+            return httpx.Response(404)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert getattr(exc_info.value, "status_code", None) == 401
+        assert REST_AGENT_CARD_PATH in str(exc_info.value)
+
+    async def test_no_card_anywhere_reports_the_standard_path(self):
+        """When every path is a plain 404, the standard well-known URL is
+        the one worth showing the user."""
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            with pytest.raises(AgentCardResolutionError) as exc_info:
+                await service.get_card()
+
+        assert getattr(exc_info.value, "status_code", None) == 404
+        assert "agent-card.json" in str(exc_info.value)
+        assert REST_AGENT_CARD_PATH not in str(exc_info.value)
 
     async def test_malformed_card_from_the_parse_shims_is_wrapped(self):
         """The SDK parse raises plain TypeError on some malformed cards; the

@@ -86,6 +86,15 @@ logger = get_logger(__name__)
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
 
+# Hosted agents such as Google's data agents serve their only card here.
+REST_AGENT_CARD_PATH = "/v1/card"
+
+AGENT_CARD_PATHS = (
+    AGENT_CARD_WELL_KNOWN_PATH,
+    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+    REST_AGENT_CARD_PATH,
+)
+
 # Hard bound on pagination so a server minting a fresh continuation token on
 # every response cannot spin list_all_tasks forever.
 MAX_LIST_TASKS_PAGES = 1000
@@ -1175,20 +1184,33 @@ class A2AService:
 
     @staticmethod
     def _preferred_card_error(
-        primary: AgentCardResolutionError, legacy: AgentCardResolutionError
+        primary: AgentCardResolutionError,
+        *fallbacks: AgentCardResolutionError,
     ) -> AgentCardResolutionError:
-        """Pick the error to report when both well-known paths failed.
+        """Pick the error to report when every card path failed.
 
-        The standard path is the one worth naming, unless only the legacy
-        path said the agent wants credentials: an older agent that serves
-        just ``agent.json`` behind auth should read as 401/403, not 404.
+        The standard path is the one worth naming, unless only a fallback
+        path said the agent wants credentials: an agent that serves its only
+        card behind auth should read as 401/403, not 404.
         """
         auth_statuses = {401, 403}
-        primary_status = getattr(primary, "status_code", None)
-        legacy_status = getattr(legacy, "status_code", None)
-        if legacy_status in auth_statuses and primary_status not in auth_statuses:
-            return legacy
+        if getattr(primary, "status_code", None) in auth_statuses:
+            return primary
+        for error in fallbacks:
+            if getattr(error, "status_code", None) in auth_statuses:
+                return error
         return primary
+
+    async def _resolve_card(self) -> tuple[dict[str, Any], AgentCard]:
+        """Try each card path in order, reporting the most telling failure."""
+        errors: list[AgentCardResolutionError] = []
+        for card_path in AGENT_CARD_PATHS:
+            try:
+                return await self._fetch_card(card_path)
+            except AgentCardResolutionError as error:
+                logger.info("Agent card not usable at %s", card_path)
+                errors.append(error)
+        raise self._preferred_card_error(*errors) from errors[-1]
 
     async def _load_agent_card(self) -> AgentCard:
         """Fetch and cache the agent card without mutating auth state.
@@ -1199,22 +1221,7 @@ class A2AService:
         """
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
-            try:
-                raw_card, card = await self._fetch_card(AGENT_CARD_WELL_KNOWN_PATH)
-            except AgentCardResolutionError as primary_error:
-                logger.info(
-                    "Agent card not usable at %s, trying %s",
-                    AGENT_CARD_WELL_KNOWN_PATH,
-                    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-                )
-                try:
-                    raw_card, card = await self._fetch_card(
-                        LEGACY_AGENT_CARD_WELL_KNOWN_PATH
-                    )
-                except AgentCardResolutionError as legacy_error:
-                    raise self._preferred_card_error(
-                        primary_error, legacy_error
-                    ) from legacy_error
+            raw_card, card = await self._resolve_card()
             self._cached_agent_card = card
             self._cached_raw_card = raw_card
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
@@ -1246,8 +1253,9 @@ class A2AService:
         """Fetch and cache the agent card.
 
         Tries the standard well-known path first (``agent-card.json``), then
-        falls back to the previous path (``agent.json``) used by older ADK
-        versions.
+        the previous path (``agent.json``) used by older ADK versions, then
+        the HTTP+JSON binding's ``/v1/card`` route, where hosted agents such
+        as Google's data agents serve their only card.
 
         Returns:
             The agent's card with metadata and capabilities

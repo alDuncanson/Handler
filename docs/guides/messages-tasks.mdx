@@ -23,6 +23,11 @@ Fetch the card for a configured server:
 handler card get --server demo
 ```
 
+Handler looks for the card at the well-known `agent-card.json` path, then the
+older `agent.json` path, then the HTTP+JSON binding's `/v1/card` route, which
+hosted agents such as Google's BigQuery data agents use as their only card
+location.
+
 Some agents offer an extended card to authenticated clients that reveals
 skills or interfaces the public card omits. Fetch it when the public card
 advertises `extendedAgentCard`:
