@@ -181,6 +181,10 @@ if the model's text arrives in one larger chunk. Handler also prints the full
 task ID once when the stream starts so you can resubscribe if the server
 connection is interrupted.
 
+Google's BigQuery data agents declare an SSE extension but only stream
+Server-Sent Events when `alt=sse` is in the query string. Handler adds it for
+agents that declare that extension.
+
 If you already use `message send` in scripts, adding `--stream` switches that
 same command to streaming mode. Otherwise, prefer the more explicit
 `message stream` command in examples and documentation.

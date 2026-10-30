@@ -95,6 +95,12 @@ AGENT_CARD_PATHS = (
     REST_AGENT_CARD_PATH,
 )
 
+# Google's data agents stream SSE only when asked for it with ``alt=sse``.
+GOOGLE_SSE_EXTENSION_URI = (
+    "https://docs.cloud.google.com/gemini/docs/conversational-analytics-api"
+    "/reference/a2a/extensions/sse/v1"
+)
+
 # Hard bound on pagination so a server minting a fresh continuation token on
 # every response cannot spin list_all_tasks forever.
 MAX_LIST_TASKS_PAGES = 1000
@@ -354,6 +360,11 @@ def required_extension_uris(card: AgentCard) -> list[str]:
         for extension in card.capabilities.extensions
         if extension.required and extension.uri
     ]
+
+
+def card_declares_extension(card: AgentCard, uri: str) -> bool:
+    """Whether the card declares the extension with this URI."""
+    return any(extension.uri == uri for extension in card.capabilities.extensions)
 
 
 UNKNOWN_PROTOCOL_VERSION = "unknown"
@@ -1009,7 +1020,7 @@ class A2AService:
         # tokens, API keys, or passwords to a third-party host.
         self._credential_origin = credential_origin(agent_url)
         self._foreign_origins_warned: set[tuple[str, str, int | None]] = set()
-        self._install_credential_scope_hook()
+        self._install_request_hooks()
 
         if self.extensions:
             self.http_client.headers[HTTP_EXTENSION_HEADER] = ", ".join(self.extensions)
@@ -1018,18 +1029,21 @@ class A2AService:
         if credentials:
             self.set_credentials(credentials)
 
-    def _install_credential_scope_hook(self) -> None:
-        """Register the request hook that keeps credentials on their origin."""
+    def _install_request_hooks(self) -> None:
+        """Register the request hooks that shape every call the SDK makes."""
         hooks = getattr(self.http_client, "event_hooks", None)
         if not isinstance(hooks, dict):
             # Only a stand-in client (tests) lacks httpx's hook table; a real
             # httpx.AsyncClient always has one.
-            logger.debug("HTTP client has no event hooks; credential scoping is off")
+            logger.debug("HTTP client has no event hooks; request hooks are off")
             return
         request_hooks = list(hooks.get("request", []))
-        if self._strip_credentials_for_foreign_origins in request_hooks:
-            return
-        request_hooks.append(self._strip_credentials_for_foreign_origins)
+        for hook in (
+            self._strip_credentials_for_foreign_origins,
+            self._request_sse_from_google_agents,
+        ):
+            if hook not in request_hooks:
+                request_hooks.append(hook)
         self.http_client.event_hooks = {**hooks, "request": request_hooks}
 
     async def _strip_credentials_for_foreign_origins(
@@ -1068,6 +1082,21 @@ class A2AService:
                 target,
                 self.agent_url,
             )
+
+    async def _request_sse_from_google_agents(self, request: httpx.Request) -> None:
+        """Add ``alt=sse`` to streaming calls to Google's data agents.
+
+        Their card declares an SSE extension, yet the endpoint answers with a
+        JSON array unless the query string asks for Server-Sent Events.
+        """
+        card = self._cached_agent_card
+        if card is None or not card_declares_extension(card, GOOGLE_SSE_EXTENSION_URI):
+            return
+        if not request.url.path.endswith((":stream", ":subscribe")):
+            return
+        if "alt" in request.url.params:
+            return
+        request.url = request.url.copy_add_param("alt", "sse")
 
     def set_credentials(self, credentials: AuthCredentials) -> None:
         """Set or update authentication credentials.

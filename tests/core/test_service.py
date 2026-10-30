@@ -29,6 +29,7 @@ from a2a_handler.auth import create_bearer_auth, create_oauth2_auth
 from a2a_handler.common.input_validation import InputValidationError
 from a2a_handler.service import (
     AGENT_CARD_WELL_KNOWN_PATH,
+    GOOGLE_SSE_EXTENSION_URI,
     LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
     MAX_INLINE_FILE_BYTES,
     REST_AGENT_CARD_PATH,
@@ -2450,3 +2451,93 @@ class TestSavedParts:
             if plain.status.HasField("message")
             else response_parts(plain) == []
         )
+
+
+class TestGoogleSseStreaming:
+    """Google's data agents answer ``message:stream`` with a JSON array unless
+    ``alt=sse`` is in the query string, even though their card declares SSE."""
+
+    @staticmethod
+    def _card(*, declares_sse: bool) -> AgentCard:
+        extensions = (
+            [AgentExtension(uri=GOOGLE_SSE_EXTENSION_URI)] if declares_sse else None
+        )
+        return make_agent_card(
+            url="http://example.com",
+            protocol_version="0.3",
+            protocol_binding="HTTP+JSON",
+            extensions=extensions,
+        )
+
+    @staticmethod
+    def _serve(card: AgentCard, seen: list[httpx.URL]):
+        completed = {
+            "task": {
+                "id": "task-1",
+                "contextId": "ctx-1",
+                "status": {"state": "TASK_STATE_COMPLETED"},
+            }
+        }
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path == AGENT_CARD_WELL_KNOWN_PATH:
+                return httpx.Response(200, json=to_json_dict(card))
+            seen.append(request.url)
+            if request.url.path.endswith(":stream"):
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    content=f"data: {json.dumps(completed)}\n\n".encode(),
+                )
+            return httpx.Response(200, json=completed)
+
+        return serve
+
+    async def test_stream_requests_to_a_declaring_agent_ask_for_sse(self):
+        seen: list[httpx.URL] = []
+        serve = self._serve(self._card(declares_sse=True), seen)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            events = [event async for event in service.stream("hi")]
+
+        assert [url.path for url in seen] == ["/v1/message:stream"]
+        assert seen[0].params["alt"] == "sse"
+        assert events
+
+    async def test_plain_sends_are_left_alone(self):
+        seen: list[httpx.URL] = []
+        serve = self._serve(self._card(declares_sse=True), seen)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client,
+                agent_url="http://example.com",
+                enable_streaming=False,
+            )
+            await service.send("hi")
+
+        assert [url.path for url in seen] == ["/v1/message:send"]
+        assert "alt" not in seen[0].params
+
+    async def test_agents_without_the_extension_are_left_alone(self):
+        seen: list[httpx.URL] = []
+        serve = self._serve(self._card(declares_sse=False), seen)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(serve)
+        ) as http_client:
+            service = A2AService(
+                http_client=http_client, agent_url="http://example.com"
+            )
+            events = [event async for event in service.stream("hi")]
+
+        assert events
+        assert [url.path for url in seen] == ["/v1/message:stream"]
+        assert "alt" not in seen[0].params
