@@ -23,6 +23,11 @@ Fetch the card for a configured server:
 handler card get --server demo
 ```
 
+Handler looks for the card at the well-known `agent-card.json` path, then the
+older `agent.json` path, then the HTTP+JSON binding's `/v1/card` route, which
+hosted agents such as Google's BigQuery data agents use as their only card
+location.
+
 Some agents offer an extended card to authenticated clients that reveals
 skills or interfaces the public card omits. Fetch it when the public card
 advertises `extendedAgentCard`:
@@ -175,6 +180,10 @@ final answer content. That makes it clear when the agent is still working even
 if the model's text arrives in one larger chunk. Handler also prints the full
 task ID once when the stream starts so you can resubscribe if the server
 connection is interrupted.
+
+Google's BigQuery data agents declare an SSE extension but only stream
+Server-Sent Events when `alt=sse` is in the query string. Handler adds it for
+agents that declare that extension.
 
 If you already use `message send` in scripts, adding `--stream` switches that
 same command to streaming mode. Otherwise, prefer the more explicit

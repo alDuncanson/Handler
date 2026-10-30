@@ -86,6 +86,21 @@ logger = get_logger(__name__)
 # path locally so Handler can still fall back to it for older servers.
 LEGACY_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
 
+# Hosted agents such as Google's data agents serve their only card here.
+REST_AGENT_CARD_PATH = "/v1/card"
+
+AGENT_CARD_PATHS = (
+    AGENT_CARD_WELL_KNOWN_PATH,
+    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
+    REST_AGENT_CARD_PATH,
+)
+
+# Google's data agents stream SSE only when asked for it with ``alt=sse``.
+GOOGLE_SSE_EXTENSION_URI = (
+    "https://docs.cloud.google.com/gemini/docs/conversational-analytics-api"
+    "/reference/a2a/extensions/sse/v1"
+)
+
 # Hard bound on pagination so a server minting a fresh continuation token on
 # every response cannot spin list_all_tasks forever.
 MAX_LIST_TASKS_PAGES = 1000
@@ -345,6 +360,11 @@ def required_extension_uris(card: AgentCard) -> list[str]:
         for extension in card.capabilities.extensions
         if extension.required and extension.uri
     ]
+
+
+def card_declares_extension(card: AgentCard, uri: str) -> bool:
+    """Whether the card declares the extension with this URI."""
+    return any(extension.uri == uri for extension in card.capabilities.extensions)
 
 
 UNKNOWN_PROTOCOL_VERSION = "unknown"
@@ -1000,7 +1020,7 @@ class A2AService:
         # tokens, API keys, or passwords to a third-party host.
         self._credential_origin = credential_origin(agent_url)
         self._foreign_origins_warned: set[tuple[str, str, int | None]] = set()
-        self._install_credential_scope_hook()
+        self._install_request_hooks()
 
         if self.extensions:
             self.http_client.headers[HTTP_EXTENSION_HEADER] = ", ".join(self.extensions)
@@ -1009,18 +1029,21 @@ class A2AService:
         if credentials:
             self.set_credentials(credentials)
 
-    def _install_credential_scope_hook(self) -> None:
-        """Register the request hook that keeps credentials on their origin."""
+    def _install_request_hooks(self) -> None:
+        """Register the request hooks that shape every call the SDK makes."""
         hooks = getattr(self.http_client, "event_hooks", None)
         if not isinstance(hooks, dict):
             # Only a stand-in client (tests) lacks httpx's hook table; a real
             # httpx.AsyncClient always has one.
-            logger.debug("HTTP client has no event hooks; credential scoping is off")
+            logger.debug("HTTP client has no event hooks; request hooks are off")
             return
         request_hooks = list(hooks.get("request", []))
-        if self._strip_credentials_for_foreign_origins in request_hooks:
-            return
-        request_hooks.append(self._strip_credentials_for_foreign_origins)
+        for hook in (
+            self._strip_credentials_for_foreign_origins,
+            self._request_sse_from_google_agents,
+        ):
+            if hook not in request_hooks:
+                request_hooks.append(hook)
         self.http_client.event_hooks = {**hooks, "request": request_hooks}
 
     async def _strip_credentials_for_foreign_origins(
@@ -1059,6 +1082,21 @@ class A2AService:
                 target,
                 self.agent_url,
             )
+
+    async def _request_sse_from_google_agents(self, request: httpx.Request) -> None:
+        """Add ``alt=sse`` to streaming calls to Google's data agents.
+
+        Their card declares an SSE extension, yet the endpoint answers with a
+        JSON array unless the query string asks for Server-Sent Events.
+        """
+        card = self._cached_agent_card
+        if card is None or not card_declares_extension(card, GOOGLE_SSE_EXTENSION_URI):
+            return
+        if not request.url.path.endswith((":stream", ":subscribe")):
+            return
+        if "alt" in request.url.params:
+            return
+        request.url = request.url.copy_add_param("alt", "sse")
 
     def set_credentials(self, credentials: AuthCredentials) -> None:
         """Set or update authentication credentials.
@@ -1175,20 +1213,33 @@ class A2AService:
 
     @staticmethod
     def _preferred_card_error(
-        primary: AgentCardResolutionError, legacy: AgentCardResolutionError
+        primary: AgentCardResolutionError,
+        *fallbacks: AgentCardResolutionError,
     ) -> AgentCardResolutionError:
-        """Pick the error to report when both well-known paths failed.
+        """Pick the error to report when every card path failed.
 
-        The standard path is the one worth naming, unless only the legacy
-        path said the agent wants credentials: an older agent that serves
-        just ``agent.json`` behind auth should read as 401/403, not 404.
+        The standard path is the one worth naming, unless only a fallback
+        path said the agent wants credentials: an agent that serves its only
+        card behind auth should read as 401/403, not 404.
         """
         auth_statuses = {401, 403}
-        primary_status = getattr(primary, "status_code", None)
-        legacy_status = getattr(legacy, "status_code", None)
-        if legacy_status in auth_statuses and primary_status not in auth_statuses:
-            return legacy
+        if getattr(primary, "status_code", None) in auth_statuses:
+            return primary
+        for error in fallbacks:
+            if getattr(error, "status_code", None) in auth_statuses:
+                return error
         return primary
+
+    async def _resolve_card(self) -> tuple[dict[str, Any], AgentCard]:
+        """Try each card path in order, reporting the most telling failure."""
+        errors: list[AgentCardResolutionError] = []
+        for card_path in AGENT_CARD_PATHS:
+            try:
+                return await self._fetch_card(card_path)
+            except AgentCardResolutionError as error:
+                logger.info("Agent card not usable at %s", card_path)
+                errors.append(error)
+        raise self._preferred_card_error(*errors) from errors[-1]
 
     async def _load_agent_card(self) -> AgentCard:
         """Fetch and cache the agent card without mutating auth state.
@@ -1199,22 +1250,7 @@ class A2AService:
         """
         if self._cached_agent_card is None:
             logger.info("Fetching agent card from %s", self.agent_url)
-            try:
-                raw_card, card = await self._fetch_card(AGENT_CARD_WELL_KNOWN_PATH)
-            except AgentCardResolutionError as primary_error:
-                logger.info(
-                    "Agent card not usable at %s, trying %s",
-                    AGENT_CARD_WELL_KNOWN_PATH,
-                    LEGACY_AGENT_CARD_WELL_KNOWN_PATH,
-                )
-                try:
-                    raw_card, card = await self._fetch_card(
-                        LEGACY_AGENT_CARD_WELL_KNOWN_PATH
-                    )
-                except AgentCardResolutionError as legacy_error:
-                    raise self._preferred_card_error(
-                        primary_error, legacy_error
-                    ) from legacy_error
+            raw_card, card = await self._resolve_card()
             self._cached_agent_card = card
             self._cached_raw_card = raw_card
             logger.info("Connected to agent: %s", self._cached_agent_card.name)
@@ -1246,8 +1282,9 @@ class A2AService:
         """Fetch and cache the agent card.
 
         Tries the standard well-known path first (``agent-card.json``), then
-        falls back to the previous path (``agent.json``) used by older ADK
-        versions.
+        the previous path (``agent.json``) used by older ADK versions, then
+        the HTTP+JSON binding's ``/v1/card`` route, where hosted agents such
+        as Google's data agents serve their only card.
 
         Returns:
             The agent's card with metadata and capabilities
