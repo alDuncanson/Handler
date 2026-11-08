@@ -6,6 +6,7 @@ on:
       - "v*"
 
 permissions:
+  actions: write
   attestations: write
   contents: write
   discussions: write
@@ -102,3 +103,8 @@ jobs:
 
       - name: Publish to PyPI
         run: uv publish
+
+      - name: Refresh badges
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run badges.yml --repo "$GITHUB_REPOSITORY"
