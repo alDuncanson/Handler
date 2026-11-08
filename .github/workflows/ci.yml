@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -48,6 +50,8 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -97,49 +101,51 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency: badges
     steps:
+      - name: Checkout source code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Checkout the badges branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: badges
+          path: badges
 
       - name: Download coverage report
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: coverage-report
 
-      - name: Write the shields.io endpoint file
+      - name: Render the coverage badge
         run: |
           python3 - <<'PY'
           import json
 
-          percent = json.load(open("coverage-report.json"))["totals"]["percent_covered"]
+          from scripts.badge import badge
+
+          percent = round(json.load(open("coverage-report.json"))["totals"]["percent_covered"])
           color = (
               "brightgreen" if percent >= 90
               else "green" if percent >= 80
               else "yellow" if percent >= 70
               else "red"
           )
-          badge = {
-              "schemaVersion": 1,
-              "label": "coverage",
-              "message": f"{percent:.0f}%",
-              "color": color,
-          }
-          with open("coverage.json", "w") as handle:
-              json.dump(badge, handle, indent=2)
-              handle.write("\n")
+          with open("badges/coverage.svg", "w") as handle:
+              handle.write(badge("coverage", f"{percent}%", color))
           PY
-          rm coverage-report.json
 
       - name: Commit and push
+        working-directory: badges
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add coverage.json
+          git add coverage.svg
           if git diff --cached --quiet; then
             echo "Coverage unchanged"
             exit 0
           fi
-          git commit -m "coverage: $(python3 -c 'import json; print(json.load(open("coverage.json"))["message"])')"
+          git commit -m "$(grep -oE 'coverage: [0-9]+%' coverage.svg | head -1)"
           git push

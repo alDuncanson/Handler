@@ -1,13 +1,14 @@
 # Handler
 
 [![CI](https://github.com/alDuncanson/handler/actions/workflows/ci.yml/badge.svg)](https://github.com/alDuncanson/handler/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FalDuncanson%2FHandler%2Fbadges%2Fcoverage.json)](https://github.com/alDuncanson/Handler/actions/workflows/ci.yml)
+[![Coverage](https://raw.githubusercontent.com/alDuncanson/Handler/badges/coverage.svg)](https://github.com/alDuncanson/Handler/actions/workflows/ci.yml)
 [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://github.com/alDuncanson/Handler/attestations)
-[![A2A Protocol](https://img.shields.io/badge/A2A_Protocol-v1.0.0-blue)](https://a2a-protocol.org/latest/)
-[![PyPI version](https://img.shields.io/pypi/v/a2a-handler)](https://pypi.org/project/a2a-handler/)
-[![PyPI - Status](https://img.shields.io/pypi/status/a2a-handler)](https://pypi.org/project/a2a-handler/)
-[![Pepy total downloads](https://img.shields.io/pepy/dt/a2a-handler?label=total%20downloads)](https://pepy.tech/projects/a2a-handler)
-[![GitHub stars](https://img.shields.io/github/stars/alDuncanson/handler)](https://github.com/alDuncanson/handler/stargazers)
+[![Socket](https://badge.socket.dev/pypi/package/a2a-handler/latest)](https://socket.dev/pypi/package/a2a-handler)
+[![A2A Protocol](https://raw.githubusercontent.com/alDuncanson/Handler/badges/a2a-protocol.svg)](https://a2a-protocol.org/latest/)
+[![PyPI version](https://raw.githubusercontent.com/alDuncanson/Handler/badges/pypi-version.svg)](https://pypi.org/project/a2a-handler/)
+[![PyPI status](https://raw.githubusercontent.com/alDuncanson/Handler/badges/pypi-status.svg)](https://pypi.org/project/a2a-handler/)
+[![Total downloads](https://static.pepy.tech/badge/a2a-handler)](https://pepy.tech/projects/a2a-handler)
+[![GitHub stars](https://raw.githubusercontent.com/alDuncanson/Handler/badges/stars.svg)](https://github.com/alDuncanson/handler/stargazers)
 
 Handler is an open-source [A2A protocol](https://github.com/a2aproject/A2A)
 client for software engineers building, testing, and operating agentic systems.

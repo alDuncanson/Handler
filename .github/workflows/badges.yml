@@ -1,0 +1,57 @@
+name: Badges
+
+on:
+  schedule:
+    - cron: "41 9 * * *"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    name: Render badges
+    runs-on: ubuntu-latest
+    concurrency: badges
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout the badges branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: badges
+          path: badges
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Render badges
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python -m scripts.badges badges
+
+      - name: Commit and push
+        working-directory: badges
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ./*.svg
+          if git diff --cached --quiet; then
+            echo "Badges unchanged"
+            exit 0
+          fi
+          git commit -m "badges: refresh"
+          git push
