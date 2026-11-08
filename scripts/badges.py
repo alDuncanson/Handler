@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT
+
 from scripts.badge import badge
 
 STATUS_COLORS = {
