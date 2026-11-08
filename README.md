@@ -3,6 +3,7 @@
 [![CI](https://github.com/alDuncanson/handler/actions/workflows/ci.yml/badge.svg)](https://github.com/alDuncanson/handler/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/alDuncanson/Handler/badges/coverage.svg)](https://github.com/alDuncanson/Handler/actions/workflows/ci.yml)
 [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://github.com/alDuncanson/Handler/attestations)
+[![Socket](https://badge.socket.dev/pypi/package/a2a-handler/latest)](https://socket.dev/pypi/package/a2a-handler)
 [![A2A Protocol](https://raw.githubusercontent.com/alDuncanson/Handler/badges/a2a-protocol.svg)](https://a2a-protocol.org/latest/)
 [![PyPI version](https://raw.githubusercontent.com/alDuncanson/Handler/badges/pypi-version.svg)](https://pypi.org/project/a2a-handler/)
 [![PyPI status](https://raw.githubusercontent.com/alDuncanson/Handler/badges/pypi-status.svg)](https://pypi.org/project/a2a-handler/)
